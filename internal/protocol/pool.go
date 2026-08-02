@@ -95,11 +95,16 @@ func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID
 		if err != nil {
 			return nil, err
 		}
-		code, _, err := p.sendEnvelope(ctx, st, envelope)
+		code, resp, err := p.sendEnvelope(ctx, st, envelope)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"code": string(code), "errMsg": "login:ok"}, nil
+		return map[string]any{
+			"code":    string(code),
+			"codeLen": len(code),
+			"respHex": hex.EncodeToString(resp),
+			"errMsg":  "login:ok",
+		}, nil
 	})
 }
 

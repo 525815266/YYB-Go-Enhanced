@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"time"
 )
 
@@ -75,6 +76,7 @@ func send0RTT(ctx context.Context, targets []Target, entry pskEntry, recvKey, en
 	var last error
 	for _, t := range targets {
 		code, resp, err := send0RTTRaw(ctx, t, entry, recvKey, envelope, timeout, tcpProxy, fallbackDirect)
+		_ = os.WriteFile("/tmp/yyb-send-raw.txt", []byte(fmt.Sprintf("targets=%+v code_len=%d resp_len=%d err=%v\n", t, len(code), len(resp), err)), 0644)
 		if err == nil && (len(code) > 0 || len(resp) > 0) {
 			return code, resp, nil
 		}

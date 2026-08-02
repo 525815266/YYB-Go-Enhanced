@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 )
@@ -476,6 +477,7 @@ func extractCode(resp []byte) []byte {
 			return f3
 		}
 	}
+	_ = os.WriteFile("/tmp/yyb-debug.txt", []byte(fmt.Sprintf("len=%d respHex=%s F=%v\n", len(resp), hex.EncodeToString(resp), F)), 0644)
 	return nil
 }
 
