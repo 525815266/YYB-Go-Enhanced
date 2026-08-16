@@ -65,8 +65,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-             - name: Download built image from buildx
-             - name: Export OCI image
+             
+      - name: Export OCI image
         uses: docker/build-push-action@v6
         with:
           context: .
