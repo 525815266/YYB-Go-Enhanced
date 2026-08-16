@@ -65,4 +65,17 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+             - name: Download built image from buildx
+             - name: Export OCI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          outputs: type=oci,dest=yyb-go.oci
+
+      - name: Upload oci artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yyb-go-image
+          path: yyb-go.oci
