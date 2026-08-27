@@ -95,6 +95,12 @@ accountsLoop:
 }
 
 func (a *App) keepAliveShouldSkip(ctx context.Context, acc *store.WechatAccount, now time.Time) bool {
+	// Dynamic provider endpoints are short leases. Refreshing credentials from
+	// a newly allocated IP cannot preserve the account session and only adds
+	// provider/API traffic, so automatic keepalive skips them.
+	if setting, err := a.db.AccountProxySettingOrDefault(ctx, acc.ID); err == nil && setting.Mode == "api" {
+		return true
+	}
 	ahead, err := a.accountRefreshAhead(ctx, acc.ID)
 	if err != nil {
 		return false

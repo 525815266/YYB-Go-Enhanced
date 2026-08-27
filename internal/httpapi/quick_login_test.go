@@ -77,6 +77,7 @@ func TestQuickLoginCreatesAccountAndRejectsReplay(t *testing.T) {
 		AvatarTimeout:  time.Second,
 		SessionTTL:     time.Minute,
 		QRSessionTTL:   time.Minute,
+		EnablePCLogin:  true,
 	})
 	if err != nil {
 		t.Fatalf("NewApp() error = %v", err)
@@ -152,5 +153,20 @@ func TestQuickLoginCreatesAccountAndRejectsReplay(t *testing.T) {
 	handler.ServeHTTP(replay, httptest.NewRequest(http.MethodPost, confirmPath, bytes.NewReader(body)))
 	if replay.Code != http.StatusNotFound {
 		t.Fatalf("replayed POST %s status = %d, want %d", confirmPath, replay.Code, http.StatusNotFound)
+	}
+}
+
+func TestQuickLoginDisabledByDefault(t *testing.T) {
+	t.Setenv("GIN_MODE", "test")
+	app, err := NewApp(Config{ResourceRoot: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewApp() error = %v", err)
+	}
+	defer app.Close()
+
+	response := httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/quick-login", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("POST /quick-login status = %d, want %d; body=%s", response.Code, http.StatusNotFound, response.Body.String())
 	}
 }

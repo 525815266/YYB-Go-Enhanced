@@ -80,6 +80,15 @@ func proxySpecFromSetting(setting *store.AccountProxySetting) proxysource.Spec {
 func proxySettingPublic(setting *store.AccountProxySetting, account *store.WechatAccount) map[string]any {
 	expiresIn := protocol.CredentialsFromMap(account.Credentials).ExpiresIn
 	tokenTTLMinutes := (expiresIn + 59) / 60
+	dynamic := setting.Mode == "api"
+	lifetimeClass := "stable"
+	keepaliveSupported := true
+	keepaliveNote := "可参与自动保活"
+	if dynamic {
+		lifetimeClass = "short"
+		keepaliveSupported = false
+		keepaliveNote = "短效代理，无法用于账号保活；仅用于扫码和临时请求"
+	}
 	return map[string]any{
 		"account_id": setting.AccountID, "mode": setting.Mode, "proxy_type": setting.ProxyType,
 		"static_proxy": setting.StaticProxy, "api_url": setting.APIURL,
@@ -87,6 +96,7 @@ func proxySettingPublic(setting *store.AccountProxySetting, account *store.Wecha
 		"region_code":         setting.RegionCode, "region_province": setting.RegionProvince, "region_city": setting.RegionCity,
 		"refresh_ahead_minutes": setting.RefreshAheadSeconds / 60,
 		"token_ttl_minutes":     tokenTTLMinutes,
+		"lifetime_class": lifetimeClass, "keepalive_supported": keepaliveSupported, "keepalive_note": keepaliveNote,
 		"configured":            setting.Mode != "direct", "updated_at": setting.UpdatedAt,
 	}
 }

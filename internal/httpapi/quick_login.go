@@ -33,6 +33,10 @@ func (a *App) handleQuickLoginRoot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if !a.cfg.EnablePCLogin {
+		writeError(w, http.StatusNotFound, "PC 登录已关闭，请使用微信扫码授权")
+		return
+	}
 
 	a.pruneQuickSessions()
 	var proxyBody accountProxyIn
@@ -77,6 +81,10 @@ func (a *App) handleQuickLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !a.cfg.EnablePCLogin {
+		writeError(w, http.StatusNotFound, "PC 登录已关闭，请使用微信扫码授权")
 		return
 	}
 
@@ -141,6 +149,9 @@ func (a *App) handleQuickLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.claimScannedAccount(r, account.ID); err != nil {
+		if !existed {
+			_ = a.db.DeleteAccount(r.Context(), account.ID)
+		}
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}

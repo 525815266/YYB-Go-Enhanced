@@ -49,6 +49,7 @@ type Config struct {
 	AdminUser         string
 	AdminPassword     string
 	CookieSecure      bool
+	EnablePCLogin     bool
 	SessionDuration   time.Duration
 }
 
@@ -333,7 +334,16 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	serveFileOrText(w, r, filepath.Join(a.resources.Templates, "scan.html"), fallbackScanHTML)
+	path := filepath.Join(a.resources.Templates, "scan.html")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		serveFileOrText(w, r, path, fallbackScanHTML)
+		return
+	}
+	// Desktop-WeChat authorization is experimental and remains opt-in.
+	html := strings.ReplaceAll(string(data), "__YYB_PC_LOGIN_ENABLED__", fmt.Sprintf("%t", a.cfg.EnablePCLogin))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(html))
 }
 
 func (a *App) handleProxiesPage(w http.ResponseWriter, r *http.Request) {
@@ -516,6 +526,9 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.claimScannedAccount(r, acc.ID); err != nil {
+			if !existed {
+				_ = a.db.DeleteAccount(r.Context(), acc.ID)
+			}
 			writeError(w, http.StatusForbidden, err.Error())
 			return
 		}

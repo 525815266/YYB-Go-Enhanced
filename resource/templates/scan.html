@@ -134,10 +134,10 @@
           <div class="proxy-message" id="scanProxyMessage">默认直连</div>
         </details>
         <div class="mode-switch" role="tablist" aria-label="授权方式">
-          <button class="mode-button" id="quickModeBtn" type="button" role="tab" aria-selected="true" aria-controls="quickPane">本机微信</button>
-          <button class="mode-button" id="qrModeBtn" type="button" role="tab" aria-selected="false" aria-controls="qrPane">扫码</button>
+          <button class="mode-button" id="quickModeBtn" type="button" role="tab" aria-selected="false" aria-controls="quickPane">本机微信</button>
+          <button class="mode-button" id="qrModeBtn" type="button" role="tab" aria-selected="true" aria-controls="qrPane">扫码</button>
         </div>
-        <div class="mode-pane" id="quickPane" role="tabpanel" aria-labelledby="quickModeBtn">
+        <div class="mode-pane" id="quickPane" role="tabpanel" aria-labelledby="quickModeBtn" hidden>
           <div class="quick-state" id="quickState" role="status" aria-live="polite">
             <div class="quick-avatar" id="quickAvatar">微</div>
             <strong id="quickName">正在检测本机微信</strong>
@@ -148,7 +148,7 @@
             <button class="btn" id="quickRetryBtn" type="button">重新检测</button>
           </div>
         </div>
-        <div class="mode-pane" id="qrPane" role="tabpanel" aria-labelledby="qrModeBtn" hidden>
+        <div class="mode-pane" id="qrPane" role="tabpanel" aria-labelledby="qrModeBtn">
           <div class="qr" id="qrWrap">准备生成二维码</div>
           <div class="status pending" id="status">等待生成二维码</div>
           <div class="countdown" id="countdown"></div>
@@ -188,6 +188,7 @@
   <script>
     const $ = id => document.getElementById(id);
     const QR_TTL = 110;
+    const PC_LOGIN_ENABLED = __YYB_PC_LOGIN_ENABLED__;
     let sid = null, account = null, pollTimer = null, countdownTimer = null, seconds = 0;
     let quickConfig = null, quickPort = null, quickProfile = null, quickBusy = false;
 	let proxyProfiles = [], proxyCities = new Map(), pendingLocation = null;
@@ -211,7 +212,7 @@
     function setQRWaiting(label="等待手机确认授权"){ const wrap=$("qrWrap"); wrap.classList.add("waiting-confirm"); wrap.dataset.waitingLabel=label; }
     function clearQRWaiting(){ const wrap=$("qrWrap"); wrap.classList.remove("waiting-confirm"); delete wrap.dataset.waitingLabel; }
     function setMessage(text,type=""){ $("actionMessage").textContent=text; $("actionMessage").className=`message ${type}`; }
-    function showMode(mode){ const quick=mode==="quick"; $("quickPane").hidden=!quick; $("qrPane").hidden=quick; $("quickModeBtn").setAttribute("aria-selected",String(quick)); $("qrModeBtn").setAttribute("aria-selected",String(!quick)); if(quick){stopTimers();sid=null;if(!quickConfig&&!quickBusy)detectQuickLogin();}else if(!sid){newQR();} }
+    function showMode(mode){ const quick=mode==="quick" && PC_LOGIN_ENABLED; $("quickPane").hidden=!quick; $("qrPane").hidden=quick; $("quickModeBtn").setAttribute("aria-selected",String(quick)); $("qrModeBtn").setAttribute("aria-selected",String(!quick)); if(quick){stopTimers();sid=null;if(!quickConfig&&!quickBusy)detectQuickLogin();}else if(!sid){newQR();} }
     function resetAccount(){ account=null; $("accountBox").classList.remove("visible"); $("accountPlaceholder").hidden=false; setMessage(""); }
     function showAccount(nextAccount){ account=nextAccount; $("accountName").textContent=account.remark||account.nickname||account.alias||account.openid; $("accountId").textContent=String(account.id); $("accountOpenid").textContent=account.openid||"-"; $("accountStatus").textContent=account.status||"unknown"; $("remarkInput").value=account.remark||""; $("accountPlaceholder").hidden=true; $("accountBox").classList.add("visible"); }
     function setQuickState(name,detail,avatar){ $("quickName").textContent=name; $("quickDetail").textContent=detail; if(avatar){ const img=document.createElement("img"); img.className="quick-avatar"; img.alt="微信头像"; img.src=avatar; $("quickAvatar").replaceWith(img); img.id="quickAvatar"; }else if($("quickAvatar").tagName==="IMG"){ const div=document.createElement("div"); div.className="quick-avatar"; div.id="quickAvatar"; div.textContent="微"; $("quickAvatar").replaceWith(div); } }
@@ -227,9 +228,10 @@
 	async function confirm(){ $("countdown").textContent=""; setQRWaiting("正在保存账号"); setStatus("授权成功，正在保存账号","scanned"); try{ const nextAccount=await api("POST",`/qr/${sid}/confirm`); showAccount(nextAccount); clearQRWaiting(); $("qrWrap").innerHTML='<span class="check">✓</span>'; setStatus(`账号添加成功 · ${proxyChoiceLabel()}（已有账号保留原配置）`,"ok"); }catch(error){clearQRWaiting();setStatus(`保存账号失败：${error.message}`,"error");} }
     async function saveRemark(silent=false){ if(!account)return false; const button=$("saveRemarkBtn"); button.disabled=true; try{ const result=await api("PUT","/accounts/remark",{ref:String(account.id),remark:$("remarkInput").value}); account=result.account; if(!silent) setMessage(result.warning||"备注已保存",result.warning?"error":"ok"); return true; }catch(error){setMessage(`备注保存失败：${error.message}`,"error"); return false;}finally{button.disabled=false;} }
 	async function syncAccount(){ if(!account)return; const button=$("syncBtn"); button.disabled=true; button.textContent="正在添加"; setMessage("正在保存备注并同步面板"); try{ if(!await saveRemark(true))return; const result=await api("POST","/api/qinglong/sync",{ref:String(account.id)}); setMessage(result.added?`已添加到面板 YYB_SERVER：账号 ${account.id}`:`面板 YYB_SERVER 已包含账号 ${account.id}，无需重复添加`,"ok"); button.textContent="已添加到面板"; }catch(error){ setMessage(error.message.includes("配置")?"尚未配置自动化面板，请返回控制台填写连接信息。":`同步失败：${error.message}`,"error"); button.textContent="添加到面板"; }finally{button.disabled=false;} }
+	if(!PC_LOGIN_ENABLED){ $("quickModeBtn").hidden=true; $("quickPane").hidden=true; }
 	$("scanProxyMode").addEventListener("change",toggleProxyFields); $("scanProxyProfile").addEventListener("change",showProxyChoice); $("scanProvince").addEventListener("change",event=>loadScanCities(event.target.value).catch(error=>$('scanProxyMessage').textContent=`城市列表读取失败：${error.message}`)); $("scanCity").addEventListener("change",showProxyChoice); $("scanLocationBtn").addEventListener("click",recommendLocation); $("scanLocationUseBtn").addEventListener("click",()=>useRecommendedLocation().catch(error=>$('scanProxyMessage').textContent=`采用推荐失败：${error.message}`)); $("scanLocationDismissBtn").addEventListener("click",hideLocationSuggestion); $("scanProxyTestBtn").addEventListener("click",testProxy); $("scanProxyApplyBtn").addEventListener("click",applyProxy); $("quickModeBtn").addEventListener("click",()=>showMode("quick")); $("qrModeBtn").addEventListener("click",()=>showMode("qr")); $("quickAuthBtn").addEventListener("click",authorizeQuick); $("quickRetryBtn").addEventListener("click",detectQuickLogin); $("refreshBtn").addEventListener("click",newQR); $("backBtn").addEventListener("click",()=>{stopTimers();location.href="/";}); $("saveRemarkBtn").addEventListener("click",()=>saveRemark()); $("syncBtn").addEventListener("click",syncAccount); $("copyBtn").addEventListener("click",async()=>{ try{await navigator.clipboard.writeText(account?.openid||"");setMessage("OpenID 已复制","ok");}catch{setMessage("复制失败，请手动选择 OpenID","error");} });
     toggleProxyFields();
-	initializeProxyOptions().finally(detectQuickLogin);
+	initializeProxyOptions().finally(()=>showMode(PC_LOGIN_ENABLED?"quick":"qr"));
   </script>
   <script src="/static/js/platform.js?v=20260824-push1"></script>
 </body>

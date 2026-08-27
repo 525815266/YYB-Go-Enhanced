@@ -111,6 +111,7 @@ func main() {
 		AdminUser:         getEnvWithFallback("YYB_ADMIN_USER", "YYB_WEB_USER"),
 		AdminPassword:     getEnvWithFallback("YYB_ADMIN_PASSWORD", "YYB_WEB_PASSWORD"),
 		CookieSecure:      os.Getenv("YYB_COOKIE_SECURE") == "true",
+		EnablePCLogin:     strings.EqualFold(strings.TrimSpace(os.Getenv("YYB_ENABLE_PC_LOGIN")), "true"),
 	}
 
 	app, err := httpapi.NewApp(cfg)

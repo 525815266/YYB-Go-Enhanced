@@ -103,7 +103,7 @@ func TestUnsupportedLoginProductDoesNotCreateSession(t *testing.T) {
 func newLocationTestApp(t *testing.T) *App {
 	t.Helper()
 	t.Setenv("GIN_MODE", "test")
-	app, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second})
+	app, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second, EnablePCLogin: true})
 	if err != nil {
 		t.Fatalf("NewApp() error = %v", err)
 	}

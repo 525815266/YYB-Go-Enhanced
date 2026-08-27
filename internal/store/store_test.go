@@ -157,3 +157,31 @@ func TestUpsertAccountReusesLowestFreeID(t *testing.T) {
 		t.Fatalf("recreated account id = %d, want 1", recreated.ID)
 	}
 }
+
+func TestUpsertAccountDoesNotConsumeIDOnDuplicate(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	status := "alive"
+	first, err := db.UpsertAccount(ctx, "same-openid", "buffer-1", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("first UpsertAccount() error = %v", err)
+	}
+	updated, err := db.UpsertAccount(ctx, "same-openid", "buffer-2", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("duplicate UpsertAccount() error = %v", err)
+	}
+	if updated.ID != first.ID || updated.LoginBuffer != "buffer-2" {
+		t.Fatalf("duplicate upsert = id %d/%d buffer %q", first.ID, updated.ID, updated.LoginBuffer)
+	}
+	next, err := db.UpsertAccount(ctx, "next-openid", "buffer-3", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("next UpsertAccount() error = %v", err)
+	}
+	if next.ID != first.ID+1 {
+		t.Fatalf("next account id = %d, want %d", next.ID, first.ID+1)
+	}
+}

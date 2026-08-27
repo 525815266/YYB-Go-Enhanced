@@ -38,7 +38,8 @@
     .proxy-account-copy small { margin-top:4px; color:var(--muted); font-size:11px; }
     .proxy-mode-badge { display:inline-flex; align-items:center; min-height:24px; padding:3px 7px; border-radius:999px; background:#eef1f4; color:var(--muted); font-size:11px; white-space:nowrap; }
     .proxy-mode-badge.static { background:#eaf3ff; color:#205fa8; }
-    .proxy-mode-badge.api { background:#fbeef2; color:#9f2444; }
+    .proxy-mode-badge.api { background:#fff3df; color:#9a5b00; }
+    .proxy-mode-badge.short { background:#fff3df; color:#9a5b00; }
     .proxy-mode-badge.profile { background:#eaf7f1; color:#18794e; }
     .proxy-mode-badge.error { background:#fff5f4; color:var(--danger); }
     .proxy-list-empty { padding:32px 16px; color:var(--muted); text-align:center; }
@@ -87,7 +88,7 @@
       <div class="page-actions"><a class="btn secondary" id="backToAccount" href="/">返回账号工作台</a><button class="btn secondary" id="reloadProxyPage" type="button">重新加载</button></div>
     </div>
     <section class="profile-band" id="profileBand" aria-labelledby="profileTitle">
-      <div class="profile-head"><div><h2 id="profileTitle">代理供应商配置库</h2><p>集中保存品赞或巨量凭证，账号只需选择地区。</p></div><select class="input" id="profilePicker" aria-label="选择代理供应商配置"><option value="new">新增配置</option></select></div>
+      <div class="profile-head"><div><h2 id="profileTitle">代理供应商配置库</h2><p>集中保存品赞或巨量凭证，账号只需选择地区。动态提取为短效代理，不能用于账号保活。</p></div><select class="input" id="profilePicker" aria-label="选择代理供应商配置"><option value="new">新增配置</option></select></div>
       <form class="profile-form" id="profileForm">
         <div class="field"><label for="profileName">配置名称</label><input class="input" id="profileName" maxlength="50" placeholder="例如：巨量代理 1" required></div>
         <div class="field"><label for="profileProvider">供应商</label><select class="input" id="profileProvider"><option value="ipzan">品赞</option><option value="juliang">巨量</option></select></div>
@@ -135,7 +136,7 @@
   <script>
     const $=id=>document.getElementById(id);
     const state={accounts:[],configs:new Map(),profiles:[],provinces:[],cities:new Map(),selectedID:"",tokenTTLMinutes:120,editorVersion:0,editorAccountID:"",editorReady:false};
-    const modeLabels={direct:"直连",static:"静态",api:"动态 API",profile:"配置库"};
+    const modeLabels={direct:"直连",static:"静态",api:"短效 API · 不保活",profile:"配置库"};
     const providerLabels={ipzan:"品赞",juliang:"巨量"};
     const escapeHTML=value=>{const node=document.createElement("span");node.textContent=value??"";return node.innerHTML};
     async function api(path,options={}){const response=await fetch(path,{headers:{"Content-Type":"application/json",...(options.headers||{})},...options});const text=await response.text();let payload;try{payload=text?JSON.parse(text):null}catch{throw new Error(`服务返回了非 JSON 内容（HTTP ${response.status}）`)}if(!payload)throw new Error(`服务返回空响应（HTTP ${response.status}）`);if(!response.ok||payload.code!==0)throw new Error(payload.msg||`请求失败（HTTP ${response.status}）`);return payload.data}
@@ -146,7 +147,7 @@
     function currentProfile(){return state.profiles.find(profile=>String(profile.id)===$("profilePicker").value)||null}
     function profileAuthorization(profile){try{return new URL(profile?.api_url||"").searchParams.get("mode")==="whitelist"?"whitelist":"auth"}catch{return "auth"}}
     function juliangCredentials(profile){try{const url=new URL(profile?.api_url||"");return{tradeNo:url.searchParams.get("trade_no")||"",apiKey:url.searchParams.get("key")||""}}catch{return{tradeNo:"",apiKey:""}}}
-    function renderRefreshEstimate(){const ahead=Number($("refreshAhead").value)||5,ttl=state.tokenTTLMinutes||120,cycle=Math.max(1,ttl-ahead);$("refreshValue").textContent=`提前 ${ahead} 分钟`;$("refreshEstimate").textContent=`预计约 ${cycle} 分钟刷新一次`;$("refreshBasis").textContent=`按该账号应用宝返回的 ${ttl} 分钟有效期计算。提前量越小，实际刷新周期越长，提取代理的次数越少。`}
+    function renderRefreshEstimate(){const ahead=Number($("refreshAhead").value)||5,ttl=state.tokenTTLMinutes||120,cycle=Math.max(1,ttl-ahead);$("refreshValue").textContent=`提前 ${ahead} 分钟`;$("refreshEstimate").textContent=`预计约 ${cycle} 分钟刷新一次`;$("refreshBasis").textContent=`按该账号应用宝返回的 ${ttl} 分钟有效期计算。提前量越小，实际刷新周期越长，提取代理的次数越少。动态代理只用于临时请求，系统不会用它做自动保活。`}
     function setFeedback(message,kind=""){const node=$("proxyFeedback");node.textContent=message;node.className=`proxy-feedback ${kind}`.trim()}
     function setProfileFeedback(message,kind=""){const node=$("profileFeedback");node.textContent=message;node.className=`profile-feedback ${kind}`.trim()}
     function renderProfileOptions(){const options=state.profiles.map(profile=>`<option value="${profile.id}">${escapeHTML(profile.name)} · ${providerLabels[profile.provider]||escapeHTML(profile.provider)}</option>`).join("");$("profilePicker").innerHTML=`<option value="new">新增配置</option>${options}`;$("accountProfile").innerHTML=options||'<option value="">请先在上方添加配置</option>'}

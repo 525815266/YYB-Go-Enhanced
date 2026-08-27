@@ -1010,6 +1010,9 @@
       if (config.mode === "static") return "静态代理";
       return "动态代理 API";
     }
+    function proxyKeepaliveText(config) {
+      return config?.keepalive_supported === false ? "短效代理 · 不可保活" : "可参与保活";
+    }
 
     function formatChecked(ts) {
       if (!ts) return "未检测";
@@ -1096,7 +1099,7 @@
               <span class="account-name">${escapeHTML(name)}</span>
               <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>
             </span>
-            <span class="account-meta" title="显示序号 ${number} · 内部 ID: ${escapeHTML(account.id)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${formatChecked(account.last_checked_at)}">账号 ${number} · ${escapeHTML(proxy)} · ${formatChecked(account.last_checked_at)}</span>
+			<span class="account-meta" title="显示序号 ${number} · 内部 ID: ${escapeHTML(account.id)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ${number} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
           </span>
         `;
@@ -1130,7 +1133,7 @@
         if (state.selectedOpenID !== openid) return;
 		state.proxyConfigs.set(String(account.id), config);
 		const prefix = account.status === "expired" ? "账号需重扫，配置已保留 · " : "";
-		$("accountProxyStatus").textContent = `${prefix}${proxyText(config)}${config.configured ? ` · ${config.proxy_type === "socks5" ? "SOCKS5" : "HTTP CONNECT"}` : ""}`;
+		$("accountProxyStatus").textContent = `${prefix}${proxyText(config)}${config.configured ? ` · ${config.proxy_type === "socks5" ? "SOCKS5" : "HTTP CONNECT"}` : ""}${config.keepalive_supported === false ? " · 短效代理，不可用于保活" : ""}`;
       } catch (error) {
         if (state.selectedOpenID === openid) $("accountProxyStatus").textContent = `读取失败：${error.message}`;
       }
