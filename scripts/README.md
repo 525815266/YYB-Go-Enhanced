@@ -28,4 +28,21 @@ python3 -m py_compile /ql/data/scripts/SuperNaiBA_YYB-GO-Script/脚本名.py
 node --check /ql/data/scripts/SuperNaiBA_YYB-GO-Script/脚本名.js
 ```
 
+## 本批 YYB 适配脚本
+
+以下脚本已统一改为读取 `YYB_SERVER`（每行一个 `地址@账号ID或OpenID`），通过 YYB 的 `/wxapp/getCode` 获取动态 code：
+
+```text
+lz飞天.py
+格力高club.py
+爱裹旧衣服回收_co.py
+白鲸鱼旧衣服回收_c.py
+察理王子_code版.py
+回收猿旧衣服回收_c.py
+牛牛免费短剧.py
+印象星.py
+```
+
+YYB 开启鉴权时设置可选环境变量 `YYB_API_KEY`。脚本不再使用硬编码的本地 `127.0.0.1:8088` 或旧 `/login` code 服务。
+
 重新执行上游订阅可能会覆盖这些修复，建议在订阅更新后重新检查。脚本仍受原项目授权和条款约束。
