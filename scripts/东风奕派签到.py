@@ -18,7 +18,8 @@
   PLUSPLUS_TOKEN    PushPlus token，可选
   PROXY_API         品赞代理提取 API，可选
   PROXY_TYPE        http / socks5，默认 http
-  EP_PHONE          奕派账号手机号（必填，登录用）
+  EP_PHONES         多账号手机号映射，每行“账号ID或OpenID#手机号”；未匹配时回退 EP_PHONE
+  EP_PHONE          单账号兼容写法，所有未单独配置手机号的账号共用
   EP_CHANNEL_ID     渠道 ID，默认 1234
   EP_EQUIP_NO       设备号，默认 1234
 
@@ -38,6 +39,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
+from urllib.parse import quote
 
 import requests
 
@@ -57,6 +59,7 @@ class AccountTarget:
     ref: str = ""
     remark: str = ""
     nickname: str = ""
+    phone: str = ""
     index: int = 0
 
     @property
@@ -132,9 +135,40 @@ def apply_account_label(account: AccountTarget, item: Any) -> None:
     account.nickname = str(item.get("nickname") or account.nickname).strip()
 
 
+def parse_account_phones(raw: str) -> Dict[str, str]:
+    """Parse one account phone mapping per line: account-ref#phone."""
+    mappings: Dict[str, str] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "#" in line:
+            ref, phone = (part.strip() for part in line.split("#", 1))
+        elif "=" in line:
+            ref, phone = (part.strip() for part in line.split("=", 1))
+        else:
+            print(f"⚠️ [配置] EP_PHONES 忽略无效行：{line}")
+            continue
+        if not ref or not phone:
+            print(f"⚠️ [配置] EP_PHONES 忽略空账号或手机号：{line}")
+            continue
+        mappings[ref] = phone
+    return mappings
+
+
+def assign_account_phones(accounts: List[AccountTarget]) -> None:
+    mappings = parse_account_phones(os.getenv("EP_PHONES", ""))
+    default_phone = os.getenv("EP_PHONE", "").strip()
+    for account in accounts:
+        account.phone = (
+            mappings.get(account.ref)
+            or mappings.get(str(account.index))
+            or default_phone
+        )
+
+
 CURRENT_ACCOUNTS: List[AccountTarget] = []
 
-PHONE = os.getenv("EP_PHONE", "")
 CHANNEL_ID = os.getenv("EP_CHANNEL_ID", "1234")
 EQUIP_NO = os.getenv("EP_EQUIP_NO", "1234")
 
@@ -529,18 +563,19 @@ def extract_uid(data: Any) -> str:
 def login_by_code(
     server: str,
     code: str,
+    phone: str,
     proxies: Dict[str, str] | None,
 ) -> Tuple[str | None, str, Dict[str, Any] | None]:
     try:
-        if not PHONE:
-            print("❌ [登录] 未配置 EP_PHONE 手机号，无法登录")
+        if not phone:
+            print("❌ [登录] 未配置该账号手机号，请设置 EP_PHONES 或 EP_PHONE")
             return None, "", None
 
         print("🔐 [登录] 使用 code 换 token")
         data = gateway_request(
             LOGIN_API,
             {
-                "phone": PHONE,
+                "phone": phone,
                 "loginCode": code,
                 "appCode": "miniprogram",
                 "equipNo": EQUIP_NO,
@@ -582,6 +617,11 @@ def run_account(index: int, total: int, account: AccountTarget) -> Dict[str, Any
 
     log_account_header(index, total, account)
 
+    if not account.phone:
+        result["error"] = "未配置该账号手机号，请设置 EP_PHONES 或 EP_PHONE"
+        print(f"❌ [配置] {account.label} 未配置手机号，跳过登录")
+        return result
+
     proxies, proxy_ip = get_valid_proxy(server)
     result["proxyStatus"] = "使用专属代理" if proxies else "使用直连"
     result["proxyIp"] = proxy_ip or "-"
@@ -601,7 +641,7 @@ def run_account(index: int, total: int, account: AccountTarget) -> Dict[str, Any
     if account.remark or account.nickname:
         print(f"👤 [YYB] {account.label}")
 
-    token, uid, raw_login = login_by_code(server, code, proxies)
+    token, uid, raw_login = login_by_code(server, code, account.phone, proxies)
     if not token:
         result["error"] = f"登录失败: {json_preview(raw_login)}"
         return result
@@ -676,6 +716,7 @@ def main() -> None:
     global CURRENT_ACCOUNTS
     try:
         CURRENT_ACCOUNTS = load_account_targets()
+        assign_account_phones(CURRENT_ACCOUNTS)
     except Exception as exc:
         print(f"❌ [配置] {exc}")
         return

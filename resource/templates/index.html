@@ -988,8 +988,7 @@
     }
 
     function accountNumber(account) {
-      const index = state.accounts.findIndex(item => item.openid === account?.openid);
-      return index >= 0 ? index + 1 : "-";
+      return account?.id ?? "-";
     }
 
     function statusText(status) {
@@ -1099,7 +1098,7 @@
               <span class="account-name">${escapeHTML(name)}</span>
               <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>
             </span>
-			<span class="account-meta" title="显示序号 ${number} · 内部 ID: ${escapeHTML(account.id)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ${number} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
+			<span class="account-meta" title="账号 ID ${escapeHTML(number)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ID ${escapeHTML(number)} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
           </span>
         `;
