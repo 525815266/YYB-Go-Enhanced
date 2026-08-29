@@ -79,6 +79,17 @@ func newOpenAPISpec() map[string]any {
 					}),
 				),
 			},
+			"/qr/{session_id}/cancel": map[string]any{
+				"post": openAPIOperation(
+					[]string{"qr"},
+					"取消扫码登录会话",
+					[]map[string]any{pathStringParam("session_id", "二维码会话 ID。")},
+					nil,
+					defaulted(map[string]any{
+						"200": jsonResponse("扫码会话已取消。", freeFormObjectSchema("取消结果。")),
+					}),
+				),
+			},
 			"/qr/{session_id}/confirm": map[string]any{
 				"post": openAPIOperation(
 					[]string{"qr"},
@@ -129,6 +140,17 @@ func newOpenAPISpec() map[string]any {
 					nil,
 					defaulted(map[string]any{
 						"200": jsonResponse("删除结果。", refSchema("DeleteAccountResponse")),
+					}),
+				),
+			},
+			"/accounts/repair": map[string]any{
+				"post": openAPIOperation(
+					[]string{"accounts"},
+					"预览或清理未完成扫码残留",
+					nil,
+					jsonOptionalRequestBody(freeFormObjectSchema("confirm=true 执行清理；省略或 false 仅预览。")),
+					defaulted(map[string]any{
+						"200": jsonResponse("账号整理结果。", freeFormObjectSchema("清理结果。")),
 					}),
 				),
 			},

@@ -342,6 +342,10 @@ func sqliteColumnExists(ctx context.Context, db *sql.DB, table, wanted string) (
 }
 
 func (db *DB) UpsertAccount(ctx context.Context, openid, loginBuffer string, alias, nickname, avatar *string, userInfo map[string]any, credentials map[string]any, status *string) (*WechatAccount, error) {
+	openid = strings.TrimSpace(openid)
+	if openid == "" {
+		return nil, errors.New("openid is required")
+	}
 	now := time.Now().Unix()
 	userJSON, err := marshalNullable(userInfo)
 	if err != nil {
@@ -351,18 +355,26 @@ func (db *DB) UpsertAccount(ctx context.Context, openid, loginBuffer string, ali
 	if err != nil {
 		return nil, err
 	}
+	// Keep the lookup, lowest-free-ID calculation and write in one transaction.
+	// Otherwise two simultaneous successful scans can both select the same gap.
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// Reuse the lowest free account slot. This keeps a single account at ID 1
 	// after it is deleted and scanned again, while preserving existing IDs.
 	var existingID int64
-	err = db.sql.QueryRowContext(ctx, "SELECT id FROM wechat_accounts WHERE openid=?", openid).Scan(&existingID)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM wechat_accounts WHERE openid=?", openid).Scan(&existingID)
 	if err == nil {
-		_, err = db.sql.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`UPDATE wechat_accounts SET login_buffer=?, alias=?, nickname=?, avatar=?, user_info=?, credentials=?, status=?, updated_at=? WHERE id=?`,
 			loginBuffer, nullableString(alias), nullableString(nickname), nullableString(avatar),
 			userJSON, credJSON, nullableString(status), now, existingID,
 		)
 	} else if errors.Is(err, sql.ErrNoRows) {
-		rows, queryErr := db.sql.QueryContext(ctx, "SELECT id FROM wechat_accounts ORDER BY id")
+		rows, queryErr := tx.QueryContext(ctx, "SELECT id FROM wechat_accounts ORDER BY id")
 		if queryErr != nil {
 			return nil, queryErr
 		}
@@ -387,7 +399,7 @@ func (db *DB) UpsertAccount(ctx context.Context, openid, loginBuffer string, ali
 			return nil, queryErr
 		}
 		_ = rows.Close()
-		_, err = db.sql.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`INSERT INTO wechat_accounts
 			(id, openid, login_buffer, alias, nickname, avatar, user_info, credentials, status, created_at, updated_at)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
@@ -398,6 +410,9 @@ func (db *DB) UpsertAccount(ctx context.Context, openid, loginBuffer string, ali
 		return nil, err
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return db.GetAccountByOpenID(ctx, openid)
@@ -446,6 +461,87 @@ func (db *DB) ListAccounts(ctx context.Context) ([]*WechatAccount, error) {
 		out = append(out, acc)
 	}
 	return out, rows.Err()
+}
+
+// IsIncomplete reports the narrow class of records that can only have come
+// from an interrupted/legacy scan. An account with credentials, or one that
+// was explicitly marked alive/expired, is always protected from cleanup.
+func (a *WechatAccount) IsIncomplete() bool {
+	if a == nil || strings.TrimSpace(a.OpenID) == "" {
+		return true
+	}
+	status := ""
+	if a.Status != nil {
+		status = strings.ToLower(strings.TrimSpace(*a.Status))
+	}
+	if status == "alive" || status == "expired" {
+		return false
+	}
+	return strings.TrimSpace(a.LoginBuffer) == "" && len(a.Credentials) == 0
+}
+
+// ListIncompleteAccounts returns only conservative cleanup candidates. It is
+// intentionally separate from ListAccounts so normal account APIs never hide
+// a record merely because its credentials are currently unavailable.
+func (db *DB) ListIncompleteAccounts(ctx context.Context) ([]*WechatAccount, error) {
+	accounts, err := db.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*WechatAccount, 0)
+	for _, account := range accounts {
+		if account.IsIncomplete() {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
+// DeleteIncompleteAccounts deletes only IDs that are still incomplete at the
+// time of the delete. Re-reading inside the transaction prevents a successful
+// scan that reused the same ID between preview and confirmation from being
+// accidentally removed.
+func (db *DB) DeleteIncompleteAccounts(ctx context.Context, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return []int64{}, nil
+	}
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	removed := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		account, scanErr := scanAccountRows(tx.QueryRowContext(ctx, selectAccountSQL+" WHERE id=?", id))
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			continue
+		}
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		if !account.IsIncomplete() {
+			continue
+		}
+		result, deleteErr := tx.ExecContext(ctx, "DELETE FROM wechat_accounts WHERE id=?", id)
+		if deleteErr != nil {
+			return nil, deleteErr
+		}
+		if affected, _ := result.RowsAffected(); affected == 1 {
+			removed = append(removed, id)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return removed, nil
 }
 
 func (db *DB) SetAccountUIN(ctx context.Context, id, uin int64) error {

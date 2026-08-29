@@ -185,3 +185,70 @@ func TestUpsertAccountDoesNotConsumeIDOnDuplicate(t *testing.T) {
 		t.Fatalf("next account id = %d, want %d", next.ID, first.ID+1)
 	}
 }
+
+func TestUpsertAccountReusesGapAfterDelete(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	status := "alive"
+	first, err := db.UpsertAccount(ctx, "gap-openid-1", "buffer-1", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("first UpsertAccount() error = %v", err)
+	}
+	second, err := db.UpsertAccount(ctx, "gap-openid-2", "buffer-2", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("second UpsertAccount() error = %v", err)
+	}
+	if err := db.DeleteAccount(ctx, first.ID); err != nil {
+		t.Fatalf("DeleteAccount() error = %v", err)
+	}
+	reused, err := db.UpsertAccount(ctx, "gap-openid-3", "buffer-3", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("reused UpsertAccount() error = %v", err)
+	}
+	if reused.ID != first.ID || second.ID != 2 {
+		t.Fatalf("gap reuse IDs = first:%d second:%d reused:%d", first.ID, second.ID, reused.ID)
+	}
+}
+
+func TestIncompleteAccountCleanupProtectsValidAccounts(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	unknown := "unknown"
+	if _, err = db.UpsertAccount(ctx, "incomplete-openid", "", nil, nil, nil, nil, nil, &unknown); err != nil {
+		t.Fatalf("seed incomplete account: %v", err)
+	}
+	valid := "alive"
+	if _, err = db.UpsertAccount(ctx, "valid-openid", "buffer", nil, nil, nil, nil, nil, &valid); err != nil {
+		t.Fatalf("seed valid account: %v", err)
+	}
+	candidates, err := db.ListIncompleteAccounts(ctx)
+	if err != nil || len(candidates) != 1 || candidates[0].OpenID != "incomplete-openid" {
+		t.Fatalf("cleanup candidates = %#v, err = %v", candidates, err)
+	}
+	removed, err := db.DeleteIncompleteAccounts(ctx, []int64{candidates[0].ID})
+	if err != nil || len(removed) != 1 {
+		t.Fatalf("removed = %#v, err = %v", removed, err)
+	}
+	if _, err = db.GetAccountByOpenID(ctx, "valid-openid"); err != nil {
+		t.Fatalf("valid account was removed: %v", err)
+	}
+}
+
+func TestUpsertAccountRejectsEmptyOpenID(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	if _, err = db.UpsertAccount(context.Background(), "  ", "buffer", nil, nil, nil, nil, nil, nil); err == nil {
+		t.Fatal("UpsertAccount() accepted empty openid")
+	}
+}

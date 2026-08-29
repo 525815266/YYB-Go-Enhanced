@@ -770,10 +770,11 @@
         <div class="section-head">
           <div class="section-title">
             <h3>账号队列</h3>
-            <p>显示序号连续；内部 ID 保持不变，避免代理、会话和专属任务错绑</p>
+            <p>账号 ID 是稳定标识；一键整理只清理未完成扫码残留，不重排正常账号</p>
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
+            <button class="btn secondary" id="repairAccountsBtn" type="button" title="清理未完成扫码残留并释放空缺 ID">一键整理</button>
             <a class="btn primary" href="/scan">添加账号</a>
           </div>
         </div>
@@ -1211,6 +1212,40 @@
       }
     }
 
+    async function repairAccounts() {
+      const button = $("repairAccountsBtn");
+      button.disabled = true;
+      button.textContent = "检查中";
+      try {
+        const preview = await api("POST", "/accounts/repair", { confirm: false });
+        const candidates = preview.candidates || [];
+        if (!candidates.length) {
+          setActivity("账号整理完成，没有发现未完成扫码残留");
+          return;
+        }
+        const ids = candidates.map(item => `ID ${item.id}`).join("、");
+        const confirmed = window.confirm(
+          `发现 ${candidates.length} 条未完成扫码残留：${ids}\n\n` +
+          `确认清理这些残留记录？\n` +
+          `正常账号、已过期账号和现有账号 ID 不会被重排。释放的 ID 会在下次成功扫码时自动复用。`
+        );
+        if (!confirmed) {
+          setActivity("已取消账号整理");
+          return;
+        }
+        button.textContent = "整理中";
+        const result = await api("POST", "/accounts/repair", { confirm: true });
+        await loadAccounts();
+        const skipped = result.skipped?.length || 0;
+        setActivity(`账号整理完成，清理 ${result.removed_count || 0} 条${skipped ? `，保留 ${skipped} 条` : ""}`);
+      } catch (error) {
+        setActivity(`账号整理失败：${error.data?.detail || error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = "一键整理";
+      }
+    }
+
     async function loadFeatures() {
       renderFeatures();
     }
@@ -1480,6 +1515,7 @@
     }
 
     $("reloadAccountsBtn").addEventListener("click", loadAccounts);
+    $("repairAccountsBtn").addEventListener("click", repairAccounts);
     $("refreshAllBtn").addEventListener("click", refreshAll);
     $("resyncAllBtn").addEventListener("click", resyncAll);
     $("syncAllQingLongBtn").addEventListener("click", syncAllQingLong);

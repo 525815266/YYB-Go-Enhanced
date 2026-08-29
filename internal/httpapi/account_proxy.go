@@ -53,6 +53,9 @@ type qrLoginSession struct {
 	// Keep the freshly fetched image in memory so the image endpoint does not
 	// depend on the QR cache directory being writable in a container.
 	ImageBytes []byte
+	// mu serializes cancellation with the final account write in confirm.
+	mu        sync.Mutex
+	cancelled bool
 }
 
 type accountProxyLease struct {
@@ -96,8 +99,8 @@ func proxySettingPublic(setting *store.AccountProxySetting, account *store.Wecha
 		"region_code":         setting.RegionCode, "region_province": setting.RegionProvince, "region_city": setting.RegionCity,
 		"refresh_ahead_minutes": setting.RefreshAheadSeconds / 60,
 		"token_ttl_minutes":     tokenTTLMinutes,
-		"lifetime_class": lifetimeClass, "keepalive_supported": keepaliveSupported, "keepalive_note": keepaliveNote,
-		"configured":            setting.Mode != "direct", "updated_at": setting.UpdatedAt,
+		"lifetime_class":        lifetimeClass, "keepalive_supported": keepaliveSupported, "keepalive_note": keepaliveNote,
+		"configured": setting.Mode != "direct", "updated_at": setting.UpdatedAt,
 	}
 }
 

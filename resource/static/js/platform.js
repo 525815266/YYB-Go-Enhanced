@@ -97,6 +97,8 @@
     document.getElementById("platformAvatar").textContent = Array.from(name)[0]?.toUpperCase() || "Y";
     shell.querySelectorAll('[data-admin-only="true"]').forEach(link => { link.hidden = user.role !== "admin"; });
     shell.querySelectorAll('[data-auth-only="true"]').forEach(link => { link.hidden = !authEnabled; });
+    const repairAccountsButton = document.getElementById("repairAccountsBtn");
+    if (repairAccountsButton) repairAccountsButton.hidden = authEnabled && user.role !== "admin";
     document.querySelector(".platform-sidebar-foot").hidden = !authEnabled;
   }).catch(() => {
     document.getElementById("platformUserName").textContent = "状态未知";

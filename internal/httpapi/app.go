@@ -288,6 +288,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/quick-login", gin.WrapF(a.handleQuickLoginRoot))
 	router.Any("/quick-login/*path", gin.WrapF(a.handleQuickLogin))
 	router.Any("/accounts", gin.WrapF(a.handleAccountsRoot))
+	router.Any("/accounts/repair", gin.WrapF(a.handleAccountRepair))
 	router.Any("/accounts/avatar", gin.WrapF(a.handleAccountAvatar))
 	router.Any("/accounts/refresh", gin.WrapF(a.handleAccountRefresh))
 	router.Any("/accounts/resync", gin.WrapF(a.handleAccountResync))
@@ -492,6 +493,16 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			a.dropQRSession(sessionID)
 		}
 		writeJSON(w, http.StatusOK, result)
+	case "cancel":
+		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		// Refreshing the QR code must retire the previous session. It never
+		// touched the account database, but dropping it prevents a delayed poll
+		// or confirm request from completing an old scan unexpectedly.
+		a.dropQRSession(sessionID)
+		writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled", "session_id": sessionID})
 	case "confirm":
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -505,6 +516,21 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 		result, err := login.Client.GetLoginBuffer(r.Context(), login.Session)
 		if err != nil {
 			writeError(w, http.StatusConflict, "buffer not ready: "+err.Error())
+			return
+		}
+		// A refresh/cancel may have removed this session while the OAuth
+		// exchange was in flight. Serialize the final write with cancellation
+		// so an old QR request cannot create an account after it was retired.
+		login.mu.Lock()
+		dropAfterConfirm := false
+		defer func() {
+			login.mu.Unlock()
+			if dropAfterConfirm {
+				a.dropQRSession(sessionID)
+			}
+		}()
+		if login.cancelled {
+			writeError(w, http.StatusConflict, "qr session cancelled")
 			return
 		}
 		var userInfo map[string]any
@@ -540,7 +566,7 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "保存账号代理失败: "+err.Error())
 			return
 		}
-		a.dropQRSession(sessionID)
+		dropAfterConfirm = true
 		writeJSON(w, http.StatusOK, acc.Public())
 	default:
 		writeError(w, http.StatusNotFound, "qr session not found")
@@ -1222,6 +1248,12 @@ func (a *App) getQRSession(id string) *qrLoginSession {
 
 func (a *App) dropQRSession(id string) {
 	a.mu.Lock()
+	login := a.qrSessions[id]
+	if login != nil {
+		login.mu.Lock()
+		login.cancelled = true
+		login.mu.Unlock()
+	}
 	delete(a.qrSessions, id)
 	a.mu.Unlock()
 	_ = os.Remove(a.resources.qrPath(id))
@@ -1232,6 +1264,9 @@ func (a *App) pruneQR() {
 	var drop []string
 	for sid, sess := range a.qrSessions {
 		if sess.Session.Age() > a.cfg.QRSessionTTL {
+			sess.mu.Lock()
+			sess.cancelled = true
+			sess.mu.Unlock()
 			drop = append(drop, sid)
 		}
 	}
