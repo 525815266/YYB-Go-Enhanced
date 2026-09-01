@@ -568,6 +568,31 @@ func (s *Store) AccountIDs(ctx context.Context, userID int64) (map[int64]struct{
 	return ids, rows.Err()
 }
 
+// RemapAccountIDs updates ownership records after the YYB account database
+// compacts its primary keys. Ownership lives in a separate database, so this
+// operation is intentionally explicit and collision-safe.
+func (s *Store) RemapAccountIDs(ctx context.Context, mapping map[int64]int64) error {
+	if len(mapping) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for oldID := range mapping {
+		if _, err = tx.ExecContext(ctx, "UPDATE account_owners SET account_id=? WHERE account_id=?", -oldID, oldID); err != nil {
+			return err
+		}
+	}
+	for oldID, newID := range mapping {
+		if _, err = tx.ExecContext(ctx, "UPDATE account_owners SET account_id=? WHERE account_id=?", newID, -oldID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) RegistrationEnabled(ctx context.Context) (bool, error) {
 	var value string
 	err := s.db.QueryRowContext(ctx, "SELECT setting_value FROM auth_settings WHERE setting_key='registration_enabled'").Scan(&value)

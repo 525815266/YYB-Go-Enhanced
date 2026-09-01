@@ -289,6 +289,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/quick-login/*path", gin.WrapF(a.handleQuickLogin))
 	router.Any("/accounts", gin.WrapF(a.handleAccountsRoot))
 	router.Any("/accounts/repair", gin.WrapF(a.handleAccountRepair))
+	router.Any("/accounts/compact", gin.WrapF(a.handleAccountCompact))
 	router.Any("/accounts/avatar", gin.WrapF(a.handleAccountAvatar))
 	router.Any("/accounts/refresh", gin.WrapF(a.handleAccountRefresh))
 	router.Any("/accounts/resync", gin.WrapF(a.handleAccountResync))

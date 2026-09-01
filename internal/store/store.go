@@ -544,6 +544,87 @@ func (db *DB) DeleteIncompleteAccounts(ctx context.Context, ids []int64) ([]int6
 	return removed, nil
 }
 
+// CompactAccountIDs moves existing accounts into the lowest contiguous IDs,
+// preserving their current order. All YYB-owned child tables are remapped in
+// the same transaction. The caller is responsible for remapping account
+// ownership kept in the separate auth database.
+func (db *DB) CompactAccountIDs(ctx context.Context) (map[int64]int64, error) {
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Foreign keys are checked at commit, allowing the parent and child IDs to
+	// be moved through a collision-free temporary namespace.
+	if _, err = tx.ExecContext(ctx, "PRAGMA defer_foreign_keys=ON"); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM wechat_accounts ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	var oldIDs []int64
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		oldIDs = append(oldIDs, id)
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	_ = rows.Close()
+	mapping := make(map[int64]int64, len(oldIDs))
+	for index, oldID := range oldIDs {
+		newID := int64(index + 1)
+		if oldID != newID {
+			mapping[oldID] = newID
+		}
+	}
+	if len(mapping) == 0 {
+		return map[int64]int64{}, tx.Commit()
+	}
+	// Move every affected parent row to a negative temporary ID first. IDs are
+	// positive in normal operation, so this namespace cannot collide.
+	for oldID := range mapping {
+		if _, err = tx.ExecContext(ctx, "UPDATE wechat_accounts SET id=? WHERE id=?", -oldID, oldID); err != nil {
+			return nil, err
+		}
+	}
+	childTables := []struct{ table, column string }{
+		{"sessions", "wechat_account_id"},
+		{"account_script_jobs", "account_id"},
+		{"account_push_settings", "account_id"},
+		{"account_proxy_settings", "account_id"},
+	}
+	for oldID := range mapping {
+		for _, child := range childTables {
+			if _, err = tx.ExecContext(ctx, "UPDATE "+child.table+" SET "+child.column+"=? WHERE "+child.column+"=?", -oldID, oldID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for oldID, newID := range mapping {
+		if _, err = tx.ExecContext(ctx, "UPDATE wechat_accounts SET id=? WHERE id=?", newID, -oldID); err != nil {
+			return nil, err
+		}
+		for _, child := range childTables {
+			if _, err = tx.ExecContext(ctx, "UPDATE "+child.table+" SET "+child.column+"=? WHERE "+child.column+"=?", newID, -oldID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	// Keep SQLite's AUTOINCREMENT metadata aligned for any external inserts.
+	_, _ = tx.ExecContext(ctx, "UPDATE sqlite_sequence SET seq=? WHERE name='wechat_accounts'", int64(len(oldIDs)))
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return mapping, nil
+}
+
 func (db *DB) SetAccountUIN(ctx context.Context, id, uin int64) error {
 	_, err := db.sql.ExecContext(ctx, "UPDATE wechat_accounts SET uin=?, updated_at=? WHERE id=?", uin, time.Now().Unix(), id)
 	return err

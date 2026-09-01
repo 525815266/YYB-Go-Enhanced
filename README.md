@@ -24,7 +24,7 @@
 - 运行日志使用独立抽屉连续刷新，保持阅读位置；支持超过 2 MB 的青龙日志索引响应
 - 账号独立推送：支持 Server酱、PushPlus 和企业微信机器人，密钥只保存在青龙环境变量
 
-账号队列中的“一键整理”仅供管理员使用。系统先列出候选记录，点击确认后才会清理明确没有 `login_buffer`、凭据且未绑定用户的扫码残留；该操作不会删除正常账号或已过期账号，也不会把已有账号的 ID 整体前移。释放的 ID 会在下一次成功扫码时自动复用。扫码页刷新二维码和返回时会取消旧会话，避免旧二维码的延迟请求再次写入账号。
+账号队列中的“一键整理”仅供管理员使用。系统先列出候选记录，点击确认后才会清理明确没有 `login_buffer`、凭据且未绑定用户的扫码残留；该操作不会删除正常账号或已过期账号。另有“压缩账号 ID”功能，可预览并将现有账号按当前顺序迁移到连续的 `1..N`，同时迁移会话、代理、推送、脚本任务和用户归属，并尝试同步青龙 `YYB_SERVER`；不会删除账号内容。释放的 ID 会在后续成功扫码时自动复用。扫码页刷新二维码和返回时会取消旧会话，避免旧二维码的延迟请求再次写入账号。
 
 ## 界面
 
@@ -214,6 +214,23 @@ YYB_SERVER=yyb-go:8000@owNAxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 已确认报错的青龙/呆呆面板脚本修复版收录在 [`scripts/`](scripts/README.md)。
+
+### 金茂悦积分兑换与充电
+
+`scripts/jmychongdian.py` 将积分活动、可选的 1 元额度兑换和充电功率守护串成一个青龙任务。自动兑换默认关闭，只有显式设置 `JMY_AUTO_EXCHANGE=1` 才会兑换。它会先通过 `YYB_SERVER` 获取积分小程序 code，再调用积分 GraphQL；充电页仍需要 H5 的 `mobile_user`/`XKSESSION` Cookie。两套凭证不是同一个登录态，不能只填 YYB code。
+
+最小配置示例（敏感值只放青龙环境变量）：
+
+```bash
+YYB_SERVER=yyb-go:8000@1
+JMY_GRAPHQL_TOKEN=Bearer 你的积分Token
+JMY_COOKIE=mobile_user=...; XKSESSION=...
+JMY_DEV_ID=扫码页面得到的dev_id
+JMY_SOCKET_ID=扫码页面得到的socket_id
+JMY_EXCHANGE_THRESHOLD=1000
+```
+
+需要多账号时使用 `JMY_ACCOUNTS_JSON` 数组；默认只对第一个账号执行充电，积分仍逐账号处理。确认兑换接口已能由自建服务用 code 换取会话后，可设置 `JMY_CODE_EXCHANGE_URL`，返回 JSON 中的 `token`/`cookie`/`dev_id`/`socket_id` 会自动接管后续流程。`JMY_DRY_RUN=1` 可只验证配置而不触发积分、兑换和充电请求。
 
 ## API 示例
 

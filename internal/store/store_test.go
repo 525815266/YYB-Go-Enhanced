@@ -252,3 +252,66 @@ func TestUpsertAccountRejectsEmptyOpenID(t *testing.T) {
 		t.Fatal("UpsertAccount() accepted empty openid")
 	}
 }
+
+func TestCompactAccountIDsRemapsChildren(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	for _, item := range []struct {
+		id     int
+		openid string
+	}{
+		{1, "compact-1"}, {3, "compact-3"}, {5, "compact-5"},
+	} {
+		_, err = db.sql.ExecContext(ctx, `INSERT INTO wechat_accounts
+			(id, openid, login_buffer, status, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
+			item.id, item.openid, "buffer", "alive", 1, 1)
+		if err != nil {
+			t.Fatalf("seed account %d: %v", item.id, err)
+		}
+	}
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO sessions
+		(wechat_account_id, tcp_proxy, session_blob, expires_at, created_at, updated_at)
+		VALUES(5, '', '{}', ?, 1, 1)`, time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO account_script_jobs
+		(account_id, script_key, ql_cron_id, schedule, created_at, updated_at)
+		VALUES(5, 'test.py', 9, '* * * * *', 1, 1)`); err != nil {
+		t.Fatalf("seed script job: %v", err)
+	}
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO account_push_settings
+		(account_id, channel, token_env_name, topic_env_name, created_at, updated_at)
+		VALUES(5, 'none', '', '', 1, 1)`); err != nil {
+		t.Fatalf("seed push setting: %v", err)
+	}
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO account_proxy_settings
+		(account_id, mode, proxy_type, static_proxy, api_url, created_at, updated_at)
+		VALUES(5, 'direct', 'http', '', '', 1, 1)`); err != nil {
+		t.Fatalf("seed proxy setting: %v", err)
+	}
+	mapping, err := db.CompactAccountIDs(ctx)
+	if err != nil {
+		t.Fatalf("CompactAccountIDs() error = %v", err)
+	}
+	if mapping[3] != 2 || mapping[5] != 3 || len(mapping) != 2 {
+		t.Fatalf("mapping = %#v", mapping)
+	}
+	var count int
+	if err = db.sql.QueryRowContext(ctx, "SELECT COUNT(*) FROM wechat_accounts WHERE id IN (1,2,3)").Scan(&count); err != nil || count != 3 {
+		t.Fatalf("compacted accounts = %d, err = %v", count, err)
+	}
+	for _, table := range []string{"sessions", "account_script_jobs", "account_push_settings", "account_proxy_settings"} {
+		var id int64
+		column := "account_id"
+		if table == "sessions" {
+			column = "wechat_account_id"
+		}
+		if err = db.sql.QueryRowContext(ctx, "SELECT "+column+" FROM "+table+" LIMIT 1").Scan(&id); err != nil || id != 3 {
+			t.Fatalf("%s reference = %d, err = %v", table, id, err)
+		}
+	}
+}

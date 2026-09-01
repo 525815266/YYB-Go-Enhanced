@@ -770,11 +770,12 @@
         <div class="section-head">
           <div class="section-title">
             <h3>账号队列</h3>
-            <p>账号 ID 是稳定标识；一键整理只清理未完成扫码残留，不重排正常账号</p>
+            <p>一键整理清理扫码残留；账号压缩会安全迁移现有账号到连续 ID</p>
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
             <button class="btn secondary" id="repairAccountsBtn" type="button" title="清理未完成扫码残留并释放空缺 ID">一键整理</button>
+            <button class="btn secondary" id="compactAccountsBtn" type="button" title="迁移现有账号到连续 ID，不删除账号">压缩账号 ID</button>
             <a class="btn primary" href="/scan">添加账号</a>
           </div>
         </div>
@@ -1246,6 +1247,39 @@
       }
     }
 
+    async function compactAccounts() {
+      const button = $("compactAccountsBtn");
+      button.disabled = true;
+      button.textContent = "检查中";
+      try {
+        const preview = await api("POST", "/accounts/compact", { confirm: false });
+        const changes = preview.changes || [];
+        if (!changes.length) {
+          setActivity("账号 ID 已连续，无需迁移");
+          return;
+        }
+        const detail = changes.map(item => `${item.label}：ID ${item.old_id} → ${item.new_id}`).join("\n");
+        const confirmed = window.confirm(
+          `将迁移 ${changes.length} 个现有账号的 ID：\n\n${detail}\n\n` +
+          `账号内容、OpenID、代理、会话、备注和用户归属都会保留。\n` +
+          `确认执行？依赖旧 ID 的外部脚本环境变量会同步改写。`
+        );
+        if (!confirmed) {
+          setActivity("已取消账号 ID 压缩");
+          return;
+        }
+        button.textContent = "迁移中";
+        const result = await api("POST", "/accounts/compact", { confirm: true });
+        await loadAccounts();
+        setActivity(`账号 ID 压缩完成，迁移 ${result.changed_count || 0} 个${result.qinglong_synced ? "，青龙环境变量已同步" : ""}`);
+      } catch (error) {
+        setActivity(`账号 ID 压缩失败：${error.data?.detail || error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = "压缩账号 ID";
+      }
+    }
+
     async function loadFeatures() {
       renderFeatures();
     }
@@ -1516,6 +1550,7 @@
 
     $("reloadAccountsBtn").addEventListener("click", loadAccounts);
     $("repairAccountsBtn").addEventListener("click", repairAccounts);
+    $("compactAccountsBtn").addEventListener("click", compactAccounts);
     $("refreshAllBtn").addEventListener("click", refreshAll);
     $("resyncAllBtn").addEventListener("click", resyncAll);
     $("syncAllQingLongBtn").addEventListener("click", syncAllQingLong);
