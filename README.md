@@ -240,6 +240,7 @@ JMY_EXCHANGE_THRESHOLD=1000
 /wx/code             获取小程序 code
 /wx/getuserinfo      获取 YYB 账号用户信息
 /wx/encryptkey       加密能力兼容转发（需要真实 payload）
+/wx/getlatestuserkey getLatestUserKey 加密密钥转发（需要真实 payload）
 /wx/getphonenumber   获取手机号
 /wx/cloud            云函数（通过 operateWxData 传递 payload）
 /wx/qrcodeauth       二维码授权会话
@@ -248,7 +249,7 @@ JMY_EXCHANGE_THRESHOLD=1000
 /wx/appmsglike       文章点赞（通过 operateWxData 传递 payload）
 ```
 
-这些接口不会伪造微信返回值。`/wx/encryptkey`、`/wx/cloud`、`/wx/mpgeta8key`、`/wx/appmsgext` 和 `/wx/appmsglike` 都是 `operateWxData` 兼容转发，调用方必须在 `payload` 中提供目标业务真实使用的 `api_name`、`data` 等字段，例如：
+这些接口不会伪造微信返回值。`/wx/encryptkey`、`/wx/getlatestuserkey`、`/wx/cloud`、`/wx/mpgeta8key`、`/wx/appmsgext` 和 `/wx/appmsglike` 都是 `operateWxData` 兼容转发，调用方必须在 `payload` 中提供目标业务真实使用的 `api_name`、`data` 等字段，例如：
 
 ```json
 {
@@ -260,6 +261,11 @@ JMY_EXCHANGE_THRESHOLD=1000
   }
 }
 ```
+
+微信客户端名称 `wx.getUserCryptoManager().getLatestUserKey()` 对应微信协议层的
+`getUserEncryptKey`。因此 `/wx/getlatestuserkey` 只是便捷别名；如果 payload 中写入
+`api_name: "getLatestUserKey"`，YYB 会自动改成服务端名称，其他字段原样保留。返回结果中的
+`encryptKey`、`iv`、`version`、`expireTime` 是否存在，取决于微信账号、目标小程序和基础库，服务端不会自行生成或伪造这些值。
 
 `payload` 会原样传给微信协议层，路由名称不会自动生成目标业务参数。文章会话接口不能只根据文章 URL 推导 `api_name`、会话或点赞参数；需要抓取 PC 微信调用 `operateWxData` 时的原始请求体，而不是文章最终 HTTP 请求。
 

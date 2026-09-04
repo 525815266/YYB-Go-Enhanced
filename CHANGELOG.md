@@ -2,6 +2,11 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## 2026-09-05
+
+- 根据 Issue #30 补充微信 `wx.getUserCryptoManager().getLatestUserKey()` 兼容说明与 `/wx/getlatestuserkey` 便捷入口。
+- 加密能力转发自动兼容客户端 `getLatestUserKey` 与微信协议层 `getUserEncryptKey` 两种名称，保留真实 payload 和微信返回字段；不在服务端伪造 `encryptKey`、`iv`、`version` 或 `expireTime`。
+
 ## 2026-09-01
 
 - 新增管理员“压缩账号 ID”：预览后将现有账号按当前顺序迁移到连续编号，保留账号内容，并同步迁移协议会话、代理、推送、脚本任务和用户归属。

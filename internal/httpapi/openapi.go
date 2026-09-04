@@ -364,9 +364,10 @@ func newOpenAPISpec() map[string]any {
 				"post": openAPIOperation([]string{"wx"}, "获取 YYB 账号用户信息", nil, jsonRequestBody(refSchema("AccountRefRequest")),
 					defaulted(map[string]any{"200": jsonResponse("用户信息。", freeFormObjectSchema("用户信息结果"))})),
 			},
-			"/wx/encryptkey":     wxAliasOperation("加密能力兼容转发（需要真实 payload）", "OperateWXDataRequest", "WxappResponse"),
-			"/wx/getphonenumber": wxAliasOperation("获取手机号（兼容入口）", "WxappRequest", "WxappResponse"),
-			"/wx/cloud":          wxAliasOperation("云函数/通用 operateWxData 兼容入口", "OperateWXDataRequest", "WxappResponse"),
+			"/wx/encryptkey":       wxAliasOperation("加密能力兼容转发（需要真实 payload）", "OperateWXDataRequest", "WxappResponse"),
+			"/wx/getlatestuserkey": wxAliasOperation("getLatestUserKey 加密密钥转发（需要真实 payload）", "OperateWXDataRequest", "WxappResponse"),
+			"/wx/getphonenumber":   wxAliasOperation("获取手机号（兼容入口）", "WxappRequest", "WxappResponse"),
+			"/wx/cloud":            wxAliasOperation("云函数/通用 operateWxData 兼容入口", "OperateWXDataRequest", "WxappResponse"),
 			"/wx/qrcodeauth": map[string]any{
 				"post": openAPIOperation([]string{"qr"}, "创建二维码授权会话", nil, jsonOptionalRequestBody(refSchema("ProxySpec")),
 					defaulted(map[string]any{"200": jsonResponse("二维码授权会话。", refSchema("QRCreateResponse"))})),

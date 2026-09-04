@@ -99,7 +99,7 @@ func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
 	if !ok {
 		t.Fatalf("OpenAPI paths missing or invalid")
 	}
-	for _, path := range []string{"/quick-login", "/quick-login/{session_id}/confirm", "/qr/{session_id}/cancel", "/wx/code", "/wx/getuserinfo", "/wx/encryptkey", "/wx/getphonenumber", "/wx/cloud", "/wx/qrcodeauth", "/wx/mpgeta8key", "/wx/appmsgext", "/wx/appmsglike", "/wxapp/getCode", "/wxapp/getPhoneNumber", "/wxapp/operateWxData", "/accounts/repair", "/accounts/avatar", "/accounts/remark", "/accounts/proxy", "/accounts/proxy/test", "/api/proxy-profiles", "/api/proxy-profiles/{id}", "/api/proxy-profiles/areas/provinces", "/api/proxy-profiles/areas/cities", "/api/proxy-location/recommend", "/api/qinglong/config", "/api/qinglong/sync", "/api/qinglong/jobs", "/api/qinglong/push"} {
+	for _, path := range []string{"/quick-login", "/quick-login/{session_id}/confirm", "/qr/{session_id}/cancel", "/wx/code", "/wx/getuserinfo", "/wx/encryptkey", "/wx/getlatestuserkey", "/wx/getphonenumber", "/wx/cloud", "/wx/qrcodeauth", "/wx/mpgeta8key", "/wx/appmsgext", "/wx/appmsglike", "/wxapp/getCode", "/wxapp/getPhoneNumber", "/wxapp/operateWxData", "/accounts/repair", "/accounts/avatar", "/accounts/remark", "/accounts/proxy", "/accounts/proxy/test", "/api/proxy-profiles", "/api/proxy-profiles/{id}", "/api/proxy-profiles/areas/provinces", "/api/proxy-profiles/areas/cities", "/api/proxy-location/recommend", "/api/qinglong/config", "/api/qinglong/sync", "/api/qinglong/jobs", "/api/qinglong/push"} {
 		if _, ok := paths[path]; !ok {
 			t.Fatalf("OpenAPI path %s missing", path)
 		}
@@ -176,7 +176,7 @@ func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
 	if oldPath.Code != http.StatusNotFound {
 		t.Fatalf("POST old account feature route status = %d", oldPath.Code)
 	}
-	for _, path := range []string{"/wx/code", "/wx/encryptkey", "/wx/getphonenumber", "/wx/cloud", "/wx/mpgeta8key", "/wx/appmsgext", "/wx/appmsglike", "/wx/qrcodeauth"} {
+	for _, path := range []string{"/wx/code", "/wx/encryptkey", "/wx/getlatestuserkey", "/wx/getphonenumber", "/wx/cloud", "/wx/mpgeta8key", "/wx/appmsgext", "/wx/appmsglike", "/wx/qrcodeauth"} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		if recorder.Code != http.StatusMethodNotAllowed {
@@ -194,6 +194,30 @@ func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
 	handler.ServeHTTP(userinfo, httptest.NewRequest(http.MethodGet, "/wx/getuserinfo", nil))
 	if userinfo.Code != http.StatusBadRequest {
 		t.Fatalf("GET /wx/getuserinfo without ref status = %d, want %d", userinfo.Code, http.StatusBadRequest)
+	}
+}
+
+func TestNormalizeEncryptKeyPayload(t *testing.T) {
+	tests := []struct {
+		name string
+		in   map[string]any
+		want string
+	}{
+		{name: "top level client name", in: map[string]any{"api_name": "getLatestUserKey", "data": map[string]any{"appid": "wx-test"}}, want: "getUserEncryptKey"},
+		{name: "nested client name", in: map[string]any{"data": map[string]any{"api_name": "getLatestUserKey", "version": 2}}, want: "getUserEncryptKey"},
+		{name: "server name unchanged", in: map[string]any{"api_name": "getUserEncryptKey"}, want: "getUserEncryptKey"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeEncryptKeyPayload(tt.in)
+			if got["api_name"] == tt.want {
+				return
+			}
+			if nested, ok := got["data"].(map[string]any); ok && nested["api_name"] == tt.want {
+				return
+			}
+			t.Fatalf("normalized payload = %#v, want api_name %q", got, tt.want)
+		})
 	}
 }
 

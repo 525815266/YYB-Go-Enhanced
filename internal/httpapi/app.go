@@ -256,6 +256,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/wx/code", gin.WrapF(a.handleWXCodeAlias))
 	router.Any("/wx/getuserinfo", gin.WrapF(a.handleWXGetUserInfo))
 	router.Any("/wx/encryptkey", gin.WrapF(a.handleWXEncryptKey))
+	router.Any("/wx/getlatestuserkey", gin.WrapF(a.handleWXLatestUserKey))
 	router.Any("/wx/getphonenumber", gin.WrapF(a.handleWXPhoneAlias))
 	router.Any("/wx/cloud", gin.WrapF(a.handleWXCloud))
 	router.Any("/wx/qrcodeauth", gin.WrapF(a.handleQRRoot))
@@ -728,6 +729,12 @@ func (a *App) handleWXEncryptKey(w http.ResponseWriter, r *http.Request) {
 	a.handleNamedWXOperation(w, r, "/wx/encryptkey", "getUserEncryptKey", true)
 }
 
+// handleWXLatestUserKey exposes the client-side getLatestUserKey name while
+// forwarding the corresponding server-side getUserEncryptKey operation.
+func (a *App) handleWXLatestUserKey(w http.ResponseWriter, r *http.Request) {
+	a.handleNamedWXOperation(w, r, "/wx/getlatestuserkey", "getUserEncryptKey", true)
+}
+
 func (a *App) handleWXCloud(w http.ResponseWriter, r *http.Request) {
 	a.handleNamedWXOperation(w, r, "/wx/cloud", "cloud.callFunction", true)
 }
@@ -797,11 +804,42 @@ func (a *App) invokeNamedWXOperation(ctx context.Context, body wxappRequest, api
 	if body.Payload == nil {
 		body.Payload = map[string]any{"api_name": apiName, "data": map[string]any{}, "env": 1}
 	}
+	if apiName == "getUserEncryptKey" {
+		body.Payload = normalizeEncryptKeyPayload(body.Payload)
+	}
 	result, err := a.invokeWXApp(ctx, acc, body.AppID, body.Payload, a.invokeOperateWXData)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"openid": acc.OpenID, "result": result}, nil
+}
+
+// normalizeEncryptKeyPayload accepts the client API spelling used by
+// wx.getUserCryptoManager().getLatestUserKey(). The iLink server operation is
+// named getUserEncryptKey; only the operation name is adapted and all business
+// data is preserved unchanged.
+func normalizeEncryptKeyPayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	out := make(map[string]any, len(payload))
+	for key, value := range payload {
+		out[key] = value
+	}
+	if name, ok := out["api_name"].(string); ok && name == "getLatestUserKey" {
+		out["api_name"] = "getUserEncryptKey"
+	}
+	if nested, ok := out["data"].(map[string]any); ok {
+		copyNested := make(map[string]any, len(nested))
+		for key, value := range nested {
+			copyNested[key] = value
+		}
+		if name, ok := copyNested["api_name"].(string); ok && name == "getLatestUserKey" {
+			copyNested["api_name"] = "getUserEncryptKey"
+		}
+		out["data"] = copyNested
+	}
+	return out
 }
 
 func (a *App) handleWXGetUserInfo(w http.ResponseWriter, r *http.Request) {
