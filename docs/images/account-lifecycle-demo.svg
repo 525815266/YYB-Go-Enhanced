@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" role="img" aria-labelledby="title desc">
+  <title id="title">YYB Go 账号生命周期演示</title>
+  <desc id="desc">使用虚构账号和 OpenID 展示保活凭据与扫码三十天剩余时间。</desc>
+  <rect width="720" height="460" rx="18" fill="#f4f7f8"/>
+  <rect x="24" y="22" width="672" height="54" rx="12" fill="#ffffff" stroke="#d9e2e4"/>
+  <text x="48" y="56" fill="#152327" font-family="Arial, sans-serif" font-size="20" font-weight="700">YYB Go / 账号生命周期</text>
+  <text x="548" y="56" fill="#6b7a7d" font-family="Arial, sans-serif" font-size="14">演示数据</text>
+
+  <g transform="translate(24 96)">
+    <rect width="672" height="154" rx="14" fill="#e1f3f2" stroke="#68b8b4"/>
+    <circle cx="34" cy="38" r="22" fill="#8fc8c1"/>
+    <text x="34" y="45" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="18" font-weight="700">A</text>
+    <text x="72" y="34" fill="#122126" font-family="Arial, sans-serif" font-size="18" font-weight="700">演示账号 A</text>
+    <circle cx="620" cy="28" r="5" fill="#32934e"/>
+    <text x="634" y="34" fill="#2d683c" font-family="Arial, sans-serif" font-size="14">可用</text>
+    <text x="72" y="58" fill="#607276" font-family="Arial, sans-serif" font-size="13">账号 ID 1 · 直连 · 可参与保活 · 09-05 15:20</text>
+    <text x="72" y="80" fill="#536468" font-family="monospace" font-size="12">OpenID: demo-openid-a1b2c3</text>
+    <text x="72" y="108" fill="#536468" font-family="Arial, sans-serif" font-size="12">保活凭据</text>
+    <rect x="154" y="99" width="398" height="8" rx="4" fill="#d4e3e5"/>
+    <rect x="154" y="99" width="338" height="8" rx="4" fill="#e5bd16"/>
+    <text x="570" y="108" fill="#536468" font-family="Arial, sans-serif" font-size="12">96 分钟</text>
+    <text x="72" y="132" fill="#536468" font-family="Arial, sans-serif" font-size="12">扫码 30 天</text>
+    <rect x="154" y="123" width="398" height="8" rx="4" fill="#d4e3e5"/>
+    <rect x="154" y="123" width="365" height="8" rx="4" fill="#35a653"/>
+    <text x="570" y="132" fill="#536468" font-family="Arial, sans-serif" font-size="12">24 天 8 小时</text>
+  </g>
+
+  <g transform="translate(24 270)">
+    <rect width="672" height="154" rx="14" fill="#ffffff" stroke="#d9e2e4"/>
+    <circle cx="34" cy="38" r="22" fill="#8fa4c9"/>
+    <text x="34" y="45" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="18" font-weight="700">B</text>
+    <text x="72" y="34" fill="#122126" font-family="Arial, sans-serif" font-size="18" font-weight="700">演示账号 B</text>
+    <circle cx="620" cy="28" r="5" fill="#dc4b39"/>
+    <text x="634" y="34" fill="#a53b30" font-family="Arial, sans-serif" font-size="14">需重扫</text>
+    <text x="72" y="58" fill="#607276" font-family="Arial, sans-serif" font-size="13">账号 ID 2 · 代理 · 暂停调用</text>
+    <text x="72" y="80" fill="#536468" font-family="monospace" font-size="12">OpenID: demo-openid-d4e5f6</text>
+    <text x="72" y="108" fill="#536468" font-family="Arial, sans-serif" font-size="12">保活凭据</text>
+    <rect x="154" y="99" width="398" height="8" rx="4" fill="#d4e3e5"/>
+    <rect x="154" y="99" width="32" height="8" rx="4" fill="#d84b39"/>
+    <text x="570" y="108" fill="#536468" font-family="Arial, sans-serif" font-size="12">已到期</text>
+    <text x="72" y="132" fill="#536468" font-family="Arial, sans-serif" font-size="12">扫码 30 天</text>
+    <rect x="154" y="123" width="398" height="8" rx="4" fill="#d4e3e5"/>
+    <rect x="154" y="123" width="164" height="8" rx="4" fill="#f08b32"/>
+    <text x="570" y="132" fill="#536468" font-family="Arial, sans-serif" font-size="12">12 天 3 小时</text>
+  </g>
+</svg>
