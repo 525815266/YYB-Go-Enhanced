@@ -11,15 +11,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from collections import Counter
-from urllib.parse import urlsplit
 
 import requests
 
-from yyb_account_guard import account_ref, get_status, prune, set_status, status_file
+from yyb_account_guard import account_ref, prune, status_file
 
 
 def parse_server_lines() -> list[tuple[str, str]]:
