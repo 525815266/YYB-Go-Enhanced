@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 
 APP_NAME = "浓五的酒馆小程序"
@@ -55,6 +56,8 @@ if len(SERVERS) == 0:
     print("格式：地址@微信账号标识，多账号换行分隔")
     print("192.168.1.21:8088")
     exit(1)
+
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
 print("-" * 60 + "\n")
@@ -662,6 +665,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

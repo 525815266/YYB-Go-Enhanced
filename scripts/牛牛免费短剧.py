@@ -50,6 +50,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote, urlencode
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -65,6 +66,7 @@ DEFAULT_TYPE_ID = "S1"
 
 _SERVER_ENV = os.getenv("YYB_SERVER", "").strip()
 SERVERS = [item.strip() for item in _SERVER_ENV.replace(",", "\n").splitlines() if item.strip()]
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 YYB_API_KEY = os.getenv("YYB_API_KEY", "").strip()
 
 RECOMMEND = os.getenv("NIUNIU_RECOMMEND", "")
@@ -1363,6 +1365,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

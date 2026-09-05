@@ -20,6 +20,7 @@ import json
 import time
 import hashlib
 import requests
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
 
 APPID = "wxe6ba46e6100e68e9"
 APPKEY = "b98b1abf926b44e3998e5573b42f101f"
@@ -37,6 +38,7 @@ else:
     sys.exit(1)
 
 SERVERS = [l.strip() for l in raw_lines if l.strip() and "@" in l.strip()]
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 if not SERVERS:
     print("❌ YYB_SERVER 无有效账号")
     sys.exit(1)
@@ -176,8 +178,10 @@ def main():
         result = xiaofujia_login(code, mobile)
         if result:
             print(f"✓ 账号[{i+1}] ACCESS_TOKEN={result['access_token']}")
+            mark_ready(parsed['ref'], app_id=APPID)
         else:
             print(f"✗ 账号[{i+1}] 登录失败")
+            mark_from_error(parsed['ref'], "登录失败", app_id=APPID)
         
         if i < len(SERVERS) - 1:
             time.sleep(3)

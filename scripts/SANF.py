@@ -6,6 +6,7 @@ import time
 import random
 import requests
 import asyncio
+from yyb_account_guard import filter_accounts, update_from_result
 
 
 # ===================== 强制全局禁用系统代理环境变量，避免干扰 =====================
@@ -43,6 +44,7 @@ PROXY_FETCH_INTERVAL = 3000
 ENABLE_DIRECT_FALLBACK = True
 
 APPID = "wxfe13a2a5df88b058"
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 USER_AGENT_LIST = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781 NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF",
     "Mozilla/5.0 (Linux; Android 14; 2512BPNDAC Build/UKQ1.230917.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/146.0.7680.153 Mobile Safari/537.36 XWEB/1460043 MMWEBSDK/20251006 MiniProgramEnv/android",
@@ -404,6 +406,7 @@ async def main():
     results = []
     for server in SERVERS:
         res = await runAccount(server, globalProxyAgent)
+        update_from_result(server, res, app_id=APPID)
         results.append(res)
         await sleep(2000)
     

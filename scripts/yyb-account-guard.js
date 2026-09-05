@@ -50,7 +50,8 @@ function setStatus(ref, status, reason = "", appId = "") {
   const key = refOf(ref);
   if (!key) return;
   const data = read();
-  data.accounts[key] = { ref: key, status, reason: String(reason || "").slice(0, 240), app_id: appId || "", checked_at: Math.floor(Date.now() / 1000) };
+  const storageKey = appId ? `${key}::${appId}` : key;
+  data.accounts[storageKey] = { ref: key, status, reason: String(reason || "").slice(0, 240), app_id: appId || "", checked_at: Math.floor(Date.now() / 1000) };
   write(data);
 }
 function markFromError(ref, message, appId = "") {

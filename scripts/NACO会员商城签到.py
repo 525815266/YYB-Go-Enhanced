@@ -44,6 +44,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -65,6 +66,7 @@ if not SERVERS and os.getenv("CODE_SERVER"):
 if not SERVERS:
     print("❌ 未配置 YYB_SERVER（格式：地址@微信账号标识，多账号换行分隔）")
     raise SystemExit(1)
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 
 PLUSPLUS_TOKEN = os.getenv("PLUSPLUS_TOKEN", "")
 PROXY_API = os.getenv("PROXY_API", "")
@@ -836,6 +838,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

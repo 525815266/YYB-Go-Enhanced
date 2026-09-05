@@ -116,6 +116,8 @@ except ImportError:
     print("❌ 缺少依赖库，请执行：pip install httpx[http2] httpx-socks python-dotenv")
     sys.exit(1)
 
+from yyb_account_guard import filter_accounts, update_from_result
+
 # ===================== 配置项 =====================
 # 从环境变量 YYB_SERVER 读取内网wxcode服务地址，多条换行分隔
 SERVERS = []
@@ -133,6 +135,7 @@ if len(SERVERS) == 0:
     sys.exit(1)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
+SERVERS = filter_accounts(SERVERS, app_id="wxc5db704249c9bb31", log=print)
 print("-" * 60 + "\n")
 
 def parse_yyb_go_entry(raw_value: str) -> Tuple[str, str]:
@@ -656,6 +659,7 @@ async def main():
 
         bot = QueChaoBot(server, proxy_info)
         result = await bot.run()
+        update_from_result(server, result, app_id="wxc5db704249c9bb31")
         results.append(result)
 
         if index < len(SERVERS) - 1:

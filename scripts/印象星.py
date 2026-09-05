@@ -51,6 +51,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote, parse_qs, urlparse
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
@@ -64,6 +65,7 @@ AES_KEY = b"inplusCloud@!@#$"
 
 _SERVER_ENV = os.getenv("YYB_SERVER", "").strip()
 SERVERS = [item.strip() for item in _SERVER_ENV.replace(",", "\n").splitlines() if item.strip()]
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 YYB_API_KEY = os.getenv("YYB_API_KEY", "").strip()
 
 PLUSPLUS_TOKEN = os.getenv("PLUSPLUS_TOKEN", "")
@@ -896,6 +898,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

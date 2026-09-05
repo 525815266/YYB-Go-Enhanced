@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import requests
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
 
 
 APP_ID = "wxbe254e0a4b639be6"
@@ -656,6 +657,7 @@ class WeileClient:
 
 def main() -> None:
     accounts = parse_accounts()
+    accounts = filter_accounts(accounts, lambda account: account.ref, app_id=APP_ID, log=print)
     load_remarks(accounts)
     dry_run = env_flag("WEILE_DRY_RUN", False)
     share_max = env_int("WEILE_SHARE_CLAIM_MAX", 6, 0, 6)
@@ -692,8 +694,10 @@ def main() -> None:
             if enable_subscription:
                 client.claim_subscription(dry_run)
             completed += 1
+            mark_ready(account.ref, app_id=APP_ID)
         except Exception as exc:
             print(f"执行失败：{safe_text(exc)}")
+            mark_from_error(account.ref, str(exc), app_id=APP_ID)
         if position < len(accounts):
             time.sleep(random.uniform(1.5, 3.0))
 

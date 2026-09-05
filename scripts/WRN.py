@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Tuple
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import requests
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
 
 sys_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if sys_path not in os.path.abspath(sys.path):
@@ -53,6 +54,7 @@ if not SERVERS:
     print("❌ 未配置环境变量 YYB_SERVER")
     print("格式：地址@微信账号标识，多账号换行分隔")
     exit(1)
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
 print("-" * 50)
@@ -582,6 +584,7 @@ def main():
             new_token = refresh_account_token(server_entry)
             if not new_token:
                 print(f"❌ {remark} 首次登录失败，跳过")
+                mark_from_error(wxid, "首次登录失败", app_id=APPID)
                 results.append({"remark": remark, "success": False, "msg": "首次登录失败"})
                 continue
             cached_token = new_token
@@ -594,6 +597,10 @@ def main():
             "success": not task.has_critical_error,
             "msg": task.build_result_text()
         })
+        if task.has_critical_error:
+            mark_from_error(wxid, task.build_result_text(), app_id=APPID)
+        else:
+            mark_ready(wxid, app_id=APPID)
 
         if index < len(SERVERS):
             delay()

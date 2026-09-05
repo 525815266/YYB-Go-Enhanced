@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 
 APP_NAME = "铛铛一下旧衣服回收小程序"
@@ -60,6 +61,8 @@ if len(SERVERS) == 0:
     print("192.168.31.88:8088")
     print("192.168.31.62:8088")
     exit(1)
+
+SERVERS = filter_accounts(SERVERS, app_id="wxe378d2d7636c180e", log=print)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
 print("-" * 60 + "\n")
@@ -705,6 +708,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id="wxe378d2d7636c180e")
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

@@ -55,6 +55,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1037,6 +1038,7 @@ def main() -> None:
     global CURRENT_ACCOUNTS
     try:
         CURRENT_ACCOUNTS = load_account_targets()
+        CURRENT_ACCOUNTS = filter_accounts(CURRENT_ACCOUNTS, lambda account: account.ref, app_id=APP_ID, log=print)
     except Exception as exc:
         print(f"❌ [配置] {exc}")
         return
@@ -1047,6 +1049,7 @@ def main() -> None:
     for index, account in enumerate(CURRENT_ACCOUNTS, 1):
         try:
             result = run_account(index, len(CURRENT_ACCOUNTS), account)
+            update_from_result(account.ref, result, app_id=APP_ID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {account.label} 执行异常: {exc}")

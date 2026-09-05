@@ -49,6 +49,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 
 APP_NAME = "白鲸鱼旧衣服回收小程序"
@@ -58,6 +59,7 @@ APP_PLATFORM = "wx"
 # YYB 服务列表，格式为“地址@账号ID或OpenID”，每行一个账号
 _SERVER_ENV = os.getenv("YYB_SERVER", "").strip()
 SERVERS = [item.strip() for item in _SERVER_ENV.replace(",", "\n").splitlines() if item.strip()]
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 YYB_API_KEY = os.getenv("YYB_API_KEY", "").strip()
 
 CHANNEL_ID = os.getenv("BJY_CHANNEL_ID", "wx1008")
@@ -1137,6 +1139,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

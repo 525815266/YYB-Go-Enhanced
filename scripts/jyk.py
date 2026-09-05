@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
 
 # ==================== top config ====================
 
@@ -445,6 +446,7 @@ def auto_fetch_accounts() -> List[BusinessAccount]:
 
 def main() -> int:
     accounts = load_manual_accounts() or auto_fetch_accounts()
+    accounts = filter_accounts(accounts, lambda account: account.ref, app_id=TARGET_APPID, log=log)
     if not accounts:
         log("未获取到业务账号。请检查 YYB_SERVER、YYB_REFS 或 MANUAL_ACCESS_TOKENS。")
         return 1
@@ -453,10 +455,12 @@ def main() -> int:
         log(f"\n===== 账号[{index}/{len(accounts)}] {mask(account.label)} =====")
         try:
             JykClient(account).run()
+            mark_ready(account.ref, app_id=TARGET_APPID)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
             log(f"{account.label} 执行异常：{str(exc)[:160]}")
+            mark_from_error(account.ref, str(exc), app_id=TARGET_APPID)
         if index < len(accounts):
             time.sleep(2)
 

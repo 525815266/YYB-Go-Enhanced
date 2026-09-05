@@ -3,6 +3,7 @@
 const axios = require("axios");
 const dns = require("dns");
 const https = require("https");
+const { filterAccounts, markFromError, setStatus } = require("./yyb-account-guard");
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -36,6 +37,8 @@ const APP = {
     name: "同程旅行里程签到",
     appid: "wx336dcaf6a1ecf632"
 };
+
+const ACTIVE_SERVERS = filterAccounts(SERVERS, value => parseYybGoEntry(value).ref, { appId: APP.appid, log: console.log });
 
 const USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -368,8 +371,8 @@ async function main() {
     console.log("│ 同程旅行里程签到 │");
     console.log("└─────────────────────────────┘");
 
-    for (let i = 0; i < SERVERS.length; i++) {
-        const { server, ref } = parseYybGoEntry(SERVERS[i]);
+    for (let i = 0; i < ACTIVE_SERVERS.length; i++) {
+        const { server, ref } = parseYybGoEntry(ACTIVE_SERVERS[i]);
         if (!server || !ref) {
             console.log("✗ YYB_SERVER 第" + (i + 1) + "行格式无效，跳过");
             continue;
@@ -377,18 +380,20 @@ async function main() {
 
         console.log("\n========== 账号[" + (i + 1) + "] " + ref + " ==========");
 
-        const runner = new Tongcheng(SERVERS[i]);
+        const runner = new Tongcheng(ACTIVE_SERVERS[i]);
 
         try {
             console.log("登录：" + await runner.login());
             console.log("查询：" + await runner.query());
             console.log("签到：" + await runner.sign());
             console.log("任务：" + await runner.doTasks());
+            setStatus(ref, "ready", "", APP.appid);
         } catch (e) {
             console.log("执行失败：" + (e.stack || JSON.stringify(e)));
+            markFromError(ref, e.message || e, APP.appid);
         }
 
-        if (i < SERVERS.length - 1) {
+        if (i < ACTIVE_SERVERS.length - 1) {
             const waitTime = Math.floor(Math.random() * 5000) + 5000;
             console.log("等待 " + (waitTime / 1000) + " 秒后执行下一个账号");
             await new Promise(resolve => setTimeout(resolve, waitTime));

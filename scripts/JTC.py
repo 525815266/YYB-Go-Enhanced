@@ -27,6 +27,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 import binascii
 from typing import List, Dict, Any, Optional, Tuple
+from yyb_account_guard import filter_accounts, update_from_result
 
 # 强制全局禁用所有系统代理环境变量
 for env_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy',
@@ -90,6 +91,7 @@ ENABLE_DIRECT_FALLBACK = True
 
 # 固定配置（2026-05-13最新抓包）
 APPID = "wx24b70f0ad2a9a89a"
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 APP_VERSION = "312"
 XWEB_VERSION = "19823"
 TOKEN_BASE_URL = "https://www.jslife.com.cn/wxhttp/weixin/xcx/get_openid_by_code"
@@ -1114,6 +1116,7 @@ async def main():
 
         async with JtcBot(server, proxy_manager) as bot:
             result = await bot.run()
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
 
         if index < len(SERVERS) - 1:

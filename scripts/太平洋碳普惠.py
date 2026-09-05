@@ -49,6 +49,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -68,6 +69,7 @@ APPID = "wxc62da17526f8b4d0"
 # 保留 CODE_SERVER 作为旧版单账号配置的兼容入口。
 _YYB_SERVER_RAW = os.getenv("YYB_SERVER", "")
 SERVERS = [line.strip() for line in _YYB_SERVER_RAW.splitlines() if line.strip()]
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 if not SERVERS and os.getenv("CODE_SERVER"):
     SERVERS = [os.getenv("CODE_SERVER", "").strip()]
 if not SERVERS:
@@ -1181,6 +1183,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception:
             print(f"❌ [主程序] {server} 执行异常: {traceback.format_exc().splitlines()[-1]}")

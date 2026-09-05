@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 
 # ===================== 配置项 =====================
@@ -45,6 +46,7 @@ if len(SERVERS) == 0:
     exit(1)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 print("-" * 60 + "\n")
 
 PLUSPLUS_TOKEN = os.getenv("PLUSPLUS_TOKEN", "")
@@ -631,6 +633,7 @@ def main() -> None:
 
     for index, server in enumerate(SERVERS, 1):
         res = run_account(server, global_proxy)
+        update_from_result(server, res, app_id=APPID)
         results.append(res)
 
         if index < len(SERVERS):

@@ -52,6 +52,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 
 APP_NAME = "商联道小程序"
@@ -61,6 +62,7 @@ APPID = "wx31a4573b0bf1fcb3"
 # 保留 CODE_SERVER 作为旧版单账号配置的兼容入口。
 _YYB_SERVER_RAW = os.getenv("YYB_SERVER", "")
 SERVERS = [line.strip() for line in _YYB_SERVER_RAW.splitlines() if line.strip()]
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 if not SERVERS and os.getenv("CODE_SERVER"):
     SERVERS = [os.getenv("CODE_SERVER", "").strip()]
 if not SERVERS:
@@ -1252,6 +1254,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")

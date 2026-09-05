@@ -4,8 +4,10 @@
 
 `yyb_account_guard.py`（Python）和 `yyb-account-guard.js`（Node）提供共享的
 账号冷却缓存，默认文件为 `/ql/data/config/yyb_account_status.json`。已接入
-`aima_sign.py`、`jtexpress_sign.py`、`byd_sign.py`、`DSTX.py`、`DTSH.py` 和
-`MS.js`：
+`aima_sign.py`、`jtexpress_sign.py`、`byd_sign.py`、`DSTX.py`、`DTSH.py`、
+`DDYX.py`、`DSMMHYSCQD.py`、`JTC.py`、`JYXEJYFHS.py`、`LDXQ.py`、`lz飞天.py`、
+`NACO会员商城签到.py`、`NWDJG.py`、`NXDC.py`、`QC.py`、`SANF.py`、`THYC.py`、
+`WRN.py`、`XFJ.py`、`jyk.py`、`weile_coin.py` 以及对应的多账号脚本：
 
 - 明确返回“未授权手机号、尚未注册、未绑定会员”等业务错误时，记录为
   `unbound`/`unregistered`，默认冷却 24 小时；后续脚本会直接跳过该账号并继续下一个。
@@ -26,6 +28,9 @@
 - `DDYX.py`、`DSMMHYSCQD.py`、`DSTX.py`、`DTSH.py`、`JTC.py`、`JYXEJYFHS.py`、`LDXQ.py`、`NWDJG.py`、`NXDC.py`、`QC.py`、`SANF.py`、`THYC.py`、`XFJ.py`、`byd_sign.py`：修复 `YYB_SERVER` 配置提示代码的缩进错误。
 - `WRN.py`：补充实际运行所需的 `sys` 导入。
 - `MS.js`：兼容会员信息的新旧返回结构，缺少 `memberId` 时停止当前账号，避免连续异常。
+- `DW.js`：多小程序执行前按 AppID 过滤公共缓存；明确返回未绑定小程序时记录账号状态，成功账号按 AppID 标记为可用。
+- `ZMNLXQ.js`：战马能量星球按 AppID 接入公共缓存，手机号/小程序授权失败只在响应明确命中时冷却账号，并修复取码失败日志中的未定义变量。
+- `oleCS.py`：OLE 超市接入公共缓存，保留原有 token 和门店缓存；网络取码失败不再误报为“未注册”。
 - `jyk.py`：正确解析 `地址@账号标识` 格式，避免把账号 ID 当作 YYB 服务地址。
 - `TCLXLC.js`：移除登录流程中对未定义 `parsedServer` 变量的引用。
 

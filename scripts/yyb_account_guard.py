@@ -195,6 +195,21 @@ def mark_ready(ref: Any, *, app_id: str = "") -> None:
     set_status(ref, "ready", "", app_id=app_id)
 
 
+def update_from_result(ref: Any, result: Any, *, app_id: str = "") -> str | None:
+    """根据脚本统一结果回写状态。
+
+    只有明确的成功或可分类错误才写缓存；未知异常不改变已有状态，避免
+    把接口字段变化误判成“账号未授权”。
+    """
+    if not isinstance(result, dict):
+        return None
+    if result.get("success") is True:
+        mark_ready(ref, app_id=app_id)
+        return "ready"
+    message = result.get("error") or result.get("message") or result.get("msg") or ""
+    return mark_from_error(ref, message, app_id=app_id)
+
+
 def filter_accounts(
     values: Iterable[T],
     ref_getter: Callable[[T], Any] | None = None,
@@ -239,6 +254,7 @@ __all__ = [
     "get_status",
     "mark_from_error",
     "mark_ready",
+    "update_from_result",
     "prune",
     "set_status",
     "should_skip",

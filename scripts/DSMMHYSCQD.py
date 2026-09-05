@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Tuple
 from urllib.parse import quote
 
 import requests
+from yyb_account_guard import filter_accounts, update_from_result
 
 APP_NAME = "袋鼠妈妈会员商场小程序"
 APPID = "wxb27b46293d405a20"
@@ -38,6 +39,8 @@ if not SERVERS:
     print("  或")
     print("  YYB_SERVER=127.0.0.1:8088\\n192.168.31.36:8088\\n192.168.31.88:8088")
     exit(1)
+
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 
 PLUSPLUS_TOKEN = os.getenv("PLUSPLUS_TOKEN", "")
 PROXY_API = os.getenv("PROXY_API", "")
@@ -600,6 +603,7 @@ def main() -> None:
     for index, server in enumerate(SERVERS, 1):
         try:
             result = run_account(index, len(SERVERS), server)
+            update_from_result(server, result, app_id=APPID)
             results.append(result)
         except Exception as exc:
             print(f"❌ [主程序] {server} 执行异常: {exc}")
