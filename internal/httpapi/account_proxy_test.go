@@ -60,6 +60,13 @@ func TestProxySettingPublicUsesAccountTokenTTL(t *testing.T) {
 	if result["token_ttl_minutes"] != int64(90) {
 		t.Fatalf("token_ttl_minutes = %#v, want 90", result["token_ttl_minutes"])
 	}
+	if result["keepalive_supported"] != false || result["lifetime_class"] != "short" || result["proxy_warning"] == "" {
+		t.Fatalf("dynamic proxy status = %#v, want explicit short-lived warning", result)
+	}
+	stable := proxySettingPublic(&store.AccountProxySetting{AccountID: 7, Mode: "static", ProxyType: "http"}, account)
+	if stable["keepalive_supported"] != true || stable["proxy_warning"] != "" {
+		t.Fatalf("stable proxy status = %#v, want keepalive enabled without warning", stable)
+	}
 }
 
 func TestAccountProxyAPIParsesJSON2AndCascades(t *testing.T) {

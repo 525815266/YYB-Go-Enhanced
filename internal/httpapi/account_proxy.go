@@ -100,8 +100,16 @@ func proxySettingPublic(setting *store.AccountProxySetting, account *store.Wecha
 		"refresh_ahead_minutes": setting.RefreshAheadSeconds / 60,
 		"token_ttl_minutes":     tokenTTLMinutes,
 		"lifetime_class":        lifetimeClass, "keepalive_supported": keepaliveSupported, "keepalive_note": keepaliveNote,
-		"configured": setting.Mode != "direct", "updated_at": setting.UpdatedAt,
+		"proxy_warning": proxyWarning(dynamic),
+		"configured":    setting.Mode != "direct", "updated_at": setting.UpdatedAt,
 	}
+}
+
+func proxyWarning(dynamic bool) string {
+	if dynamic {
+		return "短效代理每次提取都会产生新的出口，无法稳定维持微信登录会话；后台自动保活已关闭。"
+	}
+	return ""
 }
 
 func (a *App) handleAccountProxy(w http.ResponseWriter, r *http.Request) {

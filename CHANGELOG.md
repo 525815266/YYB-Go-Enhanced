@@ -4,6 +4,8 @@
 
 ## 2026-09-05
 
+- 代理审计收敛：动态 API / 配置库代理在接口响应中明确标记为短效代理，返回无法保活提示；保活逻辑继续跳过短效代理，避免无效刷新。
+- 代理设置页将短效代理限制提升为账号级醒目提示，并优化移动端编辑区、供应商配置区的布局与状态可读性。
 - 根据 Issue #30 补充微信 `wx.getUserCryptoManager().getLatestUserKey()` 兼容说明与 `/wx/getlatestuserkey` 便捷入口。
 - 加密能力转发自动兼容客户端 `getLatestUserKey` 与微信协议层 `getUserEncryptKey` 两种名称，保留真实 payload 和微信返回字段；不在服务端伪造 `encryptKey`、`iv`、`version` 或 `expireTime`。
 
