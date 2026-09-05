@@ -1054,10 +1054,10 @@
 
     function lifecycleColor(ratio) {
       const value = Math.max(0, Math.min(1, Number(ratio) || 0));
-      let hue;
-      if (value >= 0.5) hue = 120 - (1 - value) * 60;
-      else hue = 60 * value;
-      return `hsl(${Math.round(hue)} 64% 40%)`;
+      // Keep the lifecycle ramp continuous: red at expiry, vivid yellow in
+      // the middle, and green while there is plenty of time left.
+      const hue = 8 + value * 112;
+      return `hsl(${Math.round(hue)} 78% 42%)`;
     }
 
     function lifecycleMarkup(account) {
@@ -1073,8 +1073,8 @@
       const scanClass = !observed || scanRemaining <= 0 ? "expired" : scanRemaining < 5 * 86400 ? "warn" : "scan";
       const autoClass = !expiresAt || autoRemaining <= 0 ? "expired" : autoRemaining < 15 * 60 ? "warn" : "";
       return `<span class="account-lifecycle" aria-label="账号有效期">
-        <span class="lifecycle-row ${scanClass}"><span class="lifecycle-label">扫码 30天</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(scanRatio / 100)};width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
         <span class="lifecycle-row ${autoClass}"><span class="lifecycle-label">保活凭据</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(autoRatio / 100)};width:${autoRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${expiresAt ? lifecycleDuration(autoRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-row ${scanClass}"><span class="lifecycle-label">扫码 30天</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(scanRatio / 100)};width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
         <span class="lifecycle-note">${observed ? `扫码 ${formatChecked(observed)}` : "扫码时间未记录"}${account.credential_expires_at ? ` · 到期 ${formatChecked(account.credential_expires_at)}` : ""}</span>
       </span>`;
     }
