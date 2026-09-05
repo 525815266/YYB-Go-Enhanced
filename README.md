@@ -31,6 +31,7 @@
 ![账号控制台与青龙连接设置](docs/images/account-console.png)
 
 <p align="center">
+  <img src="docs/images/account-lifecycle-mobile.png" alt="移动端账号生命周期与保活状态" width="360">
   <img src="docs/images/scan-sync-mobile.png" alt="扫码成功后一键添加到青龙" width="360">
   <img src="docs/images/account-runs-mobile.png" alt="带账号备注的运行日志" width="360">
 </p>
