@@ -293,6 +293,11 @@ func TestCompactAccountIDsRemapsChildren(t *testing.T) {
 		VALUES(5, 'direct', 'http', '', '', 1, 1)`); err != nil {
 		t.Fatalf("seed proxy setting: %v", err)
 	}
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO account_proxy_settings
+		(account_id, mode, proxy_type, static_proxy, api_url, created_at, updated_at)
+		VALUES(3, 'api', 'http', '', 'https://proxy.example/account-3', 1, 1)`); err != nil {
+		t.Fatalf("seed second proxy setting: %v", err)
+	}
 	mapping, err := db.CompactAccountIDs(ctx)
 	if err != nil {
 		t.Fatalf("CompactAccountIDs() error = %v", err)
@@ -310,8 +315,15 @@ func TestCompactAccountIDsRemapsChildren(t *testing.T) {
 		if table == "sessions" {
 			column = "wechat_account_id"
 		}
-		if err = db.sql.QueryRowContext(ctx, "SELECT "+column+" FROM "+table+" LIMIT 1").Scan(&id); err != nil || id != 3 {
+		if err = db.sql.QueryRowContext(ctx, "SELECT "+column+" FROM "+table+" ORDER BY "+column+" DESC LIMIT 1").Scan(&id); err != nil || (id != 2 && id != 3) {
 			t.Fatalf("%s reference = %d, err = %v", table, id, err)
 		}
+	}
+	var proxyURL string
+	if err = db.sql.QueryRowContext(ctx, "SELECT api_url FROM account_proxy_settings WHERE account_id=2").Scan(&proxyURL); err != nil || proxyURL != "https://proxy.example/account-3" {
+		t.Fatalf("account 3 proxy moved to ID 2 = %q, err = %v", proxyURL, err)
+	}
+	if err = db.sql.QueryRowContext(ctx, "SELECT api_url FROM account_proxy_settings WHERE account_id=3").Scan(&proxyURL); err != nil || proxyURL != "" {
+		t.Fatalf("account 5 proxy association lost = %q, err = %v", proxyURL, err)
 	}
 }
