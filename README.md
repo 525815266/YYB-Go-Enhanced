@@ -36,7 +36,7 @@
   <img src="docs/images/account-runs-mobile.png" alt="带账号备注的运行日志" width="360">
 </p>
 
-打开 [GitHub Pages 交互演示](https://525815266.github.io/YYB-Go-Enhanced/demo/) 查看纯静态 Demo。页面使用全部虚构的账号、OpenID、代理和时间数据，不会连接真实服务。
+打开 [GitHub 交互预览](https://htmlpreview.github.io/?https://github.com/525815266/YYB-Go-Enhanced/blob/main/docs/demo/index.html) 查看纯静态 Demo。页面使用全部虚构的账号、OpenID、代理和时间数据，不会连接真实服务。仓库已附带 Pages workflow，启用 GitHub Pages 后也可使用 [Pages 地址](https://525815266.github.io/YYB-Go-Enhanced/demo/)。
 
 ## Docker Compose 部署
 
