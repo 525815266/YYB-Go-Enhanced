@@ -295,6 +295,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/accounts/refresh", gin.WrapF(a.handleAccountRefresh))
 	router.Any("/accounts/resync", gin.WrapF(a.handleAccountResync))
 	router.Any("/accounts/remark", gin.WrapF(a.handleAccountRemark))
+	router.Any("/accounts/status", gin.WrapF(a.handleAccountStatus))
 	router.Any("/accounts/proxy", gin.WrapF(a.handleAccountProxy))
 	router.Any("/accounts/proxy/test", gin.WrapF(a.handleAccountProxyTest))
 	router.Any("/api/proxy-profiles", gin.WrapF(a.handleProxyProfiles))

@@ -1145,6 +1145,7 @@
 			<span class="account-meta" title="账号 ID ${escapeHTML(number)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ID ${escapeHTML(number)} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
             ${lifecycleMarkup(account)}
+            ${account.status === "unknown" ? `<span class="account-confirm-actions"><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></span>` : ""}
           </span>
         `;
         button.querySelector("img").addEventListener("error", event => {
@@ -1158,6 +1159,22 @@
           loadAccountProxySummary();
           setActivity(`已选择账号：${name}`);
         });
+        button.querySelectorAll("[data-confirm-status]").forEach(action => action.addEventListener("click", async event => {
+          event.stopPropagation();
+          const status = action.dataset.confirmStatus;
+          if (status === "expired" && !confirm(`确认将账号 ${number} 标记为已失效，并从青龙移除？`)) return;
+          action.disabled = true;
+          try {
+            const result = await api("POST", "/accounts/status", { ref: String(account.id), status });
+            const index = state.accounts.findIndex(item => item.id === account.id);
+            if (index >= 0) state.accounts[index] = result.account;
+            renderAccounts();
+            setActivity(status === "expired" ? `账号 ${number} 已标记失效，青龙关联已清理` : `账号 ${number} 已确认仍有效`);
+          } catch (error) {
+            action.disabled = false;
+            setActivity(`账号状态更新失败：${error.message}`);
+          }
+        }));
         strip.appendChild(button);
       }
       renderStats();
