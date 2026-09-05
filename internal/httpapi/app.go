@@ -1168,6 +1168,9 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if accountStatus(acc) == "expired" {
 		return nil, accountExpiredError{openid: acc.OpenID}
 	}
+	if accountNeedsRescan(acc) {
+		return nil, accountExpiredError{openid: acc.OpenID}
+	}
 	proxyValue, fallbackDirect, err := a.resolveAccountProxy(ctx, acc.ID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve account proxy: %w", err)
@@ -1192,6 +1195,17 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		acc = fresh
 	}
 	return call(ctx, acc, appID, payload, proxyValue, fallbackDirect)
+}
+
+// accountNeedsRescan covers accounts whose refresh attempt was inconclusive
+// but whose cached credential has already expired. They must not be sent into
+// every script invocation until the user scans again.
+func accountNeedsRescan(acc *store.WechatAccount) bool {
+	if acc == nil || accountStatus(acc) != "unknown" || acc.Credentials == nil {
+		return false
+	}
+	expiresAt := protocol.CredentialsFromMap(acc.Credentials).ExpiresAt
+	return expiresAt > 0 && expiresAt <= time.Now().Unix()
 }
 
 func (a *App) invokeGetCode(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {

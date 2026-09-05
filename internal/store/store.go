@@ -831,6 +831,12 @@ func (a *WechatAccount) Public() AccountPublic {
 	if credentialExpiresAtValue > 0 {
 		expiresAt := credentialExpiresAtValue
 		credentialExpiresAt = &expiresAt
+		// A transient refresh failure is kept as unknown for retry purposes, but
+		// once the cached credential is past its expiry the UI should still guide
+		// the operator to rescan instead of leaving the account looking healthy.
+		if !rescanRecommended && (a.Status == nil || strings.EqualFold(strings.TrimSpace(*a.Status), "unknown")) && expiresAt <= time.Now().Unix() {
+			rescanRecommended = true
+		}
 	}
 	return AccountPublic{
 		ID:                     a.ID,
