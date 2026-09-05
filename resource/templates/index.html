@@ -723,7 +723,10 @@
 
       .account-strip {
         grid-template-columns: minmax(0, 1fr);
-        max-height: 438px;
+        /* Let the queue grow with its cards; clipping here hides later cards
+           behind the following workspace on mobile. */
+        max-height: none;
+        overflow: visible;
       }
     }
 
