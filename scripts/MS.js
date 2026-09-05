@@ -1,6 +1,7 @@
 // name: 慕斯
 // cron: 48 10 * * *
 const axios = require("axios");
+const { filterAccounts, markFromError, setStatus, refOf } = require("./yyb-account-guard");
 /* __YYB_SERVER_DOLLAR_SHIM__ */
 if (typeof $ === 'undefined') {
   const __path = require('path');
@@ -30,13 +31,18 @@ if (typeof $ === 'undefined') {
 }
 
 // ====================== YYB Go 账号（环境变量 YYB_SERVER = 地址@微信账号标识，多行） ======================
-const SERVERS = (process.env.YYB_SERVER || "")
+let SERVERS = (process.env.YYB_SERVER || "")
     .split(/\r?\n/)
     .map(s => s.trim())
     .filter(Boolean);
 if (!SERVERS.length) {
     console.error("未配置环境变量 YYB_SERVER，请设置后重试（格式：地址@微信账号标识，多行换行）");
     process.exit(1);
+}
+SERVERS = filterAccounts(SERVERS, value => refOf(value), { appId: 'wx03527497c5369a2c' });
+if (!SERVERS.length) {
+    console.log("公共缓存中没有可执行账号，本轮结束");
+    process.exit(0);
 }
 function parseYybGoEntry(rawValue) {
     const value = String(rawValue || "").trim();
@@ -263,7 +269,14 @@ class Task {
 !(async () => {
     if (true) {
         for (let user of SERVERS) {
-            await new Task(user).run();
+            const ref = refOf(user);
+            try {
+                await new Task(user).run();
+                setStatus(ref, "ready", "", "wx03527497c5369a2c");
+            } catch (error) {
+                markFromError(ref, error && error.message ? error.message : error, "wx03527497c5369a2c");
+                console.log(`账号 ${ref} 已记录公共状态：${error && error.message ? error.message : error}`);
+            }
         }
     } else {
         
@@ -274,4 +287,3 @@ class Task {
 })()
     .catch((e) => console.log(e))
     
-

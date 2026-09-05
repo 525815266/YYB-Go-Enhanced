@@ -32,6 +32,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import requests
 import notify
 
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
+
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
@@ -50,6 +52,11 @@ if len(SERVERS) == 0:
     print("格式：地址@微信账号标识，多账号换行分隔")
     print("192.168.1.21:8088@微信账号2")
     exit(1)
+
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
+if len(SERVERS) == 0:
+    print("⏭️ 公共缓存中没有可执行账号")
+    raise SystemExit(0)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
 print("-" * 60 + "\n")
@@ -379,6 +386,11 @@ def main() -> None:
     results: List[Dict[str, Any]] = []
     for index, server_entry in enumerate(SERVERS, 1):
         result = run_account(index, len(SERVERS), server_entry)
+        ref = server_entry.rsplit("@", 1)[-1].strip()
+        if result.get("success"):
+            mark_ready(ref, app_id=APPID)
+        else:
+            mark_from_error(ref, result.get("error", ""), app_id=APPID)
         results.append(result)
         if index < len(SERVERS):
             time.sleep(2)

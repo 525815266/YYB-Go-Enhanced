@@ -19,6 +19,8 @@ from typing import Any
 
 import requests
 
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
+
 
 APP_ID = "wx2dcfb409fd5ddfb4"
 API_BASE = "https://scrm.aimatech.com/aima/wxclient"
@@ -462,6 +464,10 @@ def main() -> int:
         print(f"配置错误：{exc}")
         return 1
     load_remarks(accounts)
+    accounts = filter_accounts(accounts, lambda account: account.ref, app_id=APP_ID)
+    if not accounts:
+        print("本轮没有需要执行的 YYB 账号")
+        return 0
     print(f"共读取 {len(accounts)} 个 YYB 账号，爱玛 AppID：{APP_ID}")
     success = 0
     skipped = 0
@@ -469,11 +475,14 @@ def main() -> int:
     for account in accounts:
         try:
             run_account(account)
+            mark_ready(account.ref, app_id=APP_ID)
             success += 1
         except AccountSkipped as exc:
+            mark_from_error(account.ref, str(exc), app_id=APP_ID)
             skipped += 1
             print(f"{account.label}已跳过：{safe_text(exc)}")
         except (ScriptError, requests.RequestException) as exc:
+            mark_from_error(account.ref, str(exc), app_id=APP_ID)
             failed += 1
             print(f"{account.label}执行失败：{safe_text(exc)}")
     print(f"\n执行完成：成功 {success}，跳过 {skipped}，失败 {failed}，总计 {len(accounts)}")

@@ -6,6 +6,7 @@ import random
 import time
 import json
 import requests
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
 from datetime import datetime
 
 # ===================== 新增：彻底关闭InsecureRequestWarning警告 =====================
@@ -32,6 +33,11 @@ if len(CODE_URL_LIST) == 0:
     print("格式：地址@微信账号标识，多账号换行分隔")
     print("http://192.168.1.7:8088/login")
     exit(1)
+
+CODE_URL_LIST = filter_accounts(CODE_URL_LIST, app_id=APP_ID, log=print)
+if not CODE_URL_LIST:
+    print("⏭️ 公共缓存中没有可执行账号")
+    raise SystemExit(0)
 
 print(f"✅ 读取到 {len(CODE_URL_LIST)} 个 YYB Go 账号")
 for item in CODE_URL_LIST:
@@ -518,6 +524,11 @@ if __name__ == "__main__":
     for i, url in enumerate(CODE_URL_LIST, 1):
         result = run_account(url, i, global_proxy_config)
         all_results.append(result)
+        ref = url.rsplit("@", 1)[-1].strip()
+        if result.get("success"):
+            mark_ready(ref, app_id=APP_ID)
+        else:
+            mark_from_error(ref, result.get("error", ""), app_id=APP_ID)
         # 账号间间隔2秒
         time.sleep(2)
 

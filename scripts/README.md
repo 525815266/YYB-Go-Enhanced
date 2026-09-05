@@ -1,5 +1,24 @@
 # 青龙修复脚本
 
+## YYB 账号公共状态缓存
+
+`yyb_account_guard.py`（Python）和 `yyb-account-guard.js`（Node）提供共享的
+账号冷却缓存，默认文件为 `/ql/data/config/yyb_account_status.json`。已接入
+`aima_sign.py`、`jtexpress_sign.py`、`byd_sign.py`、`DSTX.py`、`DTSH.py` 和
+`MS.js`：
+
+- 明确返回“未授权手机号、尚未注册、未绑定会员”等业务错误时，记录为
+  `unbound`/`unregistered`，默认冷却 24 小时；后续脚本会直接跳过该账号并继续下一个。
+- 超时、502/503、风控、活动太火爆、登录过期和 token 失效只记为临时错误，
+  默认冷却 10 分钟，不会永久禁用账号。
+- `YYB_GUARD_BYPASS=1` 可供需要“先授权/自动注册”的脚本临时绕过过滤。
+- `YYB_ACCOUNT_STATUS_FILE` 可自定义缓存路径；缓存采用临时文件原子替换，适合多任务并发读写。
+
+青龙新增任务 `YYB账号状态检查.py`，建议每 12 小时运行一次。由于开启网页登录
+认证后 `/accounts` 不能被青龙匿名读取，该任务只探测 YYB `/healthz` 并清理不在
+`YYB_SERVER` 的缓存条目，不调用业务接口，也不会制造未消费的 `wx.login code`。
+业务脚本遇到明确的未授权响应后负责写回缓存。
+
 这个目录收录了对 `SuperNaiBA/YYB-GO-Script` 中已确认报错脚本的最小修复版，用于 YYB Go 多账号调用。
 
 ## 已修复

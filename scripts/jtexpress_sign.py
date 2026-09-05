@@ -22,6 +22,8 @@ from typing import Any, Optional
 
 import requests
 
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
+
 
 APP_ID = "wxe37801988179d0a5"
 API_BASE = "https://applets.jtexpress.com.cn/applets"
@@ -428,14 +430,20 @@ def main() -> int:
         print(f"配置错误：{exc}")
         return 1
     load_remarks(accounts)
+    accounts = filter_accounts(accounts, lambda account: account.ref, app_id=APP_ID)
+    if not accounts:
+        print("本轮没有需要执行的 YYB 账号")
+        return 0
     print(f"共读取 {len(accounts)} 个 YYB 账号")
     success = 0
     clients: list[JtClient] = []
     for account in accounts:
         try:
             clients.append(run_account(account))
+            mark_ready(account.ref, app_id=APP_ID)
             success += 1
         except (ScriptError, requests.RequestException) as exc:
+            mark_from_error(account.ref, str(exc), app_id=APP_ID)
             print(f"{account.label}执行失败：{safe_text(exc)}")
     if clients:
         complete_share_tasks(clients)

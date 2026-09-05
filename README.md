@@ -215,6 +215,26 @@ YYB_SERVER=yyb-go:8000@owNAxxxxxxxxxxxxxxxxxxxxxxxx
 
 已确认报错的青龙/呆呆面板脚本修复版收录在 [`scripts/`](scripts/README.md)。
 
+### YYB 账号公共状态缓存
+
+`scripts/yyb_account_guard.py` 与 `scripts/yyb-account-guard.js` 为所有青龙
+YYB 脚本提供共享的账号状态缓存，默认写入 `/ql/data/config/yyb_account_status.json`。
+已接入爱玛、极兔、比亚迪海洋、都市甜心、DT 生活和慕斯脚本：明确的“未授权手机号、
+未注册会员、未绑定小程序”等业务响应会冷却该账号，后续任务直接跳过并继续下一个；
+超时、502/503、风控、活动太火爆、登录过期和 token 失效不会被误判为永久未注册。
+
+青龙中新增 `YYB账号状态检查.py`（建议 `17 */12 * * *`）维护缓存。由于开启网页登录
+认证后 `/accounts` 不能被青龙匿名读取，该任务只探测 YYB `/healthz` 并清理不在
+`YYB_SERVER` 的缓存条目，不调用业务小程序接口，不产生未消费的 `wx.login code`。需要执行
+手机号授权/自动注册流程的脚本可设置 `YYB_GUARD_BYPASS=1` 临时绕过公共过滤。
+
+可选环境变量：
+
+```dotenv
+YYB_ACCOUNT_STATUS_FILE=/ql/data/config/yyb_account_status.json
+YYB_GUARD_BYPASS=0
+```
+
 ### 金茂悦积分兑换与充电
 
 `scripts/jmychongdian.py` 将积分活动、可选的 1 元额度兑换和充电功率守护串成一个青龙任务。自动兑换默认关闭，只有显式设置 `JMY_AUTO_EXCHANGE=1` 才会兑换。它会先通过 `YYB_SERVER` 获取积分小程序 code，再调用积分 GraphQL；充电页仍需要 H5 的 `mobile_user`/`XKSESSION` Cookie。两套凭证不是同一个登录态，不能只填 YYB code。

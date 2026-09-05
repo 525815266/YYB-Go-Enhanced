@@ -36,6 +36,8 @@ from urllib.parse import quote
 
 import requests
 
+from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
+
 
 APPID = "wx46abbbcfa7cf571a"
 # ========== 修改：从环境变量 YYB_SERVER 读取服务地址，换行分割 ==========
@@ -54,6 +56,11 @@ if len(SERVERS) == 0:
     print("192.168.31.88:8088")
     print("192.168.31.62:8088")
     exit(1)
+
+SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
+if not SERVERS:
+    print("⏭️ 公共缓存中没有可执行账号")
+    raise SystemExit(0)
 
 print(f"✅ 读取到 {len(SERVERS)} 个 YYB Go 账号")
 print("-" * 60 + "\n")
@@ -823,7 +830,13 @@ def main() -> None:
         try:
             result = run_account(index, len(SERVERS), server)
             results.append(result)
+            ref = server.rsplit("@", 1)[-1].strip()
+            if result.get("success"):
+                mark_ready(ref, app_id=APPID)
+            else:
+                mark_from_error(ref, result.get("error", ""), app_id=APPID)
         except Exception as exc:
+            mark_from_error(server.rsplit("@", 1)[-1].strip(), str(exc), app_id=APPID)
             log_error("主程序", f"{server} 执行异常：{exc}")
             results.append({
                 "server": server,
