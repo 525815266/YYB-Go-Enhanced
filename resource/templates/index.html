@@ -355,7 +355,7 @@
     .account-card {
       width: 100%;
       min-width: 0;
-      min-height: 164px;
+      min-height: 148px;
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -583,15 +583,13 @@
       font-size: 11px;
     }
 
-    .account-lifecycle { display:grid; gap:5px; margin-top:3px; }
-    .lifecycle-row { display:grid; grid-template-columns:76px minmax(0,1fr) auto; align-items:center; gap:7px; color:var(--muted); font-size:10px; line-height:1.2; }
+    .account-lifecycle { display:grid; gap:4px; margin-top:3px; }
+    .lifecycle-row { display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:6px; color:var(--muted); font-size:10px; line-height:1.2; }
     .lifecycle-label { white-space:nowrap; }
     .lifecycle-track { height:5px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
-    .lifecycle-track span { display:block; height:100%; border-radius:inherit; background:#29934a; transition:width 180ms ease; }
-    .lifecycle-row.scan .lifecycle-track span { background:#2878c8; }
-    .lifecycle-row.warn .lifecycle-track span { background:#d97706; }
+    .lifecycle-track span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#c83b32 0%,#dd9228 46%,#2f9656 100%); transition:width 180ms ease; }
     .lifecycle-row.expired .lifecycle-track span { background:#b42318; }
-    .lifecycle-value { min-width:82px; text-align:right; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .lifecycle-value { min-width:72px; text-align:right; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums; }
     .lifecycle-note { color:var(--faint); font-size:10px; }
 
     .result-panel .panel-body {
@@ -1053,9 +1051,9 @@
       const scanClass = !observed || scanRemaining <= 0 ? "expired" : scanRemaining < 5 * 86400 ? "warn" : "scan";
       const autoClass = !expiresAt || autoRemaining <= 0 ? "expired" : autoRemaining < 15 * 60 ? "warn" : "";
       return `<span class="account-lifecycle" aria-label="账号有效期">
-        <span class="lifecycle-row ${scanClass}"><span class="lifecycle-label">扫码周期 30天</span><span class="lifecycle-track"><span style="width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
-        <span class="lifecycle-row ${autoClass}"><span class="lifecycle-label">自动保活凭据</span><span class="lifecycle-track"><span style="width:${autoRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${expiresAt ? lifecycleDuration(autoRemaining) : "未记录"}</span></span>
-        <span class="lifecycle-note">${observed ? `最近扫码 ${formatChecked(observed)}` : "旧账号暂无扫码时间记录"}${account.credential_expires_at ? ` · 当前凭据到期 ${formatChecked(account.credential_expires_at)}` : ""}</span>
+        <span class="lifecycle-row ${scanClass}"><span class="lifecycle-label">扫码 30天</span><span class="lifecycle-track"><span style="width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-row ${autoClass}"><span class="lifecycle-label">保活凭据</span><span class="lifecycle-track"><span style="width:${autoRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${expiresAt ? lifecycleDuration(autoRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-note">${observed ? `扫码 ${formatChecked(observed)}` : "扫码时间未记录"}${account.credential_expires_at ? ` · 到期 ${formatChecked(account.credential_expires_at)}` : ""}</span>
       </span>`;
     }
 
