@@ -431,6 +431,18 @@
       flex: 0 0 auto;
     }
 
+    .account-confirm-actions {
+      display: inline-flex;
+      gap: 4px;
+      margin-left: 6px;
+    }
+
+    .account-confirm-actions .btn {
+      min-height: 24px;
+      padding: 2px 7px;
+      font-size: 11px;
+    }
+
     .account-meta {
       color: var(--faint);
       font-size: 12px;
@@ -1140,12 +1152,11 @@
           <span class="account-main">
             <span class="account-header">
               <span class="account-name">${escapeHTML(name)}</span>
-              <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>
+              <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}${account.status === "unknown" ? `<span class="account-confirm-actions"><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></span>` : ""}</span>
             </span>
 			<span class="account-meta" title="账号 ID ${escapeHTML(number)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ID ${escapeHTML(number)} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
             ${lifecycleMarkup(account)}
-            ${account.status === "unknown" ? `<span class="account-confirm-actions"><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></span>` : ""}
           </span>
         `;
         button.querySelector("img").addEventListener("error", event => {
