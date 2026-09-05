@@ -348,17 +348,14 @@
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
       gap: 10px;
-      max-height: 326px;
-      overflow-y: auto;
       align-content: start;
-      scrollbar-width: thin;
       min-height: 112px;
     }
 
     .account-card {
       width: 100%;
       min-width: 0;
-      min-height: 88px;
+      min-height: 164px;
       padding: 10px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -585,6 +582,17 @@
       color: var(--faint);
       font-size: 11px;
     }
+
+    .account-lifecycle { display:grid; gap:5px; margin-top:3px; }
+    .lifecycle-row { display:grid; grid-template-columns:76px minmax(0,1fr) auto; align-items:center; gap:7px; color:var(--muted); font-size:10px; line-height:1.2; }
+    .lifecycle-label { white-space:nowrap; }
+    .lifecycle-track { height:5px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
+    .lifecycle-track span { display:block; height:100%; border-radius:inherit; background:#29934a; transition:width 180ms ease; }
+    .lifecycle-row.scan .lifecycle-track span { background:#2878c8; }
+    .lifecycle-row.warn .lifecycle-track span { background:#d97706; }
+    .lifecycle-row.expired .lifecycle-track span { background:#b42318; }
+    .lifecycle-value { min-width:82px; text-align:right; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .lifecycle-note { color:var(--faint); font-size:10px; }
 
     .result-panel .panel-body {
       gap: 10px;
@@ -1023,6 +1031,34 @@
       return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
 
+    function lifecycleDuration(seconds) {
+      if (!Number.isFinite(seconds) || seconds <= 0) return "未记录";
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      if (days > 0) return `${days}天${hours}小时`;
+      const minutes = Math.max(0, Math.floor(seconds / 60));
+      return `${minutes}分钟`;
+    }
+
+    function lifecycleMarkup(account) {
+      const now = Math.floor(Date.now() / 1000);
+      const observed = Number(account.refresh_token_observed_at || 0);
+      const scanWindow = 30 * 86400;
+      const scanRemaining = observed ? Math.max(0, scanWindow - (now - observed)) : 0;
+      const scanRatio = observed ? Math.min(100, Math.max(0, scanRemaining / scanWindow * 100)) : 0;
+      const expiresAt = Number(account.credential_expires_at || 0);
+      const expiresIn = Number(account.credential_expires_in || 7200);
+      const autoRemaining = expiresAt ? Math.max(0, expiresAt - now) : 0;
+      const autoRatio = expiresAt ? Math.min(100, Math.max(0, autoRemaining / expiresIn * 100)) : 0;
+      const scanClass = !observed || scanRemaining <= 0 ? "expired" : scanRemaining < 5 * 86400 ? "warn" : "scan";
+      const autoClass = !expiresAt || autoRemaining <= 0 ? "expired" : autoRemaining < 15 * 60 ? "warn" : "";
+      return `<span class="account-lifecycle" aria-label="账号有效期">
+        <span class="lifecycle-row ${scanClass}"><span class="lifecycle-label">扫码周期 30天</span><span class="lifecycle-track"><span style="width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-row ${autoClass}"><span class="lifecycle-label">自动保活凭据</span><span class="lifecycle-track"><span style="width:${autoRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${expiresAt ? lifecycleDuration(autoRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-note">${observed ? `最近扫码 ${formatChecked(observed)}` : "旧账号暂无扫码时间记录"}${account.credential_expires_at ? ` · 当前凭据到期 ${formatChecked(account.credential_expires_at)}` : ""}</span>
+      </span>`;
+    }
+
     function setActivity(message) {
       $("activityLine").textContent = message;
     }
@@ -1103,6 +1139,7 @@
             </span>
 			<span class="account-meta" title="账号 ID ${escapeHTML(number)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ID ${escapeHTML(number)} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
+            ${lifecycleMarkup(account)}
           </span>
         `;
         button.querySelector("img").addEventListener("error", event => {

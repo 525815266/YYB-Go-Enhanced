@@ -144,6 +144,8 @@ type AccountPublic struct {
 	Avatar                 *string `json:"avatar"`
 	Status                 *string `json:"status"`
 	RefreshTokenObservedAt *int64  `json:"refresh_token_observed_at,omitempty"`
+	CredentialExpiresAt    *int64  `json:"credential_expires_at,omitempty"`
+	CredentialExpiresIn    int64   `json:"credential_expires_in,omitempty"`
 	RescanRecommended      bool    `json:"rescan_recommended"`
 	LastCheckedAt          *int64  `json:"last_checked_at"`
 	CreatedAt              int64   `json:"created_at"`
@@ -808,11 +810,27 @@ func (db *DB) GetFeatureByName(ctx context.Context, name string) (*Feature, erro
 func (a *WechatAccount) Public() AccountPublic {
 	var refreshTokenObservedAt *int64
 	rescanRecommended := false
+	var credentialExpiresAt *int64
+	credentialExpiresIn := int64(0)
+	credentialExpiresAtValue := int64Credential(a.Credentials, "expires_at")
+	credentialExpiresIn = int64Credential(a.Credentials, "expires_in")
+	if credentialExpiresIn <= 0 {
+		credentialExpiresIn = 7200
+	}
 	if stringCredential(a.Credentials, "refreshtoken") != "" {
 		if observedAt := int64Credential(a.Credentials, "refresh_token_observed_at"); observedAt > 0 {
 			refreshTokenObservedAt = &observedAt
 			rescanRecommended = time.Now().Unix()-observedAt >= int64((25*24*time.Hour)/time.Second)
 		}
+	}
+	if credentialExpiresAtValue <= 0 {
+		if refreshedAt := int64Credential(a.Credentials, "refresh_refreshed_at"); refreshedAt > 0 {
+			credentialExpiresAtValue = refreshedAt + credentialExpiresIn
+		}
+	}
+	if credentialExpiresAtValue > 0 {
+		expiresAt := credentialExpiresAtValue
+		credentialExpiresAt = &expiresAt
 	}
 	return AccountPublic{
 		ID:                     a.ID,
@@ -824,6 +842,8 @@ func (a *WechatAccount) Public() AccountPublic {
 		Avatar:                 a.Avatar,
 		Status:                 a.Status,
 		RefreshTokenObservedAt: refreshTokenObservedAt,
+		CredentialExpiresAt:    credentialExpiresAt,
+		CredentialExpiresIn:    credentialExpiresIn,
 		RescanRecommended:      rescanRecommended,
 		LastCheckedAt:          a.LastCheckedAt,
 		CreatedAt:              a.CreatedAt,
