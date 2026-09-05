@@ -36,6 +36,8 @@
   <img src="docs/images/account-runs-mobile.png" alt="带账号备注的运行日志" width="360">
 </p>
 
+打开 [GitHub Pages 交互演示](https://525815266.github.io/YYB-Go-Enhanced/demo/) 查看纯静态 Demo。页面使用全部虚构的账号、OpenID、代理和时间数据，不会连接真实服务。
+
 ## Docker Compose 部署
 
 运行环境需要 Docker、Docker Compose，以及名为 `qinglong_default` 的 Docker 网络。如果没有青龙，也可以先创建同名网络：

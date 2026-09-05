@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YYB Go Enhanced · Demo</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#172529;background:#f4f7f8;line-height:1.45}
+    *{box-sizing:border-box}body{margin:0}.shell{max-width:1180px;margin:auto;padding:28px 20px 56px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:#152d35;color:#fff;font-weight:800;letter-spacing:-.04em}.brand h1{font-size:20px;line-height:1.1;margin:0}.brand p{margin:4px 0 0;color:#68787c;font-size:13px}.demo-tag{padding:7px 11px;border:1px solid #bdd2d2;border-radius:999px;color:#276f6d;background:#e6f3f1;font-size:12px;font-weight:700}
+    .layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);gap:18px}.panel{background:#fff;border:1px solid #d9e2e4;border-radius:14px;box-shadow:0 6px 22px rgba(24,48,55,.05)}.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 14px;border-bottom:1px solid #e7edef}.panel-head h2{margin:0;font-size:17px}.panel-head p{margin:5px 0 0;color:#6d7c80;font-size:13px}.stat{color:#397578;font-size:13px;font-weight:700;white-space:nowrap}.account-list{display:grid;gap:12px;padding:16px}
+    .account{border:1px solid #d6e0e2;border-radius:12px;padding:15px 16px;background:#fff;transition:border-color .18s,background .18s}.account.selected{border-color:#4fa7a3;background:#f1fbfa}.account-top{display:flex;align-items:flex-start;gap:12px}.avatar{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:#9dc8c4;color:#fff;font-weight:800;flex:0 0 auto}.account-copy{min-width:0;flex:1}.account-name{display:flex;align-items:center;gap:8px;justify-content:space-between}.account-name strong{font-size:15px}.status{font-size:12px;display:inline-flex;align-items:center;gap:5px;color:#3d7d4b;white-space:nowrap}.status i{width:7px;height:7px;border-radius:50%;background:#35a653}.status.pending{color:#936b12}.status.pending i{background:#e5bd16}.status.expired{color:#a53b30}.status.expired i{background:#d84b39}.meta,.openid{font-size:12px;color:#718084;margin-top:4px;overflow-wrap:anywhere}.openid{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#5b6d70}.confirm{display:flex;gap:6px;margin-top:9px}.btn{border:1px solid #cad7d9;background:#fff;color:#274046;border-radius:8px;padding:6px 9px;font:inherit;font-size:12px;cursor:pointer}.btn:hover{background:#f3f7f7}.btn:focus-visible{outline:3px solid #b6ddda;outline-offset:2px}.btn.primary{border-color:#287f7b;background:#287f7b;color:#fff}.btn.danger{border-color:#d9a7a1;color:#a53b30}.btn[hidden]{display:none}
+    .life{display:grid;gap:8px;margin:14px 0 0}.life-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:8px;font-size:11px;color:#647477}.track{height:7px;border-radius:99px;background:#e5edef;overflow:hidden}.track span{display:block;height:100%;border-radius:inherit}.green{background:#35a653}.yellow{background:#e5bd16}.orange{background:#ef9139}.red{background:#d84b39}.life-note{font-size:11px;color:#89979a}.account-foot{display:flex;justify-content:space-between;gap:10px;margin-top:11px;padding-top:10px;border-top:1px solid #edf1f2;color:#77868a;font-size:11px}
+    .side{display:grid;gap:18px;align-content:start}.side-section{padding:18px 20px}.side h3{margin:0 0 5px;font-size:15px}.side p{margin:0;color:#748286;font-size:12px}.kv{display:grid;gap:11px;margin-top:15px}.kv div{display:flex;justify-content:space-between;gap:12px;font-size:13px}.kv span{color:#77868a}.kv strong{text-align:right;font-weight:700}.notice{margin-top:15px;padding:11px 12px;border-radius:9px;background:#fff8df;color:#856719;font-size:12px}.footer{margin-top:20px;color:#819093;font-size:12px;text-align:center}
+    @media(max-width:820px){.layout{grid-template-columns:1fr}.shell{padding:18px 12px 40px}.topbar{align-items:flex-start}.brand h1{font-size:18px}.demo-tag{font-size:11px}.panel-head{padding:17px 16px 12px}.account-list{padding:12px}.account{padding:13px}.account-name{align-items:flex-start;flex-direction:column;gap:4px}.account-name .status{align-self:flex-start}.life-row{grid-template-columns:68px minmax(0,1fr) auto}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="mark">YB</span><div><h1>YYB Go Enhanced</h1><p>账号与能力调用控制台 · 静态演示</p></div></div>
+      <span class="demo-tag">DEMO · 全部为虚构数据</span>
+    </header>
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-head"><div><h2>账号队列</h2><p>查看账号状态、保活凭据和扫码周期</p></div><span class="stat" id="count">3 个账号</span></div>
+        <div class="account-list" id="accounts"></div>
+      </section>
+      <aside class="side">
+        <section class="panel side-section"><h3>当前账号</h3><p id="selectedName">演示账号 A</p><div class="kv"><div><span>代理模式</span><strong>直连</strong></div><div><span>保活策略</span><strong>自动续期</strong></div><div><span>最近调用</span><strong>12 次 / 24 小时</strong></div><div><span>所属地区</span><strong>山东 · 济南</strong></div></div><div class="notice">这是 GitHub Pages 静态 Demo，不会连接 YYB 服务，也不会保存任何输入。</div></section>
+        <section class="panel side-section"><h3>生命周期说明</h3><p>短周期放在上方，长周期放在下方。颜色按剩余比例从绿色逐步过渡到鲜黄、橙色和红色。</p></section>
+      </aside>
+    </div>
+    <p class="footer">演示账号、OpenID、代理地区与时间均为随机示例，不代表真实服务状态。</p>
+  </main>
+  <script>
+    const accounts=[
+      {id:1,name:"演示账号 A",initial:"A",openid:"demo-openid-a1b2c3",status:"alive",proxy:"直连",checked:"09-05 15:20",auto:82,scan:91,autoText:"96 分钟",scanText:"24 天 8 小时",region:"山东 · 济南"},
+      {id:2,name:"演示账号 B",initial:"B",openid:"demo-openid-d4e5f6",status:"pending",proxy:"动态代理",checked:"09-05 14:48",auto:52,scan:68,autoText:"41 分钟",scanText:"18 天 4 小时",region:"北京 · 朝阳"},
+      {id:3,name:"演示账号 C",initial:"C",openid:"demo-openid-g7h8i9",status:"expired",proxy:"品赞代理",checked:"09-04 22:10",auto:4,scan:36,autoText:"已到期",scanText:"10 天 2 小时",region:"江苏 · 南京"}
+    ];
+    const statusMap={alive:["可用",""],pending:["待确认","pending"],expired:["需重扫","expired"]};
+    function render(){document.querySelector('#count').textContent=`${accounts.length} 个账号`;document.querySelector('#accounts').innerHTML=accounts.map((a,i)=>{const [label,cls]=statusMap[a.status];return `<article class="account ${i===0?'selected':''}" data-id="${a.id}"><div class="account-top"><span class="avatar">${a.initial}</span><div class="account-copy"><div class="account-name"><strong>${a.name}</strong><span class="status ${cls}"><i></i>${label}</span></div><div class="meta">账号 ID ${a.id} · ${a.proxy} · ${a.checked}</div><div class="openid">OpenID: ${a.openid}</div><div class="life"><div class="life-row"><span>保活凭据</span><span class="track"><span class="${a.auto>70?'green':a.auto>40?'yellow':a.auto>15?'orange':'red'}" style="width:${a.auto}%"></span></span><span>${a.autoText}</span></div><div class="life-row"><span>扫码 30 天</span><span class="track"><span class="${a.scan>70?'green':a.scan>40?'yellow':a.scan>15?'orange':'red'}" style="width:${a.scan}%"></span></span><span>${a.scanText}</span></div></div><div class="life-note">扫码记录 · 到期时间仅用于演示</div><div class="account-foot"><span>${a.region}</span><span>${a.status==='expired'?'已暂停调用':'可参与保活'}</span></div>${a.status==='pending'?'<div class="confirm"><button class="btn primary" data-action="alive">仍有效</button><button class="btn danger" data-action="expired">已失效</button></div>':''}</div></div></article>`}).join('');document.querySelectorAll('.account').forEach(card=>card.addEventListener('click',()=>{document.querySelectorAll('.account').forEach(item=>item.classList.remove('selected'));card.classList.add('selected');document.querySelector('#selectedName').textContent=accounts.find(item=>item.id===Number(card.dataset.id)).name}));document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',event=>{event.stopPropagation();const card=button.closest('.account'),account=accounts.find(item=>item.id===Number(card.dataset.id));account.status=button.dataset.action;render()}))}
+    render();
+  </script>
+</body>
+</html>
