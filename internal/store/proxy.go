@@ -73,6 +73,17 @@ updated_at=excluded.updated_at`,
 	return db.GetAccountProxySetting(ctx, accountID)
 }
 
+func (db *DB) CopyAccountProxySetting(ctx context.Context, sourceAccountID, targetAccountID int64) error {
+	setting, err := db.AccountProxySettingOrDefault(ctx, sourceAccountID)
+	if err != nil {
+		return err
+	}
+	_, err = db.UpsertAccountProxySetting(ctx, targetAccountID, setting.Mode, setting.ProxyType,
+		setting.StaticProxy, setting.APIURL, setting.ProviderProfileID, setting.RegionCode,
+		setting.RegionProvince, setting.RegionCity, setting.RefreshAheadSeconds)
+	return err
+}
+
 func (db *DB) CountAccountsUsingProxyProfile(ctx context.Context, profileID int64) (int, error) {
 	var count int
 	err := db.sql.QueryRowContext(ctx, "SELECT count(*) FROM account_proxy_settings WHERE provider_profile_id=?", profileID).Scan(&count)

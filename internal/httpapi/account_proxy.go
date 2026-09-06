@@ -50,6 +50,10 @@ type qrLoginSession struct {
 	Client    *qr.Client
 	ProxySpec proxysource.Spec
 	ProxyIn   accountProxyIn
+	// Optional one-time account-link binding. Zero means a normal console QR.
+	AccountLinkID   int64
+	AccountLinkMode string
+	BaseAccountID   int64
 	// Keep the freshly fetched image in memory so the image endpoint does not
 	// depend on the QR cache directory being writable in a container.
 	ImageBytes []byte

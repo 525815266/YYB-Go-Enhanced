@@ -24,6 +24,7 @@ func newOpenAPISpec() map[string]any {
 		"tags": []map[string]any{
 			{"name": "health", "description": "服务健康检查"},
 			{"name": "qr", "description": "微信扫码登录"},
+			{"name": "account-links", "description": "一次性账号扫码授权链接"},
 			{"name": "quick-login", "description": "桌面微信快速授权"},
 			{"name": "accounts", "description": "已保存的微信账号"},
 			{"name": "proxy-profiles", "description": "可复用的品赞代理配置与地区"},
@@ -121,6 +122,53 @@ func newOpenAPISpec() map[string]any {
 					defaulted(map[string]any{
 						"200": jsonResponse("已保存的账号信息。", refSchema("AccountPublic")),
 					}),
+				),
+			},
+			"/api/account-links": map[string]any{
+				"post": openAPIOperation(
+					[]string{"account-links"},
+					"生成一次性账号扫码授权链接",
+					nil,
+					jsonRequestBody(freeFormObjectSchema("kind=update 或 add；ref 为基础账号 ID/UIN/OpenID；ttl_seconds 可选，范围 60-604800。")),
+					defaulted(map[string]any{
+						"200": jsonResponse("授权链接。链接只返回一次，数据库仅保存其 SHA-256 哈希。", freeFormObjectSchema("url、expires_at、one_time。")),
+					}),
+				),
+			},
+			"/account-link/{token}": map[string]any{
+				"get": openAPIOperation(
+					[]string{"account-links"},
+					"打开一次性扫码授权页面",
+					[]map[string]any{pathStringParam("token", "随机不可逆 bearer token。")},
+					nil,
+					defaulted(map[string]any{"200": htmlResponse("扫码授权页面。")}),
+				),
+			},
+			"/account-link/{token}/qr": map[string]any{
+				"post": openAPIOperation(
+					[]string{"account-links"},
+					"为一次性授权链接创建二维码",
+					[]map[string]any{pathStringParam("token", "随机不可逆 bearer token。")},
+					nil,
+					defaulted(map[string]any{"200": jsonResponse("二维码会话。", refSchema("QRCreateResponse"))}),
+				),
+			},
+			"/account-link/{token}/qr/{session_id}/poll": map[string]any{
+				"get": openAPIOperation(
+					[]string{"account-links"},
+					"轮询一次性授权二维码",
+					[]map[string]any{pathStringParam("token", "随机不可逆 bearer token。"), pathStringParam("session_id", "二维码会话 ID。")},
+					nil,
+					defaulted(map[string]any{"200": jsonResponse("扫码状态。", refSchema("QRPollResponse"))}),
+				),
+			},
+			"/account-link/{token}/qr/{session_id}/confirm": map[string]any{
+				"post": openAPIOperation(
+					[]string{"account-links"},
+					"确认一次性授权并更新或新增账号",
+					[]map[string]any{pathStringParam("token", "随机不可逆 bearer token。"), pathStringParam("session_id", "二维码会话 ID。")},
+					nil,
+					defaulted(map[string]any{"200": jsonResponse("保存后的账号。", refSchema("AccountPublic"))}),
 				),
 			},
 			"/accounts": map[string]any{
@@ -771,6 +819,17 @@ func imageResponse(description string) map[string]any {
 		"content": map[string]any{
 			"image/jpeg": map[string]any{
 				"schema": map[string]any{"type": "string", "format": "binary"},
+			},
+		},
+	}
+}
+
+func htmlResponse(description string) map[string]any {
+	return map[string]any{
+		"description": description,
+		"content": map[string]any{
+			"text/html": map[string]any{
+				"schema": map[string]any{"type": "string"},
 			},
 		},
 	}

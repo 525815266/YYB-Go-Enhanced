@@ -821,6 +821,8 @@
               <input class="input" id="accountRemarkInput" maxlength="80" placeholder="账号备注，例如：Boom">
               <button class="btn secondary" id="saveRemarkBtn" type="button">保存备注</button>
               <button class="btn secondary" id="syncQingLongBtn" type="button">同步到面板</button>
+              <button class="btn secondary" id="updateAccountLinkBtn" type="button" title="生成只能更新当前账号的一次性扫码链接">生成更新链接</button>
+              <button class="btn secondary" id="addAccountLinkBtn" type="button" title="生成只能录入新 YYB 账号的一次性扫码链接">生成新增链接</button>
               <button class="btn danger" id="deleteAccountBtn" type="button">删除账号</button>
             </div>
             <div class="proxy-summary">
@@ -1441,6 +1443,32 @@
       }
     }
 
+    async function createAccountLink(kind) {
+      const account = getSelectedAccount();
+      if (!account) return;
+      const defaultMinutes = kind === "update" ? 10 : 30;
+      const input = window.prompt(`设置链接有效期（分钟，1-10080）`, String(defaultMinutes));
+      if (input === null) return;
+      const minutes = Number(input);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
+        setActivity("链接有效期必须是 1 到 10080 分钟的整数");
+        return;
+      }
+      const button = kind === "update" ? $("updateAccountLinkBtn") : $("addAccountLinkBtn");
+      button.disabled = true;
+      try {
+        const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60 });
+        try { await navigator.clipboard.writeText(result.url); } catch { /* 手动复制兜底 */ }
+        const label = kind === "update" ? "更新链接" : "新增链接";
+        setActivity(`${label}已生成并尝试复制，${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟后失效`);
+        window.prompt(`${label}（一次性，请勿公开扩散）`, result.url);
+      } catch (error) {
+        setActivity(`${kind === "update" ? "更新" : "新增"}链接生成失败：${error.message}`);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     async function syncAllQingLong() {
       if (!state.accounts.length) return;
       const button = $("syncAllQingLongBtn");
@@ -1631,6 +1659,8 @@
     $("syncAllQingLongBtn").addEventListener("click", syncAllQingLong);
     $("saveRemarkBtn").addEventListener("click", saveRemark);
     $("syncQingLongBtn").addEventListener("click", syncQingLong);
+    $("updateAccountLinkBtn").addEventListener("click", () => createAccountLink("update"));
+    $("addAccountLinkBtn").addEventListener("click", () => createAccountLink("add"));
     $("deleteAccountBtn").addEventListener("click", deleteAccount);
     $("saveQingLongBtn").addEventListener("click", saveQingLongConfig);
     $("clearQingLongBtn").addEventListener("click", clearQingLongConfig);

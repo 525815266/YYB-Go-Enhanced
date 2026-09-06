@@ -186,6 +186,71 @@ func TestUpsertAccountDoesNotConsumeIDOnDuplicate(t *testing.T) {
 	}
 }
 
+func TestAccountLinkLifecycleAndIDCompaction(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	first, err := db.UpsertAccount(ctx, "link-openid-1", "buffer-1", nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("seed first account: %v", err)
+	}
+	second, err := db.UpsertAccount(ctx, "link-openid-2", "buffer-2", nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("seed second account: %v", err)
+	}
+	if err := db.DeleteAccount(ctx, first.ID); err != nil {
+		t.Fatalf("delete first account: %v", err)
+	}
+	expires := time.Now().Add(time.Hour).Unix()
+	link, err := db.CreateAccountLink(ctx, "hash-for-compaction", "add", second.ID, nil, "", expires)
+	if err != nil {
+		t.Fatalf("CreateAccountLink() error = %v", err)
+	}
+	found, err := db.GetAccountLinkByHash(ctx, "hash-for-compaction")
+	if err != nil || found.ID != link.ID {
+		t.Fatalf("GetAccountLinkByHash() = %#v, %v", found, err)
+	}
+	if ok, err := db.ConsumeAccountLink(ctx, link.ID); err != nil || !ok {
+		t.Fatalf("first ConsumeAccountLink() = %v, %v", ok, err)
+	}
+	if ok, err := db.ConsumeAccountLink(ctx, link.ID); err != nil || ok {
+		t.Fatalf("second ConsumeAccountLink() = %v, %v", ok, err)
+	}
+	if _, err := db.CompactAccountIDs(ctx); err != nil {
+		t.Fatalf("CompactAccountIDs() error = %v", err)
+	}
+	compacted, err := db.GetAccountLink(ctx, link.ID)
+	if err != nil {
+		t.Fatalf("link after compaction: %v", err)
+	}
+	if compacted.AccountID != 1 {
+		t.Fatalf("link account id after compaction = %d, want 1", compacted.AccountID)
+	}
+}
+
+func TestExpiredAccountLinkCannotBeConsumed(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	account, err := db.UpsertAccount(ctx, "expired-link-openid", "buffer", nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	link, err := db.CreateAccountLink(ctx, "expired-link-hash", "update", account.ID, nil, account.OpenID, time.Now().Add(-time.Minute).Unix())
+	if err != nil {
+		t.Fatalf("CreateAccountLink() error = %v", err)
+	}
+	if ok, err := db.ConsumeAccountLink(ctx, link.ID); err != nil || ok {
+		t.Fatalf("ConsumeAccountLink(expired) = %v, %v", ok, err)
+	}
+}
+
 func TestUpsertAccountReusesGapAfterDelete(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {

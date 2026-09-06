@@ -265,6 +265,11 @@ func (a *App) Handler() http.Handler {
 	router.Any("/wx/appmsgext", gin.WrapF(a.handleWXAppMsgExt))
 	router.Any("/wx/appmsglike", gin.WrapF(a.handleWXAppMsgLike))
 	router.Any("/openapi.json", gin.WrapF(a.handleOpenAPI))
+	// Bearer-style one-time account links are intentionally public. The token
+	// itself is a random secret; all management and link creation APIs remain
+	// behind the browser session middleware below.
+	router.Any("/account-link/:token", gin.WrapF(a.handleAccountLinkPage))
+	router.Any("/account-link/:token/*path", gin.WrapF(a.handleAccountLink))
 
 	router.Use(a.requireBrowserSession())
 	router.Any("/settings", gin.WrapF(a.handleSettingsPage))
@@ -276,6 +281,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/api/auth/users", gin.WrapF(a.handleUsers))
 	router.Any("/api/auth/users/*path", gin.WrapF(a.handleUserAction))
 	router.Any("/api/auth/registration", gin.WrapF(a.handleRegistrationSetting))
+	router.Any("/api/account-links", gin.WrapF(a.handleAccountLinksAPI))
 	router.Any("/", gin.WrapF(a.handleIndex))
 	router.Any("/scan", gin.WrapF(a.handleScan))
 	router.Any("/proxies", gin.WrapF(a.handleProxiesPage))

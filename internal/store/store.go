@@ -105,6 +105,19 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value      TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS account_links (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash      TEXT    NOT NULL UNIQUE,
+    kind            TEXT    NOT NULL,
+    account_id      INTEGER NOT NULL REFERENCES wechat_accounts(id) ON DELETE CASCADE,
+    owner_user_id   INTEGER,
+    expected_openid TEXT    NOT NULL DEFAULT '',
+    expires_at      INTEGER NOT NULL,
+    used_at         INTEGER,
+    created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_account_links_expires ON account_links(expires_at);
 `
 
 var defaultFeatures = []Feature{
@@ -601,6 +614,7 @@ func (db *DB) CompactAccountIDs(ctx context.Context) (map[int64]int64, error) {
 		{"account_script_jobs", "account_id"},
 		{"account_push_settings", "account_id"},
 		{"account_proxy_settings", "account_id"},
+		{"account_links", "account_id"},
 	}
 	for oldID := range mapping {
 		for _, child := range childTables {
