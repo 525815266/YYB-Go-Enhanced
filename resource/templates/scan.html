@@ -66,6 +66,7 @@
     .location-suggestion strong { display:block; font-size:13px; }
     .location-suggestion span { display:block; margin-top:2px; font-size:12px; }
     .location-actions { display:flex; gap:6px; flex:0 0 auto; }
+    .auth-note { margin:0 0 12px; padding:10px 12px; border:1px solid #c9d9e8; border-radius:var(--radius); background:#f1f7fc; color:#254b6d; font-size:12px; line-height:1.55; }
     @media (max-width:720px) { .topbar { padding:10px 16px; } .brand p { display:none; } main { margin:16px auto; grid-template-columns:1fr; } .actions .btn { flex:1 1 140px; } .proxy-grid { grid-template-columns:1fr; } .proxy-wide { grid-column:auto; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; } }
   </style>
@@ -77,7 +78,7 @@
   </header>
   <main>
     <section class="panel">
-      <div class="head"><h2>微信授权</h2><p>选择本机微信确认或手机扫码</p></div>
+      <div class="head"><h2>微信授权</h2><p id="authMethodDescription">正在读取授权方式…</p></div>
       <div class="body">
         <details class="proxy-options" id="scanProxyOptions">
           <summary>登录网络代理</summary>
@@ -133,7 +134,7 @@
           </div>
           <div class="proxy-message" id="scanProxyMessage">默认直连</div>
         </details>
-        <div class="mode-switch" role="tablist" aria-label="授权方式">
+        <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="授权方式">
           <button class="mode-button" id="quickModeBtn" type="button" role="tab" aria-selected="false" aria-controls="quickPane">本机微信</button>
           <button class="mode-button" id="qrModeBtn" type="button" role="tab" aria-selected="true" aria-controls="qrPane">扫码</button>
         </div>
@@ -149,6 +150,7 @@
           </div>
         </div>
         <div class="mode-pane" id="qrPane" role="tabpanel" aria-labelledby="qrModeBtn">
+          <div class="auth-note" id="qrModeNote" hidden>当前仅支持手机扫码授权。本机微信登录已关闭，可通过服务端变量 <code>YYB_ENABLE_PC_LOGIN=true</code> 显式开启。</div>
           <div class="qr" id="qrWrap">准备生成二维码</div>
           <div class="status pending" id="status">等待生成二维码</div>
           <div class="countdown" id="countdown"></div>
@@ -192,6 +194,7 @@
     let sid = null, account = null, pollTimer = null, countdownTimer = null, seconds = 0;
     let quickConfig = null, quickPort = null, quickProfile = null, quickBusy = false;
 	let proxyProfiles = [], proxyCities = new Map(), pendingLocation = null;
+    function applyAuthModeUI(){ const description=$('authMethodDescription'),switcher=$('modeSwitch'),note=$('qrModeNote'); if(PC_LOGIN_ENABLED){ description.textContent='可选择本机微信确认或手机扫码'; note.hidden=true; }else{ description.textContent='当前仅支持手机扫码授权'; switcher.hidden=true; note.hidden=false; $('quickModeBtn').hidden=true; $('quickPane').hidden=true; $('qrModeBtn').setAttribute('aria-selected','true'); } }
     async function api(method,url,body) { const options={method,headers:{"Content-Type":"application/json"}}; if(body!==undefined) options.body=JSON.stringify(body); const response=await fetch(url,options); const text=await response.text(); let payload=null; try{payload=text?JSON.parse(text):null}catch{payload=text} const envelope=payload&&typeof payload==="object"&&!Array.isArray(payload)&&"code" in payload&&"data" in payload; if(!response.ok||(envelope&&payload.code!==0)) throw new Error(envelope?payload.msg:`HTTP ${response.status}`); return envelope?payload.data:payload; }
     function stopTimers(){ if(pollTimer) clearInterval(pollTimer); if(countdownTimer) clearInterval(countdownTimer); pollTimer=countdownTimer=null; }
 	function proxyPayload(){ const mode=$('scanProxyMode').value,profileMode=mode==="profile",province=$('scanProvince'),city=$('scanCity').value; return {product:"appstore",mode:profileMode?"api":mode,proxy_type:$('scanProxyType').value,static_proxy:$('scanStaticProxy').value.trim(),api_url:$('scanProxyAPI').value.trim(),provider_profile_id:profileMode&&$('scanProxyProfile').value?Number($('scanProxyProfile').value):null,region_code:profileMode?(city||province.value):"",region_province:profileMode&&province.value!=="all"?province.options[province.selectedIndex]?.text||"":"",region_city:profileMode&&city?$('scanCity').options[$('scanCity').selectedIndex]?.text||"":"",refresh_ahead_minutes:5}; }
@@ -229,7 +232,7 @@
 	async function confirm(){ $("countdown").textContent=""; setQRWaiting("正在保存账号"); setStatus("授权成功，正在保存账号","scanned"); try{ const nextAccount=await api("POST",`/qr/${sid}/confirm`); showAccount(nextAccount); clearQRWaiting(); $("qrWrap").innerHTML='<span class="check">✓</span>'; setStatus(`账号添加成功 · ${proxyChoiceLabel()}（已有账号保留原配置）`,"ok"); }catch(error){clearQRWaiting();setStatus(`保存账号失败：${error.message}`,"error");} }
     async function saveRemark(silent=false){ if(!account)return false; const button=$("saveRemarkBtn"); button.disabled=true; try{ const result=await api("PUT","/accounts/remark",{ref:String(account.id),remark:$("remarkInput").value}); account=result.account; if(!silent) setMessage(result.warning||"备注已保存",result.warning?"error":"ok"); return true; }catch(error){setMessage(`备注保存失败：${error.message}`,"error"); return false;}finally{button.disabled=false;} }
 	async function syncAccount(){ if(!account)return; const button=$("syncBtn"); button.disabled=true; button.textContent="正在添加"; setMessage("正在保存备注并同步面板"); try{ if(!await saveRemark(true))return; const result=await api("POST","/api/qinglong/sync",{ref:String(account.id)}); setMessage(result.added?`已添加到面板 YYB_SERVER：账号 ${account.id}`:`面板 YYB_SERVER 已包含账号 ${account.id}，无需重复添加`,"ok"); button.textContent="已添加到面板"; }catch(error){ setMessage(error.message.includes("配置")?"尚未配置自动化面板，请返回控制台填写连接信息。":`同步失败：${error.message}`,"error"); button.textContent="添加到面板"; }finally{button.disabled=false;} }
-	if(!PC_LOGIN_ENABLED){ $("quickModeBtn").hidden=true; $("quickPane").hidden=true; }
+	applyAuthModeUI();
 	$("scanProxyMode").addEventListener("change",toggleProxyFields); $("scanProxyProfile").addEventListener("change",showProxyChoice); $("scanProvince").addEventListener("change",event=>loadScanCities(event.target.value).catch(error=>$('scanProxyMessage').textContent=`城市列表读取失败：${error.message}`)); $("scanCity").addEventListener("change",showProxyChoice); $("scanLocationBtn").addEventListener("click",recommendLocation); $("scanLocationUseBtn").addEventListener("click",()=>useRecommendedLocation().catch(error=>$('scanProxyMessage').textContent=`采用推荐失败：${error.message}`)); $("scanLocationDismissBtn").addEventListener("click",hideLocationSuggestion); $("scanProxyTestBtn").addEventListener("click",testProxy); $("scanProxyApplyBtn").addEventListener("click",applyProxy); $("quickModeBtn").addEventListener("click",()=>showMode("quick")); $("qrModeBtn").addEventListener("click",()=>showMode("qr")); $("quickAuthBtn").addEventListener("click",authorizeQuick); $("quickRetryBtn").addEventListener("click",detectQuickLogin); $("refreshBtn").addEventListener("click",newQR); $("backBtn").addEventListener("click",async()=>{stopTimers();await retireQR();location.href="/";}); $("saveRemarkBtn").addEventListener("click",()=>saveRemark()); $("syncBtn").addEventListener("click",syncAccount); $("copyBtn").addEventListener("click",async()=>{ try{await navigator.clipboard.writeText(account?.openid||"");setMessage("OpenID 已复制","ok");}catch{setMessage("复制失败，请手动选择 OpenID","error");} });
     toggleProxyFields();
 	initializeProxyOptions().finally(()=>showMode(PC_LOGIN_ENABLED?"quick":"qr"));

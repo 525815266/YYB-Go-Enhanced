@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -143,14 +144,66 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) accountLinkURL(r *http.Request, token string) string {
 	scheme := "http"
-	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") || a.cfg.CookieSecure {
+	if strings.EqualFold(forwardedValue(r.Header.Get("X-Forwarded-Proto")), "https") || strings.EqualFold(forwardedParameter(r.Header.Get("Forwarded"), "proto"), "https") || a.cfg.CookieSecure {
 		scheme = "https"
 	}
-	host := r.Host
+	host := forwardedValue(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
+		host = forwardedParameter(r.Header.Get("Forwarded"), "host")
+	}
+	if !validPublicHost(host) {
+		host = r.Host
+	}
+	if !validPublicHost(host) {
 		host = "localhost"
 	}
 	return scheme + "://" + host + "/account-link/" + token
+}
+
+// forwardedValue returns the first value from a comma-separated proxy header.
+// Reverse proxies commonly append their own hop, while the first value is the
+// public address seen by the browser that initiated the request.
+func forwardedValue(value string) string {
+	value = strings.TrimSpace(strings.Split(value, ",")[0])
+	return strings.Trim(value, "\"")
+}
+
+func forwardedParameter(value, name string) string {
+	for _, part := range strings.Split(forwardedValue(value), ";") {
+		key, raw, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), name) {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(raw), "\"")
+	}
+	return ""
+}
+
+func validPublicHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.ContainsAny(host, "/\\?#@\r\n") {
+		return false
+	}
+	if strings.HasPrefix(host, "[") {
+		end := strings.IndexByte(host, ']')
+		if end < 0 || net.ParseIP(host[1:end]) == nil {
+			return false
+		}
+		if len(host) > end+1 && host[end+1] != ':' {
+			return false
+		}
+		return true
+	}
+	if strings.Count(host, ":") > 1 {
+		return false
+	}
+	if strings.Contains(host, ":") {
+		_, port, err := net.SplitHostPort(host)
+		if err != nil || port == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) handleAccountLinkPage(w http.ResponseWriter, r *http.Request) {
@@ -276,11 +329,11 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 	_ = os.WriteFile(path, img.ImageBytes, 0o644)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session_id": img.Session.ID, "status": img.Session.Status,
-		"image_url":  "/account-link/" + tokenForLinkPath(r.URL.Path) + "/qr/" + img.Session.ID + "/image",
-		"expires_in": int64(a.cfg.QRSessionTTL.Seconds()),
-		"qr_expires_at": time.Now().Add(a.cfg.QRSessionTTL).Unix(),
+		"image_url":       "/account-link/" + tokenForLinkPath(r.URL.Path) + "/qr/" + img.Session.ID + "/image",
+		"expires_in":      int64(a.cfg.QRSessionTTL.Seconds()),
+		"qr_expires_at":   time.Now().Add(a.cfg.QRSessionTTL).Unix(),
 		"link_expires_at": link.ExpiresAt,
-		"mode": link.Kind,
+		"mode":            link.Kind,
 	})
 }
 

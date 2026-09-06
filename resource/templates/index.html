@@ -667,6 +667,35 @@
       display: none !important;
     }
 
+    dialog.link-dialog {
+      width: min(560px, calc(100vw - 32px));
+      max-width: 560px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--bg);
+      color: var(--ink);
+      box-shadow: 0 24px 70px oklch(0.18 0.04 210 / 0.24);
+    }
+
+    dialog.link-dialog::backdrop {
+      background: oklch(0.18 0.04 210 / 0.48);
+      backdrop-filter: blur(2px);
+    }
+
+    .link-dialog-body { padding: 22px; }
+    .link-dialog-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+    .link-dialog-head h2 { margin:0; font-size:18px; line-height:1.25; }
+    .link-dialog-head p { margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.5; }
+    .link-dialog-close { min-width:34px; min-height:34px; padding:4px; border:1px solid var(--line); border-radius:var(--radius); background:transparent; color:var(--muted); font-size:20px; line-height:1; cursor:pointer; }
+    .link-dialog-close:hover { background:var(--surface-strong); color:var(--ink); }
+    .link-dialog-close:focus-visible { outline:3px solid oklch(0.82 0.08 190); outline-offset:2px; }
+    .link-dialog-url { display:flex; gap:8px; align-items:stretch; }
+    .link-dialog-url .input { min-width:0; flex:1; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; }
+    .link-dialog-meta { margin-top:10px; color:var(--muted); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+    .link-dialog-footnote { margin:14px 0 0; color:var(--muted); font-size:12px; line-height:1.55; }
+    @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } }
+
     @media (max-width: 1360px) {
       .overview,
       .work-grid {
@@ -944,6 +973,41 @@
       </section>
     </main>
   </div>
+
+  <dialog class="link-dialog" id="accountLinkDialog" aria-labelledby="accountLinkDialogTitle">
+    <div class="link-dialog-body">
+      <div class="link-dialog-head">
+        <div>
+          <h2 id="accountLinkDialogTitle">生成扫码链接</h2>
+          <p id="accountLinkDialogDescription">链接只可使用一次，生成后请直接交给授权人。</p>
+        </div>
+        <button class="link-dialog-close" id="accountLinkDialogClose" type="button" aria-label="关闭">×</button>
+      </div>
+      <form id="accountLinkConfigPane">
+        <div class="field">
+          <label for="accountLinkTTL">链接有效期（分钟）</label>
+          <input class="input" id="accountLinkTTL" type="number" min="1" max="10080" step="1" inputmode="numeric">
+          <span class="field-note">范围 1 到 10080 分钟。二维码刷新不会消耗链接有效期。</span>
+        </div>
+        <div class="inline-actions" style="margin-top:16px">
+          <button class="btn secondary" id="accountLinkCancelBtn" type="button">取消</button>
+          <button class="btn primary" id="accountLinkGenerateBtn" type="submit">生成链接</button>
+        </div>
+      </form>
+      <section id="accountLinkResultPane" hidden>
+        <div class="link-dialog-url">
+          <input class="input" id="accountLinkURL" type="url" readonly aria-label="一次性授权链接">
+          <button class="btn secondary" id="accountLinkCopyBtn" type="button">复制链接</button>
+        </div>
+        <div class="link-dialog-meta" id="accountLinkExpiry"></div>
+        <div class="inline-actions" style="margin-top:16px">
+          <a class="btn primary" id="accountLinkOpenBtn" href="#" target="_blank" rel="noopener">打开链接</a>
+          <button class="btn secondary" id="accountLinkDoneBtn" type="button">完成</button>
+        </div>
+        <p class="link-dialog-footnote">请勿公开转发或保存二维码。链接在有效期结束或成功授权后立即失效。</p>
+      </section>
+    </div>
+  </dialog>
 
   <script>
     const state = {
@@ -1443,29 +1507,63 @@
       }
     }
 
-    async function createAccountLink(kind) {
+    let pendingAccountLinkKind = "";
+
+    function openAccountLinkDialog(kind) {
       const account = getSelectedAccount();
       if (!account) return;
       const defaultMinutes = kind === "update" ? 10 : 30;
-      const input = window.prompt(`设置链接有效期（分钟，1-10080）`, String(defaultMinutes));
-      if (input === null) return;
-      const minutes = Number(input);
+      pendingAccountLinkKind = kind;
+      $("accountLinkDialogTitle").textContent = kind === "update" ? "生成更新链接" : "生成新增链接";
+      $("accountLinkDialogDescription").textContent = kind === "update" ? "只允许更新当前账号，扫码账号不匹配时不会写入。" : "只允许录入尚未保存的 YYB 账号，已存在账号会被拒绝。";
+      $("accountLinkTTL").value = String(defaultMinutes);
+      $("accountLinkConfigPane").hidden = false;
+      $("accountLinkResultPane").hidden = true;
+      const dialog = $("accountLinkDialog");
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      requestAnimationFrame(() => $("accountLinkTTL").focus());
+    }
+
+    function closeAccountLinkDialog() {
+      const dialog = $("accountLinkDialog");
+      if (dialog.open && typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+      pendingAccountLinkKind = "";
+    }
+
+    async function createAccountLink() {
+      const kind = pendingAccountLinkKind;
+      const account = getSelectedAccount();
+      if (!kind || !account) return;
+      const minutes = Number($("accountLinkTTL").value);
       if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
-        setActivity("链接有效期必须是 1 到 10080 分钟的整数");
+        $("accountLinkTTL").setCustomValidity("请输入 1 到 10080 分钟之间的整数");
+        $("accountLinkTTL").reportValidity();
         return;
       }
-      const button = kind === "update" ? $("updateAccountLinkBtn") : $("addAccountLinkBtn");
+      $("accountLinkTTL").setCustomValidity("");
+      const button = $("accountLinkGenerateBtn");
       button.disabled = true;
+      button.textContent = "正在生成";
       try {
         const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60 });
         try { await navigator.clipboard.writeText(result.url); } catch { /* 手动复制兜底 */ }
         const label = kind === "update" ? "更新链接" : "新增链接";
         setActivity(`${label}已生成并尝试复制，${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟后失效`);
-        window.prompt(`${label}（一次性，请勿公开扩散）`, result.url);
+        $("accountLinkDialogTitle").textContent = `${label}已生成`;
+        $("accountLinkDialogDescription").textContent = "链接已复制到剪贴板，也可以在下方再次复制或打开。";
+        $("accountLinkConfigPane").hidden = true;
+        $("accountLinkResultPane").hidden = false;
+        $("accountLinkURL").value = result.url;
+        $("accountLinkOpenBtn").href = result.url;
+        $("accountLinkExpiry").textContent = `有效期至 ${new Date(result.expires_at * 1000).toLocaleString()}。成功授权后链接立即失效。`;
+        requestAnimationFrame(() => $("accountLinkCopyBtn").focus());
       } catch (error) {
         setActivity(`${kind === "update" ? "更新" : "新增"}链接生成失败：${error.message}`);
       } finally {
         button.disabled = false;
+        button.textContent = "生成链接";
       }
     }
 
@@ -1659,8 +1757,14 @@
     $("syncAllQingLongBtn").addEventListener("click", syncAllQingLong);
     $("saveRemarkBtn").addEventListener("click", saveRemark);
     $("syncQingLongBtn").addEventListener("click", syncQingLong);
-    $("updateAccountLinkBtn").addEventListener("click", () => createAccountLink("update"));
-    $("addAccountLinkBtn").addEventListener("click", () => createAccountLink("add"));
+    $("updateAccountLinkBtn").addEventListener("click", () => openAccountLinkDialog("update"));
+    $("addAccountLinkBtn").addEventListener("click", () => openAccountLinkDialog("add"));
+    $("accountLinkConfigPane").addEventListener("submit", event => { event.preventDefault(); createAccountLink(); });
+    $("accountLinkDialogClose").addEventListener("click", closeAccountLinkDialog);
+    $("accountLinkCancelBtn").addEventListener("click", closeAccountLinkDialog);
+    $("accountLinkDoneBtn").addEventListener("click", closeAccountLinkDialog);
+    $("accountLinkCopyBtn").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("accountLinkURL").value); setActivity("授权链接已复制"); $("accountLinkCopyBtn").textContent = "已复制"; setTimeout(() => $("accountLinkCopyBtn").textContent = "复制链接", 1600); } catch { setActivity("复制失败，请手动选择链接"); } });
+    $("accountLinkDialog").addEventListener("cancel", event => { event.preventDefault(); closeAccountLinkDialog(); });
     $("deleteAccountBtn").addEventListener("click", deleteAccount);
     $("saveQingLongBtn").addEventListener("click", saveQingLongConfig);
     $("clearQingLongBtn").addEventListener("click", clearQingLongConfig);
