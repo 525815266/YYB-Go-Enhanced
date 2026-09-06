@@ -277,7 +277,10 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session_id": img.Session.ID, "status": img.Session.Status,
 		"image_url":  "/account-link/" + tokenForLinkPath(r.URL.Path) + "/qr/" + img.Session.ID + "/image",
-		"expires_in": int64(a.cfg.QRSessionTTL.Seconds()), "mode": link.Kind,
+		"expires_in": int64(a.cfg.QRSessionTTL.Seconds()),
+		"qr_expires_at": time.Now().Add(a.cfg.QRSessionTTL).Unix(),
+		"link_expires_at": link.ExpiresAt,
+		"mode": link.Kind,
 	})
 }
 
