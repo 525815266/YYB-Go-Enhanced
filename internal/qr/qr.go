@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -38,6 +39,8 @@ const (
 	callbackURL  = "https://yybadaccess.3g.qq.com/pc_yyb/pcyyb_oauth"
 	qrBase       = "https://open.weixin.qq.com/connect/qrcode/"
 	longPollBase = "https://long.open.weixin.qq.com/connect/l/qrconnect"
+	qrPollWait   = 35 * time.Second
+	qrPollLimit  = 40 * time.Second
 )
 
 var (
@@ -187,15 +190,23 @@ func (c *Client) PollQRCode(ctx context.Context, sess *Session) (PollResult, err
 		"uuid": {sess.WXUUID},
 		"_":    {strconv.FormatInt(time.Now().UnixMilli(), 10)},
 	}.Encode()
-	reqCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, qrPollWait)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u, nil)
 	if err != nil {
 		return PollResult{}, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
-	resp, err := sess.HTTPClient.Do(req)
+	pollClient := *sess.HTTPClient
+	if pollClient.Timeout == 0 || pollClient.Timeout < qrPollLimit {
+		pollClient.Timeout = qrPollLimit
+	}
+	resp, err := pollClient.Do(req)
 	if err != nil {
+		if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+			sess.Status = "pending"
+			return PollResult{Status: "pending"}, nil
+		}
 		return PollResult{}, err
 	}
 	defer resp.Body.Close()
