@@ -162,6 +162,7 @@ func (a *App) handleQuickLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "保存账号代理失败: "+err.Error())
 		return
 	}
+	a.autoSyncAfterScan(account)
 	writeJSON(w, http.StatusOK, account.Public())
 }
 

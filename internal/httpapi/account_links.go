@@ -421,6 +421,7 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 			return
 		}
 	}
+	a.autoSyncAfterScan(acc)
 	dropAfterConfirm = true
 	writeJSON(w, http.StatusOK, acc.Public())
 }

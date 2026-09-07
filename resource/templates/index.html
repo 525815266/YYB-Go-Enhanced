@@ -784,7 +784,7 @@
         <span class="status-pill" id="healthPill"><span class="status-dot"></span><span>检测服务中</span></span>
         <a class="btn secondary" href="/runs">运行管理</a>
         <a class="btn secondary" href="/docs/index.html">Swagger</a>
-        <a class="btn secondary" href="/users">用户管理</a>
+        <a class="btn secondary" id="usersNav" href="/users">用户管理</a>
         <a class="btn secondary" href="/settings">个人设置</a>
         <a class="btn primary" href="/scan">扫码添加</a>
         <button class="btn secondary" id="logoutBtn" type="button" title="退出登录">退出</button>
@@ -967,6 +967,7 @@
                 </div>
               </div>
             </details>
+            <div class="log-line" id="panelAdminNote" hidden>面板连接由管理员统一配置；扫码成功后会自动同步到已配置的面板。</div>
             <div class="log-line" id="activityLine">尚未执行操作</div>
           </div>
         </aside>
@@ -1070,6 +1071,22 @@
         throw error;
       }
       return isEnvelope ? data.data : data;
+    }
+
+    async function applyRoleVisibility() {
+      try {
+        const session = await api("GET", "/api/auth/me");
+        const isAdmin = session?.auth_enabled === false || session?.user?.role === "admin";
+        $("currentRoleText").textContent = isAdmin ? "管理员" : "普通用户";
+        ["usersNav", "syncAllQingLongBtn", "repairAccountsBtn", "compactAccountsBtn"].forEach(id => {
+          const element = $(id);
+          if (element) element.hidden = !isAdmin;
+        });
+        $("qingLongSettings").hidden = !isAdmin;
+        $("panelAdminNote").hidden = isAdmin;
+      } catch {
+        $("currentRoleText").textContent = "未知";
+      }
     }
 
     function accountName(account) {
@@ -1785,6 +1802,7 @@
       requestAnimationFrame(() => document.getElementById(focusTarget === "accounts" ? "accountWorkspace" : "callWorkspace")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
 
+    applyRoleVisibility();
     loadHealth();
     loadFeatures();
     loadAccounts();

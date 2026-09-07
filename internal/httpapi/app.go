@@ -78,6 +78,7 @@ type App struct {
 	proxyLeaseLocks   map[int64]*sync.Mutex
 	keepAliveRetryMu  sync.Mutex
 	keepAliveRetryAt  map[int64]time.Time
+	panelSyncMu       sync.Mutex
 
 	keepAliveCancel context.CancelFunc
 	keepAliveDone   chan struct{}
@@ -575,6 +576,7 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "保存账号代理失败: "+err.Error())
 			return
 		}
+		a.autoSyncAfterScan(acc)
 		dropAfterConfirm = true
 		writeJSON(w, http.StatusOK, acc.Public())
 	default:
