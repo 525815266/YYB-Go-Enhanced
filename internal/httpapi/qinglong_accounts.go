@@ -303,8 +303,17 @@ func (a *App) handleQingLongSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	responseValue := any(value)
+	if a.auth != nil {
+		user := a.browserUser(r)
+		if user == nil || user.Role != "admin" {
+			// The panel variable is shared by all accounts. Ordinary users may
+			// sync their own account, but must not receive other users' entries.
+			responseValue = nil
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"account": acc.Public(), "name": "YYB_SERVER", "value": value, "added": added,
+		"account": acc.Public(), "name": "YYB_SERVER", "value": responseValue, "added": added,
 	})
 }
 
