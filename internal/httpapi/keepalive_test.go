@@ -38,6 +38,33 @@ func TestRefreshAccountRenewsDueCredentials(t *testing.T) {
 	if updated.LoginBuffer != "buffer-new" || updated.Credentials["accesstoken"] != "access-new" || updated.Credentials["refreshtoken"] != "refresh-new" {
 		t.Fatalf("updated credentials = %#v, login buffer = %q", updated.Credentials, updated.LoginBuffer)
 	}
+	if _, ok := updated.Credentials["refresh_token_observed_at"]; ok {
+		t.Fatal("keepalive refresh must not invent a scan observation timestamp for a legacy account")
+	}
+}
+
+func TestRefreshingOneLegacyAccountDoesNotBackfillAnother(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+
+	first := insertKeepAliveTestAccount(t, app, "openid-legacy-first", time.Now().Add(10*time.Minute))
+	second := insertKeepAliveTestAccount(t, app, "openid-legacy-second", time.Now().Add(10*time.Minute))
+	app.refreshLoginBuffer = func(_ context.Context, creds protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		creds.AccessToken = "access-refreshed"
+		creds.ExpiresAt = time.Now().Add(2 * time.Hour).Unix()
+		return protocol.LoginBufferResult{LoginBuffer: "buffer-refreshed", Credentials: creds, Refreshed: true}, nil
+	}
+
+	if _, _, err := app.refreshAccount(context.Background(), first, false); err != nil {
+		t.Fatalf("refresh first legacy account: %v", err)
+	}
+	untouched, err := app.db.GetAccount(context.Background(), second.ID)
+	if err != nil {
+		t.Fatalf("read second legacy account: %v", err)
+	}
+	if _, ok := untouched.Credentials["refresh_token_observed_at"]; ok {
+		t.Fatal("refreshing one account must not backfill another account's scan timestamp")
+	}
 }
 
 func TestRefreshAccountSkipsFreshCredentials(t *testing.T) {

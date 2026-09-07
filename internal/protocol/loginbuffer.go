@@ -66,9 +66,6 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 }
 
 func (c LoginBufferCredentials) ToMap() map[string]any {
-	if c.RefreshToken != "" && c.RefreshTokenObservedAt <= 0 {
-		c.RefreshTokenObservedAt = time.Now().Unix()
-	}
 	return map[string]any{
 		"openid":                    c.OpenID,
 		"accesstoken":               c.AccessToken,
@@ -80,6 +77,18 @@ func (c LoginBufferCredentials) ToMap() map[string]any {
 		"expires_in":                defaultInt64(c.ExpiresIn, 7200),
 		"refresh_refreshed_at":      time.Now().Unix(),
 	}
+}
+
+// ToMapForScan serializes credentials captured from a successful QR scan.
+// The 30-day window is the scan/authorization window, not the time at which a
+// legacy account happens to be refreshed by keepalive. Keeping this explicit
+// prevents old records without lifecycle metadata from being backfilled with
+// a misleading "scanned just now" timestamp.
+func (c LoginBufferCredentials) ToMapForScan() map[string]any {
+	if c.RefreshToken != "" && c.RefreshTokenObservedAt <= 0 {
+		c.RefreshTokenObservedAt = time.Now().Unix()
+	}
+	return c.ToMap()
 }
 
 func (c LoginBufferCredentials) Expired(skew time.Duration) bool {
@@ -177,13 +186,9 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 	info, _ := data["user_info"].(map[string]any)
 	expiresIn := defaultInt64(int64FromMap(info, "expires_in"), 7200)
 	refreshed := creds
-	if refreshed.RefreshToken != "" && refreshed.RefreshTokenObservedAt <= 0 {
-		refreshed.RefreshTokenObservedAt = time.Now().Unix()
-	}
 	refreshed.AccessToken = stringFromMap(info, "access_token")
 	if rt := stringFromMap(info, "refresh_token"); rt != "" && rt != refreshed.RefreshToken {
 		refreshed.RefreshToken = rt
-		refreshed.RefreshTokenObservedAt = time.Now().Unix()
 	}
 	refreshed.ExpiresIn = expiresIn
 	refreshed.ExpiresAt = time.Now().Unix() + expiresIn

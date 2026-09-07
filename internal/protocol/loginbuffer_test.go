@@ -21,14 +21,21 @@ func TestCredentialsMapPreservesRefreshTokenObservation(t *testing.T) {
 	}
 }
 
-func TestCredentialsMapStartsRefreshTokenObservation(t *testing.T) {
+func TestCredentialsMapForScanStartsRefreshTokenObservation(t *testing.T) {
 	before := time.Now().Unix()
-	values := LoginBufferCredentials{RefreshToken: "refresh"}.ToMap()
+	values := LoginBufferCredentials{RefreshToken: "refresh"}.ToMapForScan()
 	after := time.Now().Unix()
 
 	observedAt := int64FromMap(values, "refresh_token_observed_at")
 	if observedAt < before || observedAt > after {
 		t.Fatalf("refresh_token_observed_at = %d, want between %d and %d", observedAt, before, after)
+	}
+}
+
+func TestCredentialsMapRefreshPreservesMissingObservation(t *testing.T) {
+	values := LoginBufferCredentials{RefreshToken: "refresh"}.ToMap()
+	if observed := int64FromMap(values, "refresh_token_observed_at"); observed != 0 {
+		t.Fatalf("refresh_token_observed_at = %d, want 0 for non-scan serialization", observed)
 	}
 }
 
