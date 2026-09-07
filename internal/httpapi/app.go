@@ -522,7 +522,7 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "qr session not found")
 			return
 		}
-		result, err := login.Client.GetLoginBuffer(r.Context(), login.Session)
+		result, err := a.getLoginBufferWithRetry(r.Context(), login)
 		if err != nil {
 			writeError(w, http.StatusConflict, "buffer not ready: "+err.Error())
 			return

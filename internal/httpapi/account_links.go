@@ -346,7 +346,7 @@ func tokenForLinkPath(path string) string {
 }
 
 func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token string, link *store.AccountLink, sessionID string, login *qrLoginSession) {
-	result, err := login.Client.GetLoginBuffer(r.Context(), login.Session)
+	result, err := a.getLoginBufferWithRetry(r.Context(), login)
 	if err != nil {
 		writeError(w, http.StatusConflict, "buffer not ready: "+err.Error())
 		return
