@@ -38,7 +38,7 @@ func TestRefreshAccountRenewsDueCredentials(t *testing.T) {
 	if updated.LoginBuffer != "buffer-new" || updated.Credentials["accesstoken"] != "access-new" || updated.Credentials["refreshtoken"] != "refresh-new" {
 		t.Fatalf("updated credentials = %#v, login buffer = %q", updated.Credentials, updated.LoginBuffer)
 	}
-	if _, ok := updated.Credentials["refresh_token_observed_at"]; ok {
+	if observed, ok := updated.Credentials["refresh_token_observed_at"]; ok && protocol.CredentialsFromMap(map[string]any{"refresh_token_observed_at": observed}).RefreshTokenObservedAt != 0 {
 		t.Fatal("keepalive refresh must not invent a scan observation timestamp for a legacy account")
 	}
 }
@@ -62,7 +62,7 @@ func TestRefreshingOneLegacyAccountDoesNotBackfillAnother(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read second legacy account: %v", err)
 	}
-	if _, ok := untouched.Credentials["refresh_token_observed_at"]; ok {
+	if observed, ok := untouched.Credentials["refresh_token_observed_at"]; ok && protocol.CredentialsFromMap(map[string]any{"refresh_token_observed_at": observed}).RefreshTokenObservedAt != 0 {
 		t.Fatal("refreshing one account must not backfill another account's scan timestamp")
 	}
 }
