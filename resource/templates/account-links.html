@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>已激活短链接 - YYB Go</title>
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260824-push1">
+  <style>
+    .link-toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:18px 0}
+    .link-filters{display:flex;gap:8px;flex-wrap:wrap}.link-filters select{min-width:130px}
+    .link-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.link-stat{padding:16px;border:1px solid var(--line);background:#fff;border-radius:8px}.link-stat strong{display:block;font-size:24px;line-height:1.1}.link-stat span{display:block;color:var(--muted);font-size:12px;margin-top:6px}
+    .link-list{display:grid;gap:10px}.link-row{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(150px,1fr) minmax(145px,1fr) auto;gap:14px;align-items:center}.link-main strong,.link-main small{display:block}.link-main small,.link-meta{color:var(--muted);font-size:12px;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.link-status{display:inline-flex;align-items:center;gap:5px;font-size:12px}.link-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.link-status.active{color:#2c8a58}.link-status.used{color:#597080}.link-status.expired,.link-status.revoked{color:#9a5c5c}.link-actions{display:flex;gap:7px;justify-content:flex-end;flex-wrap:wrap}.link-actions .btn{white-space:nowrap}.empty-links{padding:48px 18px;text-align:center;color:var(--muted);background:#fff;border:1px dashed var(--line);border-radius:8px}.toast{position:fixed;right:20px;bottom:20px;background:#182c34;color:#fff;padding:10px 14px;border-radius:7px;z-index:20}.toast.error{background:#9c3d3d}
+    @media(max-width:900px){.link-row{grid-template-columns:1fr 1fr}.link-actions{grid-column:1/-1;justify-content:flex-start}}@media(max-width:560px){.link-summary{grid-template-columns:repeat(2,1fr)}.link-row{grid-template-columns:1fr}.link-actions{grid-column:auto}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="page-title"><div><h1>已激活短链接</h1><p>管理一次性账号授权链接，历史记录会保留，普通用户仅能查看自己的链接。</p></div></div>
+    <section class="link-summary" aria-label="链接统计"><div class="link-stat"><strong id="countAll">0</strong><span>全部链接</span></div><div class="link-stat"><strong id="countActive">0</strong><span>使用中</span></div><div class="link-stat"><strong id="countUsed">0</strong><span>已消费</span></div><div class="link-stat"><strong id="countInactive">0</strong><span>已失效</span></div></section>
+    <div class="link-toolbar"><div class="link-filters"><select class="input" id="statusFilter" aria-label="状态筛选"><option value="all">全部状态</option><option value="active">使用中</option><option value="used">已消费</option><option value="expired">已过期</option><option value="revoked">已作废</option></select><select class="input" id="kindFilter" aria-label="类型筛选"><option value="all">全部类型</option><option value="update">更新链接</option><option value="add">新增链接</option></select></div><button class="btn secondary" id="refreshLinks" type="button">刷新列表</button></div>
+    <section class="link-list" id="linkList" aria-live="polite"></section>
+  </main>
+  <dialog class="platform-dialog" id="confirmDialog"><form method="dialog"><div class="platform-dialog-head"><div><h2 id="confirmTitle">确认操作</h2><p id="confirmText"></p></div><button class="platform-dialog-close" value="cancel" aria-label="关闭">×</button></div><div class="platform-dialog-actions"><button class="btn secondary" value="cancel">取消</button><button class="btn danger" id="confirmAction" value="default">确认</button></div></form></dialog>
+  <div class="toast" id="toast" hidden role="status"></div>
+  <script>
+    const $=id=>document.getElementById(id); const state={links:[],pending:null};
+    const escapeHTML=v=>{const n=document.createElement('span');n.textContent=v??'';return n.innerHTML};
+    async function api(path,options={}){const r=await fetch(path,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const t=await r.text();let p;try{p=t?JSON.parse(t):null}catch{throw new Error(`服务返回非 JSON（HTTP ${r.status}）`)}if(!r.ok||!p||p.code!==0)throw new Error(p?.msg||`请求失败（HTTP ${r.status}）`);return p.data}
+    function toast(msg,error=false){const e=$('toast');e.textContent=msg;e.classList.toggle('error',error);e.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>e.hidden=true,3200)}
+    function fmt(ts){return ts?new Date(ts*1000).toLocaleString('zh-CN',{hour12:false}):'—'}
+    function statusLabel(v){return {active:'使用中',used:'已消费',expired:'已过期',revoked:'已作废'}[v]||v}
+    function render(){const status=$('statusFilter').value,kind=$('kindFilter').value;const items=state.links.filter(x=>(status==='all'||x.status===status)&&(kind==='all'||x.kind===kind));$('linkList').innerHTML=items.length?items.map(item=>{const acc=item.account||{};const name=acc.remark||acc.nickname||acc.alias||`账号 ${item.account_id}`;const url=item.url||'';return `<article class="link-row"><div class="link-main"><strong>${item.kind==='update'?'更新链接':'新增链接'}</strong><small>${escapeHTML(name)} · 账号 ID ${item.account_id}</small><small>${url?escapeHTML(url):'历史链接未保存可恢复地址'}</small></div><div class="link-meta">创建于 ${fmt(item.created_at)}<br>失效于 ${fmt(item.expires_at)}</div><div><span class="link-status ${item.status}">${statusLabel(item.status)}</span>${item.used_at?`<div class="link-meta">消费于 ${fmt(item.used_at)}</div>`:''}</div><div class="link-actions">${url?`<button class="btn secondary" data-action="copy" data-id="${item.id}">复制</button><a class="btn secondary" href="${escapeHTML(url)}" target="_blank" rel="noopener">打开</a>`:''}${item.status==='active'?`<button class="btn secondary" data-action="revoke" data-id="${item.id}">作废</button>`:''}<button class="btn danger" data-action="delete" data-id="${item.id}">删除</button></div></article>`}).join(''):'<div class="empty-links">暂无符合条件的链接</div>'}
+    async function load(){try{const data=await api('/api/account-links');state.links=data.links||[];const counts=data.counts||{};$('countAll').textContent=state.links.length;$('countActive').textContent=counts.active||0;$('countUsed').textContent=counts.used||0;$('countInactive').textContent=(counts.expired||0)+(counts.revoked||0);render()}catch(e){toast(e.message,true)}}
+    function ask(action,item){state.pending={action,item};$('confirmTitle').textContent=action==='delete'?'删除链接':'作废链接';$('confirmText').textContent=action==='delete'?'删除后将不再保留这条历史记录，确定继续吗？':'作废后链接立即无法扫码使用，但历史记录仍会保留。';$('confirmAction').textContent=action==='delete'?'删除链接':'作废链接';$('confirmDialog').showModal()}
+    $('confirmDialog').addEventListener('close',async()=>{if($('confirmDialog').returnValue!=='default'||!state.pending)return;const {action,item}=state.pending;state.pending=null;try{await api(`/api/account-links/${item.id}/${action==='revoke'?'revoke':''}`,{method:action==='delete'?'DELETE':'POST'});toast(action==='delete'?'链接已删除':'链接已作废');await load()}catch(e){toast(e.message,true)}})
+    $('linkList').onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const item=state.links.find(x=>String(x.id)===b.dataset.id);if(!item)return;if(b.dataset.action==='copy'){try{await navigator.clipboard.writeText(item.url);toast('链接已复制')}catch{toast('复制失败，请手动选择链接',true)}}else ask(b.dataset.action,item)};
+    $('statusFilter').onchange=render;$('kindFilter').onchange=render;$('refreshLinks').onclick=load;load();
+  </script><script src="/static/js/platform.js?v=20260824-push1"></script>
+</body>
+</html>

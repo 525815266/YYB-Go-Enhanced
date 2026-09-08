@@ -694,7 +694,12 @@
     .link-dialog-url .input { min-width:0; flex:1; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; }
     .link-dialog-meta { margin-top:10px; color:var(--muted); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
     .link-dialog-footnote { margin:14px 0 0; color:var(--muted); font-size:12px; line-height:1.55; }
-    @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } }
+    .link-dialog-existing { margin:0 0 14px; padding:10px 12px; border:1px solid oklch(0.86 0.07 75); border-radius:var(--radius); background:oklch(0.98 0.02 90); }
+    .link-dialog-existing-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid oklch(0.91 0.04 85); font-size:12px; }
+    .link-dialog-existing-row:first-child { border-top:0; }
+    .link-dialog-existing-row .inline-actions { margin:0; }
+    .link-dialog-existing-row .btn { padding:6px 8px; font-size:12px; }
+    @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } .link-dialog-existing-row { align-items:flex-start; flex-direction:column; } }
 
     @media (max-width: 1360px) {
       .overview,
@@ -996,6 +1001,10 @@
         </div>
       </form>
       <section id="accountLinkResultPane" hidden>
+        <div id="accountLinkExistingPane" class="link-dialog-existing" hidden>
+          <div class="link-dialog-meta" id="accountLinkExistingSummary"></div>
+          <div id="accountLinkExistingList"></div>
+        </div>
         <div class="link-dialog-url">
           <input class="input" id="accountLinkURL" type="url" readonly aria-label="一次性授权链接">
           <button class="btn secondary" id="accountLinkCopyBtn" type="button">复制链接</button>
@@ -1575,6 +1584,7 @@
         $("accountLinkURL").value = result.url;
         $("accountLinkOpenBtn").href = result.url;
         $("accountLinkExpiry").textContent = `有效期至 ${new Date(result.expires_at * 1000).toLocaleString()}。成功授权后链接立即失效。`;
+        renderExistingAccountLinks(result.existing || []);
         requestAnimationFrame(() => $("accountLinkCopyBtn").focus());
       } catch (error) {
         setActivity(`${kind === "update" ? "更新" : "新增"}链接生成失败：${error.message}`);
@@ -1582,6 +1592,16 @@
         button.disabled = false;
         button.textContent = "生成链接";
       }
+    }
+
+    function renderExistingAccountLinks(items) {
+      const pane = $("accountLinkExistingPane");
+      if (!items.length) { pane.hidden = true; return; }
+      pane.hidden = false;
+      $("accountLinkExistingSummary").textContent = `该账号已有 ${items.length} 条未消费链接，仍可继续使用，也可以先作废旧链接。`;
+      $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
+      $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await navigator.clipboard.writeText(item.url); button.textContent = "已复制"; } catch { setActivity("复制失败，请手动选择链接"); } });
+      $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => { try { await api("POST", `/api/account-links/${button.dataset.existingRevoke}/revoke`); button.closest(".link-dialog-existing-row").remove(); setActivity("旧授权链接已作废"); } catch (error) { setActivity(`作废失败：${error.message}`); } });
     }
 
     async function syncAllQingLong() {

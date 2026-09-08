@@ -7,15 +7,22 @@ import (
 )
 
 type AccountLink struct {
-	ID             int64
-	TokenHash      string
-	Kind           string
-	AccountID      int64
-	OwnerUserID    *int64
-	ExpectedOpenID string
-	ExpiresAt      int64
-	UsedAt         *int64
-	CreatedAt      int64
+	ID              int64
+	TokenHash       string
+	Kind            string
+	AccountID       int64
+	OwnerUserID     *int64
+	ExpectedOpenID  string
+	TokenCiphertext string
+	ExpiresAt       int64
+	UsedAt          *int64
+	RevokedAt       *int64
+	CreatedAt       int64
+}
+
+type AccountLinkRecord struct {
+	AccountLink
+	Status string `json:"status"`
 }
 
 func nullableInt64Ptr(value *int64) any {
@@ -34,10 +41,14 @@ func nullableInt64(value sql.NullInt64) *int64 {
 }
 
 func (db *DB) CreateAccountLink(ctx context.Context, tokenHash, kind string, accountID int64, ownerUserID *int64, expectedOpenID string, expiresAt int64) (*AccountLink, error) {
+	return db.CreateAccountLinkWithCiphertext(ctx, tokenHash, "", kind, accountID, ownerUserID, expectedOpenID, expiresAt)
+}
+
+func (db *DB) CreateAccountLinkWithCiphertext(ctx context.Context, tokenHash, tokenCiphertext, kind string, accountID int64, ownerUserID *int64, expectedOpenID string, expiresAt int64) (*AccountLink, error) {
 	now := time.Now().Unix()
 	result, err := db.sql.ExecContext(ctx, `INSERT INTO account_links
-		(token_hash, kind, account_id, owner_user_id, expected_openid, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenHash, kind, accountID, nullableInt64Ptr(ownerUserID), expectedOpenID, expiresAt, now)
+		(token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash, tokenCiphertext, kind, accountID, nullableInt64Ptr(ownerUserID), expectedOpenID, expiresAt, now)
 	if err != nil {
 		return nil, err
 	}
@@ -50,16 +61,17 @@ func (db *DB) CreateAccountLink(ctx context.Context, tokenHash, kind string, acc
 
 func (db *DB) GetAccountLink(ctx context.Context, id int64) (*AccountLink, error) {
 	link := &AccountLink{}
-	var owner, used sql.NullInt64
-	err := db.sql.QueryRowContext(ctx, `SELECT id, token_hash, kind, account_id, owner_user_id,
-		expected_openid, expires_at, used_at, created_at FROM account_links WHERE id=?`, id).Scan(
-		&link.ID, &link.TokenHash, &link.Kind, &link.AccountID, &owner,
-		&link.ExpectedOpenID, &link.ExpiresAt, &used, &link.CreatedAt)
+	var owner, used, revoked sql.NullInt64
+	err := db.sql.QueryRowContext(ctx, `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id,
+		expected_openid, expires_at, used_at, revoked_at, created_at FROM account_links WHERE id=?`, id).Scan(
+		&link.ID, &link.TokenHash, &link.TokenCiphertext, &link.Kind, &link.AccountID, &owner,
+		&link.ExpectedOpenID, &link.ExpiresAt, &used, &revoked, &link.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	link.OwnerUserID = nullableInt64(owner)
 	link.UsedAt = nullableInt64(used)
+	link.RevokedAt = nullableInt64(revoked)
 	return link, nil
 }
 
@@ -77,7 +89,7 @@ func (db *DB) GetAccountLinkByHash(ctx context.Context, tokenHash string) (*Acco
 func (db *DB) ConsumeAccountLink(ctx context.Context, id int64) (bool, error) {
 	now := time.Now().Unix()
 	result, err := db.sql.ExecContext(ctx, `UPDATE account_links SET used_at=?
-		WHERE id=? AND used_at IS NULL AND expires_at>?`, now, id, now)
+		WHERE id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`, now, id, now)
 	if err != nil {
 		return false, err
 	}
@@ -86,9 +98,96 @@ func (db *DB) ConsumeAccountLink(ctx context.Context, id int64) (bool, error) {
 }
 
 func (db *DB) PurgeExpiredAccountLinks(ctx context.Context) (int64, error) {
-	result, err := db.sql.ExecContext(ctx, "DELETE FROM account_links WHERE expires_at<? OR used_at IS NOT NULL", time.Now().Unix())
+	result, err := db.sql.ExecContext(ctx, "DELETE FROM account_links WHERE expires_at<? AND created_at<?", time.Now().Add(-30*24*time.Hour).Unix(), time.Now().Add(-30*24*time.Hour).Unix())
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+func (db *DB) ListAccountLinks(ctx context.Context, ownerUserID *int64) ([]AccountLinkRecord, error) {
+	query := `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, used_at, revoked_at, created_at FROM account_links`
+	args := []any{}
+	if ownerUserID != nil {
+		query += " WHERE owner_user_id=?"
+		args = append(args, *ownerUserID)
+	}
+	query += " ORDER BY created_at DESC, id DESC"
+	rows, err := db.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AccountLinkRecord
+	now := time.Now().Unix()
+	for rows.Next() {
+		var item AccountLinkRecord
+		var owner, used, revoked sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.TokenHash, &item.TokenCiphertext, &item.Kind, &item.AccountID, &owner, &item.ExpectedOpenID, &item.ExpiresAt, &used, &revoked, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		item.OwnerUserID, item.UsedAt, item.RevokedAt = nullableInt64(owner), nullableInt64(used), nullableInt64(revoked)
+		switch {
+		case item.RevokedAt != nil:
+			item.Status = "revoked"
+		case item.UsedAt != nil:
+			item.Status = "used"
+		case item.ExpiresAt <= now:
+			item.Status = "expired"
+		default:
+			item.Status = "active"
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) ListActiveAccountLinksForTarget(ctx context.Context, kind string, accountID int64, ownerUserID *int64) ([]AccountLinkRecord, error) {
+	items, err := db.ListAccountLinks(ctx, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AccountLinkRecord, 0)
+	for _, item := range items {
+		if item.Status == "active" && item.Kind == kind && (kind == "add" || item.AccountID == accountID) {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (db *DB) RevokeAccountLink(ctx context.Context, id int64, ownerUserID *int64) error {
+	query := "UPDATE account_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL"
+	args := []any{time.Now().Unix(), id}
+	if ownerUserID != nil {
+		query += " AND owner_user_id=?"
+		args = append(args, *ownerUserID)
+	}
+	result, err := db.sql.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (db *DB) DeleteAccountLink(ctx context.Context, id int64, ownerUserID *int64) error {
+	query := "DELETE FROM account_links WHERE id=?"
+	args := []any{id}
+	if ownerUserID != nil {
+		query += " AND owner_user_id=?"
+		args = append(args, *ownerUserID)
+	}
+	result, err := db.sql.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

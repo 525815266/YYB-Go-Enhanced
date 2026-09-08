@@ -85,3 +85,4 @@ const fallbackLoginHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-
 const fallbackRegisterHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>注册 - YYB Go</title><body><main><h1>YYB Go 注册</h1><p>资源模板未找到，请检查 <code>resource/templates/register.html</code>。</p></main></body></html>`
 const fallbackSettingsHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>个人设置 - YYB Go</title><body><main><h1>个人设置</h1><p>资源模板未找到。</p></main></body></html>`
 const fallbackUsersHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>用户管理 - YYB Go</title><body><main><h1>用户管理</h1><p>资源模板未找到。</p></main></body></html>`
+const fallbackAccountLinksHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>已激活短链接 - YYB Go</title><body><main><h1>已激活短链接</h1><p>资源模板未找到，请检查 <code>resource/templates/account-links.html</code>。</p><p><a href="/">返回工作台</a></p></main></body></html>`

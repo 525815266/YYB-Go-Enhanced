@@ -5,6 +5,7 @@
     "/proxies": ["代理设置", "账号网络出口"],
     "/runs": ["账号调度", "脚本任务与账号日志"],
     "/users": ["用户管理", "成员与访问权限"],
+    "/account-links": ["已激活短链接", "一次性授权链接"],
     "/settings": ["个人设置", "资料与安全"]
   };
   const view = new URLSearchParams(location.search).get("view");
@@ -23,6 +24,7 @@
     test: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 9-12h-7z"/></svg>',
     users: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c.6-3.1 2.6-5 6-5s5.4 1.9 6 5"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17 15c2 .5 3.3 2.1 4 5"/></svg>',
     settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg>',
+    link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.2 1.2"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.2-1.2"/></svg>',
     docs: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 11h6M9 15h6M9 7h3"/></svg>',
     logout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M9 12h9"/></svg>'
   };
@@ -39,6 +41,7 @@
     ]},
     { label: "管理", items: [
       ["/proxies", "proxy", "代理设置", true, false],
+      ["/account-links", "link", "已激活短链接", true, true],
       ["/users", "users", "用户管理", false, true],
       ["/settings", "settings", "个人设置", true, true]
     ]}

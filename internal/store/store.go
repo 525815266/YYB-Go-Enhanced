@@ -113,8 +113,10 @@ CREATE TABLE IF NOT EXISTS account_links (
     account_id      INTEGER NOT NULL REFERENCES wechat_accounts(id) ON DELETE CASCADE,
     owner_user_id   INTEGER,
     expected_openid TEXT    NOT NULL DEFAULT '',
+    token_ciphertext TEXT   NOT NULL DEFAULT '',
     expires_at      INTEGER NOT NULL,
     used_at         INTEGER,
+    revoked_at      INTEGER,
     created_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_account_links_expires ON account_links(expires_at);
@@ -222,12 +224,35 @@ func Open(path string) (*DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err = migrateAccountLinks(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	out := &DB{sql: db}
 	if err = out.EnsureDefaultFeatures(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return out, nil
+}
+
+func migrateAccountLinks(ctx context.Context, db *sql.DB) error {
+	for _, column := range []struct{ name, definition string }{
+		{"token_ciphertext", "TEXT NOT NULL DEFAULT ''"},
+		{"revoked_at", "INTEGER"},
+	} {
+		exists, err := sqliteColumnExists(ctx, db, "account_links", column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err = db.ExecContext(ctx, "ALTER TABLE account_links ADD COLUMN "+column.name+" "+column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) Close() error {

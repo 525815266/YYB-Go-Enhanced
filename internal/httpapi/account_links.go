@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -13,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +66,7 @@ func (a *App) accountLinkForToken(ctx context.Context, raw string) (*store.Accou
 	if err != nil {
 		return nil, err
 	}
-	if link.UsedAt != nil || link.ExpiresAt <= time.Now().Unix() {
+	if link.UsedAt != nil || link.RevokedAt != nil || link.ExpiresAt <= time.Now().Unix() {
 		return nil, errors.New("账号授权链接已失效或已使用")
 	}
 	if link.Kind != accountLinkKindUpdate && link.Kind != accountLinkKindAdd {
@@ -73,9 +76,22 @@ func (a *App) accountLinkForToken(ctx context.Context, raw string) (*store.Accou
 }
 
 func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/api/account-links" {
-		writeError(w, http.StatusNotFound, "not found")
-		return
+	path := strings.TrimPrefix(r.URL.Path, "/api/account-links")
+	if path == "" || path == "/" {
+		if r.Method == http.MethodGet {
+			a.listAccountLinks(w, r)
+			return
+		}
+	} else {
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) == 2 && parts[1] == "revoke" && r.Method == http.MethodPost {
+			a.revokeAccountLink(w, r, parts[0])
+			return
+		}
+		if len(parts) == 1 && r.Method == http.MethodDelete {
+			a.deleteAccountLink(w, r, parts[0])
+			return
+		}
 	}
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -123,23 +139,158 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 	if body.Kind == accountLinkKindUpdate {
 		expectedOpenID = account.OpenID
 	}
+	active, _ := a.db.ListActiveAccountLinksForTarget(r.Context(), body.Kind, account.ID, ownerUserID)
+	existing := make([]map[string]any, 0, len(active))
+	for _, item := range active {
+		existing = append(existing, a.accountLinkManagementJSON(r, item))
+	}
 	rawToken, tokenHash, err := newAccountLinkToken()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	link, err := a.db.CreateAccountLink(r.Context(), tokenHash, body.Kind, account.ID, ownerUserID, expectedOpenID, time.Now().Add(time.Duration(body.TTLSeconds)*time.Second).Unix())
+	link, err := a.db.CreateAccountLinkWithCiphertext(r.Context(), tokenHash, a.encryptAccountLinkToken(rawToken), body.Kind, account.ID, ownerUserID, expectedOpenID, time.Now().Add(time.Duration(body.TTLSeconds)*time.Second).Unix())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_, _ = a.db.PurgeExpiredAccountLinks(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"kind":       link.Kind,
-		"url":        a.accountLinkURL(r, rawToken),
-		"expires_at": link.ExpiresAt,
-		"one_time":   true,
+		"kind":           link.Kind,
+		"url":            a.accountLinkURL(r, rawToken),
+		"expires_at":     link.ExpiresAt,
+		"one_time":       true,
+		"existing":       existing,
+		"existing_count": len(existing),
 	})
+}
+
+func (a *App) accountLinkKey() []byte {
+	seed := os.Getenv("YYB_ACCOUNT_LINK_KEY")
+	if seed == "" {
+		seed = a.cfg.IntegrationToken + ":" + a.cfg.AdminUser + ":" + a.cfg.AdminPassword
+	}
+	h := sha256.Sum256([]byte("yyb-account-link-key:" + seed))
+	return h[:]
+}
+
+func (a *App) encryptAccountLinkToken(token string) string {
+	block, err := aes.NewCipher(a.accountLinkKey())
+	if err != nil {
+		return ""
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return ""
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = rand.Read(nonce); err != nil {
+		return ""
+	}
+	sealed := gcm.Seal(nonce, nonce, []byte(token), nil)
+	return base64.RawURLEncoding.EncodeToString(sealed)
+}
+
+func (a *App) decryptAccountLinkToken(value string) (string, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(a.accountLinkKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(data) < gcm.NonceSize() {
+		return "", errors.New("invalid token ciphertext")
+	}
+	plain, err := gcm.Open(nil, data[:gcm.NonceSize()], data[gcm.NonceSize():], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+func (a *App) accountLinkManagementJSON(r *http.Request, item store.AccountLinkRecord) map[string]any {
+	entry := map[string]any{"id": item.ID, "kind": item.Kind, "account_id": item.AccountID, "owner_user_id": item.OwnerUserID, "expires_at": item.ExpiresAt, "created_at": item.CreatedAt, "status": item.Status, "used_at": item.UsedAt, "revoked_at": item.RevokedAt, "url": ""}
+	if item.TokenCiphertext != "" {
+		if token, err := a.decryptAccountLinkToken(item.TokenCiphertext); err == nil && validAccountLinkToken(token) {
+			entry["url"] = a.accountLinkURL(r, token)
+		}
+	}
+	return entry
+}
+
+func (a *App) listAccountLinks(w http.ResponseWriter, r *http.Request) {
+	var owner *int64
+	if user := a.browserUser(r); user != nil && user.Role != "admin" {
+		owner = &user.ID
+	}
+	items, err := a.db.ListAccountLinks(r.Context(), owner)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	accounts, _ := a.db.ListAccounts(r.Context())
+	accountMap := map[int64]map[string]any{}
+	for _, acc := range accounts {
+		if a.accountVisible(r, acc.ID) {
+			accountMap[acc.ID] = map[string]any{"id": acc.ID, "openid": acc.OpenID, "nickname": acc.Nickname, "remark": acc.Remark, "alias": acc.Alias}
+		}
+	}
+	out := make([]map[string]any, 0, len(items))
+	counts := map[string]int{"active": 0, "used": 0, "expired": 0, "revoked": 0}
+	for _, item := range items {
+		entry := a.accountLinkManagementJSON(r, item)
+		entry["account"] = accountMap[item.AccountID]
+		out = append(out, entry)
+		counts[item.Status]++
+	}
+	writeJSON(w, 200, map[string]any{"links": out, "counts": counts})
+}
+
+func (a *App) revokeAccountLink(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil {
+		writeError(w, 400, "invalid link id")
+		return
+	}
+	var owner *int64
+	if user := a.browserUser(r); user != nil && user.Role != "admin" {
+		owner = &user.ID
+	}
+	if err = a.db.RevokeAccountLink(r.Context(), id, owner); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, 404, "链接不存在或无权操作")
+			return
+		}
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"revoked": true})
+}
+
+func (a *App) deleteAccountLink(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil {
+		writeError(w, 400, "invalid link id")
+		return
+	}
+	var owner *int64
+	if user := a.browserUser(r); user != nil && user.Role != "admin" {
+		owner = &user.ID
+	}
+	if err = a.db.DeleteAccountLink(r.Context(), id, owner); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, 404, "链接不存在或无权操作")
+			return
+		}
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": true})
 }
 
 func (a *App) accountLinkURL(r *http.Request, token string) string {

@@ -266,6 +266,10 @@ func (a *App) Handler() http.Handler {
 	router.Any("/wx/appmsgext", gin.WrapF(a.handleWXAppMsgExt))
 	router.Any("/wx/appmsglike", gin.WrapF(a.handleWXAppMsgLike))
 	router.Any("/openapi.json", gin.WrapF(a.handleOpenAPI))
+	router.GET("/integration/module-manifest.json", gin.WrapF(a.handleIntegrationManifest))
+	router.GET("/integration/accounts", gin.WrapF(a.handleIntegrationAccounts))
+	router.POST("/integration/actions/get-code", gin.WrapF(a.handleIntegrationGetCode))
+	router.POST("/integration/actions/refresh-account", gin.WrapF(a.handleIntegrationRefreshAccount))
 	// Bearer-style one-time account links are intentionally public. The token
 	// itself is a random secret; all management and link creation APIs remain
 	// behind the browser session middleware below.
@@ -283,6 +287,8 @@ func (a *App) Handler() http.Handler {
 	router.Any("/api/auth/users/*path", gin.WrapF(a.handleUserAction))
 	router.Any("/api/auth/registration", gin.WrapF(a.handleRegistrationSetting))
 	router.Any("/api/account-links", gin.WrapF(a.handleAccountLinksAPI))
+	router.Any("/api/account-links/*path", gin.WrapF(a.handleAccountLinksAPI))
+	router.Any("/account-links", gin.WrapF(a.handleAccountLinksPage))
 	router.Any("/", gin.WrapF(a.handleIndex))
 	router.Any("/scan", gin.WrapF(a.handleScan))
 	router.Any("/proxies", gin.WrapF(a.handleProxiesPage))
@@ -326,6 +332,14 @@ func (a *App) Handler() http.Handler {
 	})
 
 	return router
+}
+
+func (a *App) handleAccountLinksPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	serveFileOrText(w, r, filepath.Join(a.resources.Templates, "account-links.html"), fallbackAccountLinksHTML)
 }
 
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
