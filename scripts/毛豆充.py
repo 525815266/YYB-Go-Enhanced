@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# name: 毛毛充
+# name: 毛豆充
 # cron: 12 8 * * *
 
-"""毛毛充福利任务 YYB 版。
+"""毛豆充福利任务 YYB 版。
 
-参考菠萝充电脚本的任务编排，但使用毛毛充 HAR 中确认的接口：动态微信
-登录、积分查询、每日签到和观看视频。视频每天默认最多执行三次，并在每次
+参考菠萝充电脚本的任务编排，但使用毛豆充 HAR 中确认的接口：动态微信
+登录、积分查询、每日签到和观看视频。视频每天默认最多执行五次，并在每次
 提交前重新读取服务端次数。
 
 环境变量：
   YYB_SERVER：每行 ``YYB地址@账号ID或OpenID``，例如 yyb-go:8000@1
-  MAOMAOCHONG_WECHAT_APP_ID：覆盖微信 AppID，默认使用 HAR 的
+  MAODOUCHONG_WECHAT_APP_ID：覆盖微信 AppID，默认使用 HAR 的
       wxc7548b3f7181e9d9（业务请求 Header 仍为 hichar.user.wxapp）
-  MAOMAOCHONG_VIDEO_TIMES：视频次数，默认 3，最大 3
-  MAOMAOCHONG_VIDEO_DELAY：视频请求间隔秒数，默认 1
+  MAODOUCHONG_VIDEO_TIMES：视频次数，默认 5；实际执行不超过服务端上限
+  MAODOUCHONG_VIDEO_DELAY：视频请求间隔秒数，默认 1
+
+旧的 ``MAOMAOCHONG_*`` 变量仍兼容一段时间。
 
 积分抽奖接口不在当前 HAR 中，脚本不会猜测未知接口。
 """
@@ -34,7 +36,10 @@ from yyb_account_guard import filter_accounts, mark_from_error, mark_ready
 
 
 API_APP_ID = "hichar.user.wxapp"
-WECHAT_APP_ID = os.getenv("MAOMAOCHONG_WECHAT_APP_ID", "wxc7548b3f7181e9d9")
+WECHAT_APP_ID = os.getenv(
+    "MAODOUCHONG_WECHAT_APP_ID",
+    os.getenv("MAOMAOCHONG_WECHAT_APP_ID", "wxc7548b3f7181e9d9"),
+)
 API_BASE = "https://apiv2.hichar.cn"
 TIMEOUT = 30
 USER_AGENT = (
@@ -198,14 +203,14 @@ class MaomaochongClient:
                 timeout=TIMEOUT,
             )
         except requests.RequestException as exc:
-            raise ScriptError(f"毛毛充登录失败：{safe_text(exc)}") from exc
-        payload = json_response(response, "毛毛充登录")
-        ensure_ok(payload, "毛毛充登录")
+            raise ScriptError(f"毛豆充登录失败：{safe_text(exc)}") from exc
+        payload = json_response(response, "毛豆充登录")
+        ensure_ok(payload, "毛豆充登录")
         data = payload.get("data") or {}
         user = data.get("user") if isinstance(data, dict) else None
         token = data.get("token") if isinstance(data, dict) else None
         if not isinstance(user, dict) or not token or not user.get("id"):
-            raise AccountSkipped("毛毛充未返回完整用户凭证，可能尚未注册或授权小程序")
+            raise AccountSkipped("毛豆充未返回完整用户凭证，可能尚未注册或授权小程序")
         self.user = user
         self.user_id = int(user["id"])
         self.session.headers["token"] = str(token)
@@ -281,11 +286,14 @@ class MaomaochongClient:
         )
 
 
-def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+def env_int(name: str, default: int | str, minimum: int, maximum: int) -> int:
     try:
         value = int(os.getenv(name, str(default)))
     except ValueError:
-        value = default
+        try:
+            value = int(default)
+        except (TypeError, ValueError):
+            value = minimum
     return max(minimum, min(maximum, value))
 
 
@@ -304,8 +312,18 @@ def run_account(account: YybAccount) -> None:
             raise ScriptError("签到请求成功，但未确认当天签到记录")
         print("今日签到：成功")
 
-    target = env_int("MAOMAOCHONG_VIDEO_TIMES", 3, 0, 3)
-    delay = env_int("MAOMAOCHONG_VIDEO_DELAY", 1, 0, 60)
+    target = env_int(
+        "MAODOUCHONG_VIDEO_TIMES",
+        os.getenv("MAOMAOCHONG_VIDEO_TIMES", "5"),
+        0,
+        20,
+    )
+    delay = env_int(
+        "MAODOUCHONG_VIDEO_DELAY",
+        os.getenv("MAOMAOCHONG_VIDEO_DELAY", "1"),
+        0,
+        60,
+    )
     completed = 0
     for _ in range(target):
         task = next((row for row in client.tasks() if str(row.get("taskId")) == "1"), None)
