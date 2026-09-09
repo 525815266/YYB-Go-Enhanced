@@ -224,9 +224,7 @@ func (a *App) Close() error {
 		a.keepAliveCancel = nil
 	}
 	if a.accountLinkCancel != nil {
-		a.accountLinkCancel()
-		<-a.accountLinkDone
-		a.accountLinkCancel = nil
+		a.stopAccountLinkCleanup()
 	}
 	if a.db != nil {
 		if a.auth != nil {

@@ -63,6 +63,16 @@ func (a *App) startAccountLinkCleanup() {
 	}()
 }
 
+func (a *App) stopAccountLinkCleanup() {
+	if a.accountLinkCancel == nil {
+		return
+	}
+	a.accountLinkCancel()
+	<-a.accountLinkDone
+	a.accountLinkCancel = nil
+	a.accountLinkDone = nil
+}
+
 func newAccountLinkToken() (string, string, error) {
 	buffer := make([]byte, 24)
 	if _, err := rand.Read(buffer); err != nil {
