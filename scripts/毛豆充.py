@@ -15,6 +15,7 @@
       wxc7548b3f7181e9d9（业务请求 Header 仍为 hichar.user.wxapp）
   MAODOUCHONG_VIDEO_TIMES：视频次数，默认 5；实际执行不超过服务端上限
   MAODOUCHONG_VIDEO_DELAY：视频请求间隔秒数，默认 1
+  MAODOUCHONG_LOTTERY：是否执行积分抽奖，默认 1；设为 0 可关闭
 
 旧的 ``MAOMAOCHONG_*`` 变量仍兼容一段时间。
 
@@ -285,6 +286,19 @@ class MaomaochongClient:
             json={"reach": 1, "type": 2, "userId": self.user_id},
         )
 
+    def lottery_balance(self) -> int:
+        """Return points currently available for the lottery draw."""
+        data = self.request("GET", "/api/user/welfare/getUserPoints").get("data")
+        try:
+            return int(data or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def draw_lottery(self) -> dict[str, Any]:
+        """Perform the confirmed one-draw request and return the prize record."""
+        data = self.request("POST", "/api/user/welfare/draw", json={}).get("data") or {}
+        return data if isinstance(data, dict) else {}
+
 
 def env_int(name: str, default: int | str, minimum: int, maximum: int) -> int:
     try:
@@ -343,7 +357,17 @@ def run_account(account: YybAccount) -> None:
         if delay and completed < target:
             time.sleep(delay)
     print(f"视频任务：本轮完成 {completed} 次；当前积分={client.points() or 0}")
-    print("积分抽奖：当前 HAR 未发现确认接口，暂不调用")
+    lottery_enabled = os.getenv("MAODOUCHONG_LOTTERY", os.getenv("MAOMAOCHONG_LOTTERY", "1"))
+    if lottery_enabled.strip().lower() not in {"0", "false", "no", "off"}:
+        lottery_points = client.lottery_balance()
+        if lottery_points < 1000:
+            print(f"积分抽奖：可用抽奖积分 {lottery_points}，不足 1000，跳过")
+        else:
+            prize = client.draw_lottery()
+            prize_name = prize.get("name") or prize.get("goodsName") or "已完成"
+            print(f"积分抽奖：{safe_text(prize_name)}（消耗 1000 抽奖积分）")
+    else:
+        print("积分抽奖：已通过 MAODOUCHONG_LOTTERY 关闭")
 
 
 def main() -> int:
