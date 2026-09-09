@@ -98,11 +98,38 @@ func (db *DB) ConsumeAccountLink(ctx context.Context, id int64) (bool, error) {
 }
 
 func (db *DB) PurgeExpiredAccountLinks(ctx context.Context) (int64, error) {
-	result, err := db.sql.ExecContext(ctx, "DELETE FROM account_links WHERE expires_at<? AND created_at<?", time.Now().Add(-30*24*time.Hour).Unix(), time.Now().Add(-30*24*time.Hour).Unix())
+	now := time.Now().Unix()
+	result, err := db.sql.ExecContext(ctx, `DELETE FROM account_links
+		WHERE expires_at<=? OR used_at IS NOT NULL OR revoked_at IS NOT NULL`, now)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if count > 0 {
+		if err = db.reclaimAccountLinkSequence(ctx); err != nil {
+			return count, err
+		}
+	}
+	return count, nil
+}
+
+// reclaimAccountLinkSequence lets SQLite reuse IDs after one-time links have
+// been removed. Link IDs are only management handles (the token is the real
+// capability), so there is no value in retaining an ever-growing sequence.
+func (db *DB) reclaimAccountLinkSequence(ctx context.Context) error {
+	var maxID sql.NullInt64
+	if err := db.sql.QueryRowContext(ctx, "SELECT MAX(id) FROM account_links").Scan(&maxID); err != nil {
+		return err
+	}
+	if !maxID.Valid {
+		_, err := db.sql.ExecContext(ctx, "DELETE FROM sqlite_sequence WHERE name='account_links'")
+		return err
+	}
+	_, err := db.sql.ExecContext(ctx, "UPDATE sqlite_sequence SET seq=? WHERE name='account_links'", maxID.Int64)
+	return err
 }
 
 func (db *DB) ListAccountLinks(ctx context.Context, ownerUserID *int64) ([]AccountLinkRecord, error) {
@@ -157,8 +184,8 @@ func (db *DB) ListActiveAccountLinksForTarget(ctx context.Context, kind string, 
 }
 
 func (db *DB) RevokeAccountLink(ctx context.Context, id int64, ownerUserID *int64) error {
-	query := "UPDATE account_links SET revoked_at=? WHERE id=? AND revoked_at IS NULL"
-	args := []any{time.Now().Unix(), id}
+	query := "DELETE FROM account_links WHERE id=?"
+	args := []any{id}
 	if ownerUserID != nil {
 		query += " AND owner_user_id=?"
 		args = append(args, *ownerUserID)
@@ -171,7 +198,7 @@ func (db *DB) RevokeAccountLink(ctx context.Context, id int64, ownerUserID *int6
 	if n == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return db.reclaimAccountLinkSequence(ctx)
 }
 
 func (db *DB) DeleteAccountLink(ctx context.Context, id int64, ownerUserID *int64) error {
@@ -189,5 +216,5 @@ func (db *DB) DeleteAccountLink(ctx context.Context, id int64, ownerUserID *int6
 	if n == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return db.reclaimAccountLinkSequence(ctx)
 }

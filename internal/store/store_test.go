@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -248,6 +249,64 @@ func TestExpiredAccountLinkCannotBeConsumed(t *testing.T) {
 	}
 	if ok, err := db.ConsumeAccountLink(ctx, link.ID); err != nil || ok {
 		t.Fatalf("ConsumeAccountLink(expired) = %v, %v", ok, err)
+	}
+}
+
+func TestAccountLinkCleanupRemovesConsumedRevokedAndExpired(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	account, err := db.UpsertAccount(ctx, "cleanup-link-openid", "buffer", nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	now := time.Now().Unix()
+	used, err := db.CreateAccountLink(ctx, "cleanup-used", "update", account.ID, nil, account.OpenID, now+3600)
+	if err != nil {
+		t.Fatalf("create used link: %v", err)
+	}
+	if ok, err := db.ConsumeAccountLink(ctx, used.ID); err != nil || !ok {
+		t.Fatalf("ConsumeAccountLink() = %v, %v", ok, err)
+	}
+	revoked, err := db.CreateAccountLink(ctx, "cleanup-revoked", "update", account.ID, nil, account.OpenID, now+3600)
+	if err != nil {
+		t.Fatalf("create revoked link: %v", err)
+	}
+	if err := db.RevokeAccountLink(ctx, revoked.ID, nil); err != nil {
+		t.Fatalf("RevokeAccountLink() error = %v", err)
+	}
+	if _, err := db.GetAccountLink(ctx, revoked.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("revoked link still exists: %v", err)
+	}
+	_, err = db.CreateAccountLink(ctx, "cleanup-expired", "update", account.ID, nil, account.OpenID, now-1)
+	if err != nil {
+		t.Fatalf("create expired link: %v", err)
+	}
+	removed, err := db.PurgeExpiredAccountLinks(ctx)
+	if err != nil {
+		t.Fatalf("PurgeExpiredAccountLinks() error = %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("PurgeExpiredAccountLinks() removed %d links, want 2", removed)
+	}
+	items, err := db.ListAccountLinks(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListAccountLinks() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("remaining account links = %d, want 0", len(items))
+	}
+	// The next link can reuse the released management ID rather than growing
+	// forever after one-time links are consumed.
+	reused, err := db.CreateAccountLink(ctx, "cleanup-reused", "update", account.ID, nil, account.OpenID, now+3600)
+	if err != nil {
+		t.Fatalf("create reused link: %v", err)
+	}
+	if reused.ID != 1 {
+		t.Fatalf("reused link ID = %d, want 1", reused.ID)
 	}
 }
 

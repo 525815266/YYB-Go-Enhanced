@@ -79,9 +79,12 @@ type App struct {
 	keepAliveRetryMu  sync.Mutex
 	keepAliveRetryAt  map[int64]time.Time
 	panelSyncMu       sync.Mutex
+	accountLinkMu     sync.Mutex
 
-	keepAliveCancel context.CancelFunc
-	keepAliveDone   chan struct{}
+	keepAliveCancel   context.CancelFunc
+	keepAliveDone     chan struct{}
+	accountLinkCancel context.CancelFunc
+	accountLinkDone   chan struct{}
 }
 
 var swaggerDocsHandler = httpSwagger.Handler(
@@ -210,6 +213,7 @@ func NewApp(cfg Config) (*App, error) {
 		app.auth = authStore
 	}
 	app.startKeepAlive()
+	app.startAccountLinkCleanup()
 	return app, nil
 }
 
@@ -218,6 +222,11 @@ func (a *App) Close() error {
 		a.keepAliveCancel()
 		<-a.keepAliveDone
 		a.keepAliveCancel = nil
+	}
+	if a.accountLinkCancel != nil {
+		a.accountLinkCancel()
+		<-a.accountLinkDone
+		a.accountLinkCancel = nil
 	}
 	if a.db != nil {
 		if a.auth != nil {

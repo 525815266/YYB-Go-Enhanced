@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -30,6 +31,37 @@ const (
 	accountLinkAddDefaultTTL    = 30 * time.Minute
 	accountLinkMaxTTL           = 7 * 24 * time.Hour
 )
+
+const accountLinkCleanupInterval = 10 * time.Minute
+
+func (a *App) startAccountLinkCleanup() {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.accountLinkCancel = cancel
+	a.accountLinkDone = make(chan struct{})
+	go func() {
+		defer close(a.accountLinkDone)
+		cleanup := func() {
+			if removed, err := a.db.PurgeExpiredAccountLinks(ctx); err != nil && ctx.Err() == nil {
+				// Cleanup is best-effort; a failed maintenance pass must not stop
+				// the API or make otherwise valid links unusable.
+				log.Printf("account-links: cleanup failed: %v", err)
+			} else if removed > 0 {
+				log.Printf("account-links: removed %d consumed/revoked/expired links", removed)
+			}
+		}
+		cleanup()
+		ticker := time.NewTicker(accountLinkCleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanup()
+			}
+		}
+	}()
+}
 
 func newAccountLinkToken() (string, string, error) {
 	buffer := make([]byte, 24)
@@ -139,10 +171,39 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 	if body.Kind == accountLinkKindUpdate {
 		expectedOpenID = account.OpenID
 	}
-	active, _ := a.db.ListActiveAccountLinksForTarget(r.Context(), body.Kind, account.ID, ownerUserID)
+	// Serialize the check and INSERT. Without this guard two browser clicks (or
+	// two clients racing) could both observe an empty set and create duplicate
+	// one-time links for the same target.
+	a.accountLinkMu.Lock()
+	defer a.accountLinkMu.Unlock()
+	// Remove stale rows before checking. This makes an expired/revoked/used
+	// link immediately reusable instead of making the operator wait for the
+	// background maintenance pass.
+	if _, err := a.db.PurgeExpiredAccountLinks(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "清理旧授权链接失败："+err.Error())
+		return
+	}
+	active, err := a.db.ListActiveAccountLinksForTarget(r.Context(), body.Kind, account.ID, ownerUserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取已有授权链接失败："+err.Error())
+		return
+	}
 	existing := make([]map[string]any, 0, len(active))
 	for _, item := range active {
 		existing = append(existing, a.accountLinkManagementJSON(r, item))
+	}
+	if len(existing) > 0 {
+		writeRawJSON(w, http.StatusConflict, apiEnvelope{
+			Code: http.StatusConflict,
+			Msg:  "该账号已有未消费授权链接，请先使用或作废旧链接",
+			Data: map[string]any{
+				"code":           "active_link_exists",
+				"message":        "该账号已有未消费授权链接，请先使用或作废旧链接",
+				"existing":       existing,
+				"existing_count": len(existing),
+			},
+		})
+		return
 	}
 	rawToken, tokenHash, err := newAccountLinkToken()
 	if err != nil {
@@ -573,6 +634,13 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 		}
 	}
 	a.autoSyncAfterScan(acc)
+	// The link is one-time. Keep the used marker only long enough to win the
+	// atomic race above, then remove the row and release its management ID.
+	if err := a.db.DeleteAccountLink(r.Context(), link.ID, link.OwnerUserID); err != nil {
+		// The account has already been updated successfully; leave the row for
+		// the periodic cleanup pass if a transient delete error occurs.
+		log.Printf("account-links: delete consumed link id=%d: %v", link.ID, err)
+	}
 	dropAfterConfirm = true
 	writeJSON(w, http.StatusOK, acc.Public())
 }

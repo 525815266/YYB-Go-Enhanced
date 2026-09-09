@@ -1000,11 +1000,11 @@
           <button class="btn primary" id="accountLinkGenerateBtn" type="submit">生成链接</button>
         </div>
       </form>
+      <section id="accountLinkExistingPane" class="link-dialog-existing" hidden>
+        <div class="link-dialog-meta" id="accountLinkExistingSummary"></div>
+        <div id="accountLinkExistingList"></div>
+      </section>
       <section id="accountLinkResultPane" hidden>
-        <div id="accountLinkExistingPane" class="link-dialog-existing" hidden>
-          <div class="link-dialog-meta" id="accountLinkExistingSummary"></div>
-          <div id="accountLinkExistingList"></div>
-        </div>
         <div class="link-dialog-url">
           <input class="input" id="accountLinkURL" type="url" readonly aria-label="一次性授权链接">
           <button class="btn secondary" id="accountLinkCopyBtn" type="button">复制链接</button>
@@ -1544,6 +1544,7 @@
       $("accountLinkDialogDescription").textContent = kind === "update" ? "只允许更新当前账号，扫码账号不匹配时不会写入。" : "只允许录入尚未保存的 YYB 账号，已存在账号会被拒绝。";
       $("accountLinkTTL").value = String(defaultMinutes);
       $("accountLinkConfigPane").hidden = false;
+      $("accountLinkExistingPane").hidden = true;
       $("accountLinkResultPane").hidden = true;
       const dialog = $("accountLinkDialog");
       if (typeof dialog.showModal === "function") dialog.showModal();
@@ -1587,21 +1588,41 @@
         renderExistingAccountLinks(result.existing || []);
         requestAnimationFrame(() => $("accountLinkCopyBtn").focus());
       } catch (error) {
-        setActivity(`${kind === "update" ? "更新" : "新增"}链接生成失败：${error.message}`);
+        const existing = error.status === 409 && Array.isArray(error.data?.existing)
+          ? error.data.existing : [];
+        if (existing.length) {
+          $("accountLinkDialogTitle").textContent = "已有未消费链接，未创建新链接";
+          $("accountLinkDialogDescription").textContent = "为避免重复占用资源，本次请求已在生成前拦截。请直接使用现有链接，或先作废后再生成。";
+          $("accountLinkExistingPane").hidden = false;
+          $("accountLinkResultPane").hidden = true;
+          renderExistingAccountLinks(existing, true);
+          setActivity(`已有 ${existing.length} 条未消费链接，本次未创建新链接`);
+        } else {
+          setActivity(`${kind === "update" ? "更新" : "新增"}链接生成失败：${error.message}`);
+        }
       } finally {
         button.disabled = false;
         button.textContent = "生成链接";
       }
     }
 
-    function renderExistingAccountLinks(items) {
+    function renderExistingAccountLinks(items, blocked = false) {
       const pane = $("accountLinkExistingPane");
       if (!items.length) { pane.hidden = true; return; }
       pane.hidden = false;
-      $("accountLinkExistingSummary").textContent = `该账号已有 ${items.length} 条未消费链接，仍可继续使用，也可以先作废旧链接。`;
+      $("accountLinkExistingSummary").textContent = blocked
+        ? `已拦截：该账号已有 ${items.length} 条未消费链接。使用现有链接，或作废后再生成。`
+        : `该账号已有 ${items.length} 条未消费链接。`;
       $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
       $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await navigator.clipboard.writeText(item.url); button.textContent = "已复制"; } catch { setActivity("复制失败，请手动选择链接"); } });
-      $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => { try { await api("POST", `/api/account-links/${button.dataset.existingRevoke}/revoke`); button.closest(".link-dialog-existing-row").remove(); setActivity("旧授权链接已作废"); } catch (error) { setActivity(`作废失败：${error.message}`); } });
+      $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => {
+        try {
+          await api("POST", `/api/account-links/${button.dataset.existingRevoke}/revoke`);
+          button.closest(".link-dialog-existing-row").remove();
+          if (!$("accountLinkExistingList").children.length) $("accountLinkExistingPane").hidden = true;
+          setActivity("旧授权链接已作废并删除");
+        } catch (error) { setActivity(`作废失败：${error.message}`); }
+      });
     }
 
     async function syncAllQingLong() {
