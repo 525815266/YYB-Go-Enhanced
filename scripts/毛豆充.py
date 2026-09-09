@@ -16,10 +16,11 @@
   MAODOUCHONG_VIDEO_TIMES：视频次数，默认 5；实际执行不超过服务端上限
   MAODOUCHONG_VIDEO_DELAY：视频请求间隔秒数，默认 1
   MAODOUCHONG_LOTTERY：是否执行积分抽奖，默认 1；设为 0 可关闭
+  MAODOUCHONG_LOTTERY_TIMES：每轮最多抽奖次数，默认 0 表示抽完可用次数
 
 旧的 ``MAOMAOCHONG_*`` 变量仍兼容一段时间。
 
-积分抽奖接口不在当前 HAR 中，脚本不会猜测未知接口。
+抽奖接口已由 HAR 确认；脚本按可用抽奖积分计算次数，默认抽完本轮可用次数。
 """
 
 from __future__ import annotations
@@ -366,15 +367,29 @@ def run_account(account: YybAccount) -> None:
         f"{task_end_points if task_end_points is not None else '未知'}"
     )
     lottery_enabled = os.getenv("MAODOUCHONG_LOTTERY", os.getenv("MAOMAOCHONG_LOTTERY", "1"))
-    prize: dict[str, Any] | None = None
+    prizes: list[dict[str, Any]] = []
     if lottery_enabled.strip().lower() not in {"0", "false", "no", "off"}:
         lottery_points = client.lottery_balance()
-        if lottery_points < 1000:
+        available_draws = lottery_points // 1000
+        configured_draws = env_int(
+            "MAODOUCHONG_LOTTERY_TIMES",
+            os.getenv("MAOMAOCHONG_LOTTERY_TIMES", "0"),
+            0,
+            50,
+        )
+        draw_count = min(available_draws, configured_draws) if configured_draws else available_draws
+        if draw_count <= 0:
             print(f"积分抽奖：可用抽奖积分 {lottery_points}，不足 1000，跳过")
         else:
-            prize = client.draw_lottery()
-            prize_name = prize.get("name") or prize.get("goodsName") or "已完成"
-            print(f"积分抽奖：{safe_text(prize_name)}（消耗 1000 抽奖积分）")
+            print(f"积分抽奖：可抽 {available_draws} 次，本轮执行 {draw_count} 次")
+            for draw_index in range(draw_count):
+                prize = client.draw_lottery()
+                prizes.append(prize)
+                prize_name = prize.get("name") or prize.get("goodsName") or "已完成"
+                print(
+                    f"积分抽奖：第 {draw_index + 1}/{draw_count} 次，"
+                    f"{safe_text(prize_name)}（消耗 1000 抽奖积分）"
+                )
     else:
         print("积分抽奖：已通过 MAODOUCHONG_LOTTERY 关闭")
 
@@ -386,12 +401,20 @@ def run_account(account: YybAccount) -> None:
         print(f"积分收益：任务赚取 {task_gain:+d}，本轮净收益 {net_gain:+d}")
     else:
         print("积分统计：部分积分接口未返回数值，无法计算本轮收益")
-    if prize is not None:
-        prize_name = prize.get("name") or prize.get("goodsName") or "未知奖品"
-        print(
-            f"抽奖收益：{safe_text(prize_name)}；抽奖积分消耗 1000，"
-            f"奖品ID={prize.get('id') or prize.get('goodsId') or '-'}"
-        )
+    if prizes:
+        names = []
+        for prize in prizes:
+            prize_name = prize.get("name") or prize.get("goodsName") or "未知奖品"
+            prize_id = prize.get("id") or "-"
+            goods_id = prize.get("goodsId") or "-"
+            goods_type = prize.get("goodsType") or "-"
+            chance = prize.get("chance")
+            chance_text = f", chance={chance}" if chance is not None else ""
+            names.append(
+                f"{safe_text(prize_name)}(id={prize_id}, goodsId={goods_id}, "
+                f"goodsType={goods_type}{chance_text})"
+            )
+        print(f"抽奖收益：{len(prizes)} 次，{'; '.join(names)}；共消耗 {len(prizes) * 1000} 抽奖积分")
 
 
 def main() -> int:
