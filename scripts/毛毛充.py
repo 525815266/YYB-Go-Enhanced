@@ -107,6 +107,29 @@ def ensure_ok(payload: dict[str, Any], action: str) -> None:
         raise ScriptError(f"{action}失败：{safe_text(message or payload)}")
 
 
+def yyb_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extract the operation result from current and legacy YYB envelopes.
+
+    Current YYB responses wrap the wx.login result as ``data.result``. Older
+    deployments may use ``data.data.result`` or return the result fields
+    directly under ``data``. Keeping this normalization here prevents a valid
+    code from being mistaken for an empty response when YYB is upgraded.
+    """
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return {}
+    result = data.get("result")
+    if isinstance(result, dict):
+        return result
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        result = nested.get("result")
+        if isinstance(result, dict):
+            return result
+        return nested
+    return data
+
+
 def load_remarks(accounts: list[YybAccount]) -> None:
     grouped: dict[str, list[YybAccount]] = {}
     for account in accounts:
@@ -159,12 +182,12 @@ class MaomaochongClient:
             raise ScriptError(f"YYB 获取微信 code 失败：{safe_text(exc)}") from exc
         payload = json_response(response, "YYB 获取微信 code")
         ensure_ok(payload, "YYB 获取微信 code")
-        data = payload.get("data") or {}
-        nested = data.get("data") if isinstance(data, dict) else None
-        code = nested.get("code") if isinstance(nested, dict) else None
-        code = code or (data.get("code") if isinstance(data, dict) else None)
+        result = yyb_result(payload)
+        code = result.get("code")
         if not code:
-            raise ScriptError("YYB 未返回 wx.login code")
+            # Include only a redacted, bounded response so diagnostics remain
+            # useful without leaking OpenID or credentials into QingLong logs.
+            raise ScriptError(f"YYB 未返回 wx.login code：{safe_text(payload)}")
         return str(code)
 
     def login(self) -> None:
