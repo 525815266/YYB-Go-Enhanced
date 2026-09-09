@@ -317,7 +317,11 @@ def run_account(account: YybAccount) -> None:
     client.login()
     profile = client.profile()
     name = profile.get("nickName") or client.user.get("nickName") or "-"
-    print(f"登录成功：{name}，会员ID={client.user_id}，当前积分={client.points() or 0}")
+    start_points = client.points()
+    print(
+        f"登录成功：{name}，会员ID={client.user_id}，开始积分="
+        f"{start_points if start_points is not None else '未知'}"
+    )
     if client.signed_today():
         print("今日签到：已完成")
     else:
@@ -356,8 +360,13 @@ def run_account(account: YybAccount) -> None:
         print(f"视频任务：第 {completed} 次完成" + (f"（{now + 1}/{limit}）" if limit else ""))
         if delay and completed < target:
             time.sleep(delay)
-    print(f"视频任务：本轮完成 {completed} 次；当前积分={client.points() or 0}")
+    task_end_points = client.points()
+    print(
+        f"视频任务：本轮完成 {completed} 次；任务后积分="
+        f"{task_end_points if task_end_points is not None else '未知'}"
+    )
     lottery_enabled = os.getenv("MAODOUCHONG_LOTTERY", os.getenv("MAOMAOCHONG_LOTTERY", "1"))
+    prize: dict[str, Any] | None = None
     if lottery_enabled.strip().lower() not in {"0", "false", "no", "off"}:
         lottery_points = client.lottery_balance()
         if lottery_points < 1000:
@@ -368,6 +377,21 @@ def run_account(account: YybAccount) -> None:
             print(f"积分抽奖：{safe_text(prize_name)}（消耗 1000 抽奖积分）")
     else:
         print("积分抽奖：已通过 MAODOUCHONG_LOTTERY 关闭")
+
+    end_points = client.points()
+    if start_points is not None and task_end_points is not None and end_points is not None:
+        task_gain = task_end_points - start_points
+        net_gain = end_points - start_points
+        print(f"积分统计：开始 {start_points} → 任务后 {task_end_points} → 结束 {end_points}")
+        print(f"积分收益：任务赚取 {task_gain:+d}，本轮净收益 {net_gain:+d}")
+    else:
+        print("积分统计：部分积分接口未返回数值，无法计算本轮收益")
+    if prize is not None:
+        prize_name = prize.get("name") or prize.get("goodsName") or "未知奖品"
+        print(
+            f"抽奖收益：{safe_text(prize_name)}；抽奖积分消耗 1000，"
+            f"奖品ID={prize.get('id') or prize.get('goodsId') or '-'}"
+        )
 
 
 def main() -> int:
