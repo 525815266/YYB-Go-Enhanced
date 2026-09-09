@@ -8,7 +8,7 @@
 - 修复 `毛豆充.py` 解析 YYB `/wxapp/getCode` 响应错误：兼容当前 `data.result.code`、旧版嵌套结构和直接返回结构，避免有效 code 被误报为空；取码失败时输出脱敏诊断信息。
 - 根据 2026-09-09 HAR 接入已确认的 `/api/user/welfare/draw` 抽奖接口，并增加 `MAODOUCHONG_LOTTERY=0` 关闭开关。
 - 增加毛豆充积分流水统计：记录开始积分、任务后积分和结束积分，区分任务赚取积分与抽奖消耗，并显示本轮净收益和中奖奖品。
-- 调整毛豆充抽奖策略：按 `getUserPoints // 1000` 计算并抽完本轮可用次数，支持 `MAODOUCHONG_LOTTERY_TIMES` 设置本轮上限，并输出奖品完整返回字段。
+- 调整毛豆充抽奖策略：改用账户实际 `userWelfarePoints`，每次抽奖前重新读取，只要积分达到 1000 就继续抽；支持 `MAODOUCHONG_LOTTERY_TIMES` 设置本轮上限，并输出奖品完整返回字段。
 
 ## 2026-09-08
 

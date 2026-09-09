@@ -39,8 +39,8 @@
 - `毛豆充.py`：毛豆充 YYB 版，参考菠萝充电脚本的任务编排，但独立使用 HAR
   确认的 `hichar.user.wxapp` 业务接口。支持动态登录、会员积分查询、每日签到
   和视频任务（默认最多 5 次，按服务端 `nowTimes/limitTimes` 实时限流），并按
-  HAR 确认的 `/api/user/welfare/getUserPoints` 和 `/api/user/welfare/draw` 自动执行
-  按可用抽奖积分抽完本轮所有次数。日志会记录开始积分、任务后积分、结束积分、任务积分收益、
+  HAR 确认的 `/api/user/welfare/draw` 自动执行按账户实际积分抽完本轮所有次数。
+  每次抽奖前重新读取 `userWelfarePoints`，只要积分达到 1000 就继续。日志会记录开始积分、任务后积分、结束积分、任务积分收益、
   本轮净积分收益和抽奖奖品；可设置 `MAODOUCHONG_LOTTERY=0` 关闭抽奖。
 - `aima_sign.py`：通过 `YYB_SERVER` 动态登录爱玛会员小程序，自动发现当前有效签到活动；不信任汇总状态字段，仅当天记录存在时跳过，否则提交一次并以当天记录校验；自动领取已达成的连续签到积分奖励（可用 `AIMA_CLAIM_SIGN_REWARDS=0` 关闭），显示 YYB 备注、会员等级、当前/累计积分、成长值、绑定车辆和优惠券数量。
 - `weile_coin.py`：通过 `YYB_SERVER` 动态获取微信小游戏 code，支持多账号查询微乐每日任务，并领取 HAR 已验证的分享福利金币和订阅更新金币。默认每次运行最多领取 1 次分享福利；设置 `WEILE_DRY_RUN=1` 可只查询不领取。

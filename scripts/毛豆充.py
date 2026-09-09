@@ -16,7 +16,7 @@
   MAODOUCHONG_VIDEO_TIMES：视频次数，默认 5；实际执行不超过服务端上限
   MAODOUCHONG_VIDEO_DELAY：视频请求间隔秒数，默认 1
   MAODOUCHONG_LOTTERY：是否执行积分抽奖，默认 1；设为 0 可关闭
-  MAODOUCHONG_LOTTERY_TIMES：每轮最多抽奖次数，默认 0 表示抽完可用次数
+  MAODOUCHONG_LOTTERY_TIMES：每轮最多抽奖次数，默认 0 表示只要积分够就抽
 
 旧的 ``MAOMAOCHONG_*`` 变量仍兼容一段时间。
 
@@ -369,8 +369,8 @@ def run_account(account: YybAccount) -> None:
     lottery_enabled = os.getenv("MAODOUCHONG_LOTTERY", os.getenv("MAOMAOCHONG_LOTTERY", "1"))
     prizes: list[dict[str, Any]] = []
     if lottery_enabled.strip().lower() not in {"0", "false", "no", "off"}:
-        lottery_points = client.lottery_balance()
-        available_draws = lottery_points // 1000
+        lottery_points = client.points()
+        available_draws = (lottery_points or 0) // 1000
         configured_draws = env_int(
             "MAODOUCHONG_LOTTERY_TIMES",
             os.getenv("MAOMAOCHONG_LOTTERY_TIMES", "0"),
@@ -379,11 +379,19 @@ def run_account(account: YybAccount) -> None:
         )
         draw_count = min(available_draws, configured_draws) if configured_draws else available_draws
         if draw_count <= 0:
-            print(f"积分抽奖：可用抽奖积分 {lottery_points}，不足 1000，跳过")
+            print(f"积分抽奖：当前积分 {lottery_points if lottery_points is not None else '未知'}，不足 1000，跳过")
         else:
-            print(f"积分抽奖：可抽 {available_draws} 次，本轮执行 {draw_count} 次")
+            print(f"积分抽奖：当前积分 {lottery_points}，预计可抽 {available_draws} 次，本轮最多执行 {draw_count} 次")
             for draw_index in range(draw_count):
-                prize = client.draw_lottery()
+                current_points = client.points()
+                if current_points is None or current_points < 1000:
+                    print(f"积分抽奖：实时积分 {current_points if current_points is not None else '未知'}，停止")
+                    break
+                try:
+                    prize = client.draw_lottery()
+                except ScriptError as exc:
+                    print(f"积分抽奖：第 {draw_index + 1} 次失败，停止后续抽奖：{safe_text(exc)}")
+                    break
                 prizes.append(prize)
                 prize_name = prize.get("name") or prize.get("goodsName") or "已完成"
                 print(
