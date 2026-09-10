@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -77,6 +78,33 @@ def safe_text(value: Any) -> str:
     text = re.sub(r"(?i)(token|authorization|openid|code)[=: ]+[^ ,}]+", r"\1=***", text)
     text = re.sub(r"(?<!\d)1\d{9}(\d)(?!\d)", r"1*********\1", text)
     return text[:260]
+
+
+def summarize_prizes(prizes: list[dict[str, Any]]) -> list[str]:
+    """Merge duplicate prizes and total the actual number of Maodou beans."""
+    prize_counts: Counter[str] = Counter()
+    maodou_count = 0
+    ordered_names: list[str] = []
+
+    for prize in prizes:
+        name = safe_text(prize.get("name") or prize.get("goodsName") or "未知奖品")
+        match = re.fullmatch(r"毛豆\s*[+xX×*]?\s*(\d+)\s*个?", name)
+        if match:
+            if "__maodou__" not in ordered_names:
+                ordered_names.append("__maodou__")
+            maodou_count += int(match.group(1))
+            continue
+        if name not in prize_counts:
+            ordered_names.append(name)
+        prize_counts[name] += 1
+
+    lines: list[str] = []
+    for name in ordered_names:
+        if name == "__maodou__":
+            lines.append(f"毛豆：{maodou_count} 个")
+        else:
+            lines.append(f"{name} ×{prize_counts[name]}")
+    return lines
 
 
 def parse_accounts() -> list[YybAccount]:
@@ -394,35 +422,25 @@ def run_account(account: YybAccount) -> None:
                     break
                 prizes.append(prize)
                 prize_name = prize.get("name") or prize.get("goodsName") or "已完成"
-                print(
-                    f"积分抽奖：第 {draw_index + 1}/{draw_count} 次，"
-                    f"{safe_text(prize_name)}（消耗 1000 抽奖积分）"
-                )
+                print(f"积分抽奖：[{draw_index + 1}/{draw_count}] {safe_text(prize_name)}")
     else:
         print("积分抽奖：已通过 MAODOUCHONG_LOTTERY 关闭")
 
     end_points = client.points()
+    lottery_cost = len(prizes) * 1000
     if start_points is not None and task_end_points is not None and end_points is not None:
         task_gain = task_end_points - start_points
         net_gain = end_points - start_points
-        print(f"积分统计：开始 {start_points} → 任务后 {task_end_points} → 结束 {end_points}")
-        print(f"积分收益：任务赚取 {task_gain:+d}，本轮净收益 {net_gain:+d}")
+        print(f"积分汇总：{start_points} → {task_end_points} → {end_points}")
+        print(f"  任务赚取：{task_gain:+d}")
+        print(f"  抽奖消耗：-{lottery_cost}")
+        print(f"  最终净增：{net_gain:+d}")
     else:
         print("积分统计：部分积分接口未返回数值，无法计算本轮收益")
     if prizes:
-        names = []
-        for prize in prizes:
-            prize_name = prize.get("name") or prize.get("goodsName") or "未知奖品"
-            prize_id = prize.get("id") or "-"
-            goods_id = prize.get("goodsId") or "-"
-            goods_type = prize.get("goodsType") or "-"
-            chance = prize.get("chance")
-            chance_text = f", chance={chance}" if chance is not None else ""
-            names.append(
-                f"{safe_text(prize_name)}(id={prize_id}, goodsId={goods_id}, "
-                f"goodsType={goods_type}{chance_text})"
-            )
-        print(f"抽奖收益：{len(prizes)} 次，{'; '.join(names)}；共消耗 {len(prizes) * 1000} 抽奖积分")
+        print(f"抽奖汇总：成功 {len(prizes)} 次，消耗 {lottery_cost} 积分")
+        for summary in summarize_prizes(prizes):
+            print(f"  {summary}")
 
 
 def main() -> int:
