@@ -14,7 +14,7 @@
   MAODOUCHONG_WECHAT_APP_ID：覆盖微信 AppID，默认使用 HAR 的
       wxc7548b3f7181e9d9（业务请求 Header 仍为 hichar.user.wxapp）
   MAODOUCHONG_VIDEO_TIMES：视频次数，默认 5；实际执行不超过服务端上限
-  MAODOUCHONG_VIDEO_DELAY：视频请求间隔秒数，默认 1
+  MAODOUCHONG_REWARD_DELAY_MIN / MAX：连续领取奖励间隔，默认 15 / 30 秒
   MAODOUCHONG_LOTTERY：是否执行积分抽奖，默认 1；设为 0 可关闭
   MAODOUCHONG_LOTTERY_TIMES：每轮最多抽奖次数，默认 0 表示只要积分够就抽
 
@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import os
+import random
 import re
 import time
 from collections import Counter
@@ -351,6 +352,20 @@ def run_account(account: YybAccount) -> None:
         f"登录成功：{name}，会员ID={client.user_id}，开始积分="
         f"{start_points if start_points is not None else '未知'}"
     )
+    reward_claimed = False
+    reward_delay_min = env_int("MAODOUCHONG_REWARD_DELAY_MIN", 15, 0, 300)
+    reward_delay_max = env_int("MAODOUCHONG_REWARD_DELAY_MAX", 30, 0, 300)
+    if reward_delay_min > reward_delay_max:
+        reward_delay_min, reward_delay_max = reward_delay_max, reward_delay_min
+
+    def wait_before_reward() -> None:
+        if not reward_claimed:
+            return
+        delay_seconds = random.randint(reward_delay_min, reward_delay_max)
+        if delay_seconds > 0:
+            print(f"奖励间隔：随机等待 {delay_seconds} 秒")
+            time.sleep(delay_seconds)
+
     if client.signed_today():
         print("今日签到：已完成")
     else:
@@ -358,18 +373,13 @@ def run_account(account: YybAccount) -> None:
         if not client.signed_today():
             raise ScriptError("签到请求成功，但未确认当天签到记录")
         print("今日签到：成功")
+        reward_claimed = True
 
     target = env_int(
         "MAODOUCHONG_VIDEO_TIMES",
         os.getenv("MAOMAOCHONG_VIDEO_TIMES", "5"),
         0,
         20,
-    )
-    delay = env_int(
-        "MAODOUCHONG_VIDEO_DELAY",
-        os.getenv("MAOMAOCHONG_VIDEO_DELAY", "1"),
-        0,
-        60,
     )
     completed = 0
     for _ in range(target):
@@ -384,11 +394,11 @@ def run_account(account: YybAccount) -> None:
         if limit and now >= limit:
             print(f"视频任务：已达到服务端上限（{now}/{limit}）")
             break
+        wait_before_reward()
         client.video_once(task)
+        reward_claimed = True
         completed += 1
         print(f"视频任务：第 {completed} 次完成" + (f"（{now + 1}/{limit}）" if limit else ""))
-        if delay and completed < target:
-            time.sleep(delay)
     task_end_points = client.points()
     print(
         f"视频任务：本轮完成 {completed} 次；任务后积分="
@@ -416,10 +426,12 @@ def run_account(account: YybAccount) -> None:
                     print(f"积分抽奖：实时积分 {current_points if current_points is not None else '未知'}，停止")
                     break
                 try:
+                    wait_before_reward()
                     prize = client.draw_lottery()
                 except ScriptError as exc:
                     print(f"积分抽奖：第 {draw_index + 1} 次失败，停止后续抽奖：{safe_text(exc)}")
                     break
+                reward_claimed = True
                 prizes.append(prize)
                 prize_name = prize.get("name") or prize.get("goodsName") or "已完成"
                 print(f"积分抽奖：[{draw_index + 1}/{draw_count}] {safe_text(prize_name)}")
