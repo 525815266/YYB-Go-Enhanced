@@ -51,6 +51,43 @@ function parseYybGoEntry(rawValue) {
     if (!server || !ref) return { server: "", ref: "" };
     return { server, ref };
 }
+
+function createProxyAgent(proxyValue) {
+    if (!proxyValue) return null;
+    const normalized = String(proxyValue).replace(/^http-connect:\/\//i, "http://");
+    if (/^socks/i.test(normalized)) {
+        const { SocksProxyAgent } = require("socks-proxy-agent");
+        return new SocksProxyAgent(normalized);
+    }
+    const { HttpsProxyAgent } = require("https-proxy-agent");
+    return new HttpsProxyAgent(normalized);
+}
+
+async function getAccountProxy(entry, forceRefresh = false) {
+    const token = String(process.env.YYB_INTEGRATION_TOKEN || "").trim();
+    if (!token) return { configured: false, mode: "direct", proxy: "", masked: "" };
+    const { server, ref } = parseYybGoEntry(entry);
+    if (!server || !ref) return { configured: false, mode: "direct", proxy: "", masked: "" };
+    const query = new URLSearchParams({ ref });
+    if (forceRefresh) query.set("refresh", "1");
+    const fallbackProfileID = String(process.env.LHTJ_PROXY_PROFILE_ID || "").trim();
+    if (fallbackProfileID) query.set("fallback_profile_id", fallbackProfileID);
+    const regionCode = String(process.env.LHTJ_PROXY_REGION_CODE || "").trim();
+    if (regionCode) query.set("region_code", regionCode);
+    const regionProvince = String(process.env.LHTJ_PROXY_REGION_PROVINCE || "").trim();
+    if (regionProvince) query.set("region_province", regionProvince);
+    const regionCity = String(process.env.LHTJ_PROXY_REGION_CITY || "").trim();
+    if (regionCity) query.set("region_city", regionCity);
+    const { data, status } = await axios.get(`${server}/integration/accounts/proxy?${query}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 20000,
+        proxy: false,
+        validateStatus: () => true,
+    });
+    if (status !== 200) throw new Error(`读取账号代理失败 HTTP ${status}: ${data?.error || data?.message || JSON.stringify(data)}`);
+    return data?.data || data || { configured: false, mode: "direct", proxy: "", masked: "" };
+}
+
 async function getCode(server) {
     const { server: parsedServer, ref } = parseYybGoEntry(server);
     if (!parsedServer || !ref) return null;
@@ -95,7 +132,6 @@ const DX_MINI_CONFIG = {
 const DX_ALPHABET = "S0DOZN9bBJyPV-qczRa3oYvhGlUMrdjW7m2CkE5_FuKiTQXnwe6pg8fs4HAtIL1x=";
 const DX_LID_KEY = "_dx_uzZo5y";
 const DX_TOKEN_KEY = "_dx_raAh8q";
-const DX_STORAGE = new Map();
 const DX_KEY_MAP = {
     SDKVersion: "sv",
     accuracy: "ac",
@@ -132,6 +168,7 @@ const DX_KEY_MAP = {
     gps: "gps",
 };
 const TOKEN_CACHE_FILE = path.join(__dirname, "token_caches", "longfor_token_cache.json");
+const DX_CACHE_FILE = path.join(__dirname, "token_caches", "longfor_dx_cache.json");
 try { fs.mkdirSync(path.dirname(TOKEN_CACHE_FILE), { recursive: true }); } catch (e) {}
 const USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) MicroMessenger/3.9.12 MiniProgramEnv/Windows WindowsWechat/WMPF";
@@ -150,6 +187,50 @@ function writeCache(cache) {
         fs.writeFileSync(TOKEN_CACHE_FILE, JSON.stringify(cache, null, 2), "utf8");
     } catch (e) {
         console.log(`写入token缓存失败: ${e.message || e}`);
+    }
+}
+
+function readDxCache() {
+    try {
+        if (!fs.existsSync(DX_CACHE_FILE)) return {};
+        return JSON.parse(fs.readFileSync(DX_CACHE_FILE, "utf8")) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function writeDxCache(cache) {
+    try {
+        fs.writeFileSync(DX_CACHE_FILE, JSON.stringify(cache, null, 2), "utf8");
+    } catch (e) {
+        console.log(`写入风控指纹缓存失败: ${e.message || e}`);
+    }
+}
+
+class AccountDxStorage {
+    constructor(account) {
+        this.key = crypto.createHash("sha256").update(String(account || "")).digest("hex").slice(0, 24);
+    }
+
+    get(name) {
+        return readDxCache()[this.key]?.[name] || "";
+    }
+
+    set(name, value) {
+        const cache = readDxCache();
+        cache[this.key] = {
+            ...(cache[this.key] || {}),
+            [name]: value,
+            updatedAt: new Date().toISOString(),
+        };
+        writeDxCache(cache);
+    }
+
+    clear() {
+        const cache = readDxCache();
+        if (!cache[this.key]) return;
+        delete cache[this.key];
+        writeDxCache(cache);
     }
 }
 
@@ -265,23 +346,29 @@ async function dxCollect(options = {}) {
 }
 
 class MiniDxConstId {
-    constructor(options = {}) {
+    constructor(options = {}, storage = new Map()) {
         this.options = { ...DX_MINI_CONFIG, ...(options || {}) };
+        this.storage = storage;
+        this.proxyAgent = null;
         this.options.appId = this.options.appId || this.options.appKey;
         if (!this.options.server || !this.options.appId) throw new Error("missing dx server/appId");
     }
 
+    setProxyAgent(agent) {
+        this.proxyAgent = agent || null;
+    }
+
     getToken() {
-        return DX_STORAGE.get(DX_TOKEN_KEY) || "";
+        return this.storage.get(DX_TOKEN_KEY) || "";
     }
 
     setToken(token) {
-        DX_STORAGE.set(DX_TOKEN_KEY, token);
+        this.storage.set(DX_TOKEN_KEY, token);
     }
 
     async getLid() {
-        const lid = DX_STORAGE.get(DX_LID_KEY) || `${Date.now()}${dxMakeLocalId()}`;
-        DX_STORAGE.set(DX_LID_KEY, lid);
+        const lid = this.storage.get(DX_LID_KEY) || `${Date.now()}${dxMakeLocalId()}`;
+        this.storage.set(DX_LID_KEY, lid);
         return lid;
     }
 
@@ -306,8 +393,13 @@ class MiniDxConstId {
                 "Content-Type": "application/x-www-form-urlencoded",
             },
             timeout: 15000,
+            proxy: false,
             validateStatus: () => true,
         };
+        if (this.proxyAgent) {
+            options.httpAgent = this.proxyAgent;
+            options.httpsAgent = this.proxyAgent;
+        }
         if (method === "POST") options.data = new URLSearchParams({ Param: param }).toString();
         else options.params = { Param: "" };
         const { data } = await axios.request(options);
@@ -336,16 +428,11 @@ class MiniDxConstId {
             return data.data;
         }
         if (status === -4 && data.data) {
-            DX_STORAGE.set(DX_LID_KEY, data.data);
+            this.storage.set(DX_LID_KEY, data.data);
             return this.detect();
         }
         return this.detect();
     }
-}
-
-async function getDxToken() {
-    if (process.env.longfor_dx_token) return process.env.longfor_dx_token;
-    return new MiniDxConstId().generate();
 }
 
 function ok(code) {
@@ -358,15 +445,59 @@ function tokenError(error) {
     return /登录已过期|未登录|请重新登录|授权(?:已)?(?:失效|过期)|lmToken/i.test(String(error?.message || error));
 }
 
+function riskRetryable(error) {
+    const code = String(error?.code || "");
+    return ["801810", "8040016"].includes(code) || /活动太火爆|网络故障/.test(String(error?.message || error));
+}
+
 class Task {
     constructor(account) {
         this.index = userIdx++;
         this.account = String(account || "").trim();
         this.server = this.account;
+        this.ref = parseYybGoEntry(this.account).ref;
         this.token = "";
         this.lmid = "";
         this.expire = 0;
         this.activityNo = "";
+        this.proxyMode = "direct";
+        this.proxyValue = "";
+        this.proxyAgent = null;
+        this.dxStorage = new AccountDxStorage(this.ref || this.account);
+        this.dxClient = new MiniDxConstId({}, this.dxStorage);
+    }
+
+    transportOptions() {
+        if (!this.proxyAgent) return { proxy: false };
+        return { proxy: false, httpAgent: this.proxyAgent, httpsAgent: this.proxyAgent };
+    }
+
+    async prepareProxy(forceRefresh = false) {
+        const resolved = await getAccountProxy(this.account, forceRefresh);
+        const previous = this.proxyValue;
+        this.proxyMode = resolved.mode || "direct";
+        this.proxyValue = resolved.proxy || "";
+        this.proxyAgent = createProxyAgent(this.proxyValue);
+        this.dxClient.setProxyAgent(this.proxyAgent);
+        if (!forceRefresh) {
+            const label = resolved.source === "fallback_profile" ? "脚本临时代理" : "账号代理";
+            console.log(`账号[${this.index}] 网络出口: ${this.proxyValue ? `${label} ${resolved.masked || "已配置"}` : "直连"}`);
+        } else if (previous !== this.proxyValue) {
+            console.log(`账号[${this.index}] 已刷新代理出口: ${resolved.masked || "已切换"}`);
+        }
+        return previous !== this.proxyValue;
+    }
+
+    resetDxIdentity() {
+        this.dxStorage.clear();
+        this.dxClient = new MiniDxConstId({}, this.dxStorage);
+        this.dxClient.setProxyAgent(this.proxyAgent);
+    }
+
+    async getDxToken() {
+        const configured = String(process.env.longfor_dx_token || "").trim();
+        if (configured && SERVERS.length === 1) return configured;
+        return this.dxClient.generate();
     }
 
     applyToken(data = {}) {
@@ -445,6 +576,7 @@ class Task {
         const { data: result, status } = await axios.post(url, data, {
             headers: this.miniHeaders(data, member),
             timeout: 20000,
+            ...this.transportOptions(),
             validateStatus: () => true,
         });
         if (status !== 200) throw new Error(`HTTP ${status}: ${JSON.stringify(result)}`);
@@ -460,6 +592,7 @@ class Task {
         const { data: result, status } = await axios.get(url, {
             headers: this.miniHeaders(null, member),
             timeout: 20000,
+            ...this.transportOptions(),
             validateStatus: () => true,
         });
         if (status !== 200) throw new Error(`HTTP ${status}: ${JSON.stringify(result)}`);
@@ -475,6 +608,7 @@ class Task {
         const { data: result, status } = await axios.post(`${TASK_HOST}${pathname}`, data, {
             headers: this.taskHeaders(dxToken),
             timeout: 20000,
+            ...this.transportOptions(),
             validateStatus: () => true,
         });
         if (status !== 200) throw new Error(`HTTP ${status}: ${JSON.stringify(result)}`);
@@ -488,7 +622,7 @@ class Task {
     }
 
     async loginByWxCode() {
-        const fingerprint = await getDxToken();
+        const fingerprint = await this.getDxToken();
         const checkCode = await this.getLoginCode();
         if (!checkCode) {
             throw new Error(`获取微信code失败：请检查 YYB_SERVER 中该账号在 YYB Go 是否已绑定龙湖天街小程序（appId ${MINI_APP_ID}）`);
@@ -582,8 +716,8 @@ class Task {
         console.log(`账号[${this.index}] 活动: ${pageInfo.task_name || "签到"} 今日=${this.todaySigned(pageInfo) ? "已签到" : "未签到"}`);
         if (this.todaySigned(pageInfo)) return;
 
-        const dxToken = await getDxToken();
-        console.log(`账号[${this.index}] 风控指纹${dxToken ? "获取成功" : "获取失败，直接尝试"}`);
+        const dxToken = await this.getDxToken();
+        console.log(`账号[${this.index}] 风控指纹${dxToken ? "获取成功（账号独立设备）" : "获取失败，直接尝试"}`);
 
         const result = await this.taskPost("/openapi/task/v1/signature/clock", { activity_no: this.activityNo }, dxToken);
         if (!ok(result?.code)) {
@@ -595,6 +729,7 @@ class Task {
     }
 
     async run() {
+        await this.prepareProxy();
         const cached = this.getCachedToken();
         if (cached) {
             this.applyToken(cached);
@@ -605,38 +740,64 @@ class Task {
             }
         }
         if (!this.token) await this.loginByWxCode();
-        if (!this.token) return;
+        if (!this.token) return false;
 
         try {
             await this.signIn();
+            return true;
         } catch (e) {
             if (!tokenError(e)) {
+                if (riskRetryable(e)) {
+                    const delay = Math.max(0, Number(process.env.LHTJ_RISK_RETRY_DELAY_MS || 15000));
+                    console.log(`账号[${this.index}] 风控或网络异常，${Math.round(delay / 1000)} 秒后更换出口/设备重试一次`);
+                    if (delay) await sleep(delay);
+                    try {
+                        const proxyChanged = await this.prepareProxy(true);
+                        this.resetDxIdentity();
+                        if (proxyChanged) {
+                            this.removeCachedToken();
+                            await this.loginByWxCode();
+                        }
+                        await this.signIn();
+                        return true;
+                    } catch (retryError) {
+                        console.log(`账号[${this.index}] 风控重试仍失败${retryError.code ? `(${retryError.code})` : ""}: ${retryError.message || retryError}`);
+                        markFromError(this.ref, retryError.message || retryError, MINI_APP_ID);
+                        return false;
+                    }
+                }
                 console.log(`账号[${this.index}] 签到失败${e.code ? `(${e.code})` : ""}: ${e.message || e}`);
-                return;
+                markFromError(this.ref, e.message || e, MINI_APP_ID);
+                return false;
             }
             this.removeCachedToken();
             console.log(`账号[${this.index}] 登录已过期，获取新 code 后重试一次`);
             try {
                 await this.loginByWxCode();
                 await this.signIn();
+                return true;
             } catch (retryError) {
                 if (tokenError(retryError)) this.removeCachedToken();
                 console.log(`账号[${this.index}] 重登后仍失败${retryError.code ? `(${retryError.code})` : ""}: ${retryError.message || retryError}`);
+                markFromError(this.ref, retryError.message || retryError, MINI_APP_ID);
+                return false;
             }
         }
     }
 }
 
 !(async () => {
-    for (const account of SERVERS) {
+    const interval = Math.max(0, Number(process.env.LHTJ_ACCOUNT_INTERVAL_MS || 5000));
+    for (let index = 0; index < SERVERS.length; index++) {
+        const account = SERVERS[index];
         const task = new Task(account);
         try {
-            await task.run();
-            setStatus(task.ref, "ready", "", MINI_APP_ID);
+            if (await task.run()) setStatus(task.ref, "ready", "", MINI_APP_ID);
         } catch (e) {
             markFromError(task.ref, e.message || e, MINI_APP_ID);
             console.log(`账号[${task.index}] 处理异常已跳过: ${e.message || e}`);
         }
+        if (interval && index < SERVERS.length - 1) await sleep(interval);
     }
 })()
     .catch((e) => console.log(e.message || e))

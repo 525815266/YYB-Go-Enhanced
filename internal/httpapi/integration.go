@@ -2,8 +2,13 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"database/sql"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+
+	"yyb_go/internal/proxysource"
 )
 
 type integrationField struct {
@@ -78,6 +83,70 @@ func (a *App) handleIntegrationAccounts(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out, "count": len(out)})
+}
+
+func (a *App) handleIntegrationAccountProxy(w http.ResponseWriter, r *http.Request) {
+	if !a.authorizeIntegration(w, r) {
+		return
+	}
+	account, ok := a.resolveAccountRef(w, r, r.URL.Query().Get("ref"))
+	if !ok {
+		return
+	}
+	if r.URL.Query().Get("refresh") == "1" {
+		a.invalidateProxyLease(account.ID)
+	}
+	setting, err := a.db.AccountProxySettingOrDefault(r.Context(), account.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	proxyValue := ""
+	mode := setting.Mode
+	proxyType := setting.ProxyType
+	source := "account"
+	if setting.Mode == "direct" && strings.TrimSpace(r.URL.Query().Get("fallback_profile_id")) != "" {
+		profileID, parseErr := strconv.ParseInt(r.URL.Query().Get("fallback_profile_id"), 10, 64)
+		if parseErr != nil || profileID <= 0 {
+			writeError(w, http.StatusBadRequest, "fallback_profile_id must be a positive integer")
+			return
+		}
+		profile, profileErr := a.db.GetProxyProviderProfile(r.Context(), profileID)
+		if errors.Is(profileErr, sql.ErrNoRows) {
+			writeError(w, http.StatusBadRequest, "fallback proxy profile not found")
+			return
+		}
+		if profileErr != nil {
+			writeError(w, http.StatusInternalServerError, profileErr.Error())
+			return
+		}
+		apiURL, profileErr := proxyProfileURLForRegion(profile, r.URL.Query().Get("region_code"), r.URL.Query().Get("region_province"), r.URL.Query().Get("region_city"))
+		if profileErr != nil {
+			writeError(w, http.StatusBadRequest, profileErr.Error())
+			return
+		}
+		proxyValue, profileErr = a.resolveProxySpec(r.Context(), proxysource.Spec{Mode: "api", ProxyType: profile.ProxyType, APIURL: apiURL})
+		if profileErr != nil {
+			writeError(w, http.StatusBadGateway, "resolve fallback proxy failed: "+profileErr.Error())
+			return
+		}
+		mode, proxyType, source = "api", profile.ProxyType, "fallback_profile"
+	} else {
+		proxyValue, _, err = a.resolveAccountProxy(r.Context(), account.ID)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "resolve account proxy failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account_id": account.ID,
+		"configured": proxyValue != "",
+		"mode":       mode,
+		"proxy_type": proxyType,
+		"source":     source,
+		"proxy":      proxyValue,
+		"masked":     proxysource.Mask(proxyValue),
+	})
 }
 
 func (a *App) handleIntegrationGetCode(w http.ResponseWriter, r *http.Request) {

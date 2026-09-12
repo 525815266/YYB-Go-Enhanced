@@ -275,6 +275,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/openapi.json", gin.WrapF(a.handleOpenAPI))
 	router.GET("/integration/module-manifest.json", gin.WrapF(a.handleIntegrationManifest))
 	router.GET("/integration/accounts", gin.WrapF(a.handleIntegrationAccounts))
+	router.GET("/integration/accounts/proxy", gin.WrapF(a.handleIntegrationAccountProxy))
 	router.POST("/integration/actions/get-code", gin.WrapF(a.handleIntegrationGetCode))
 	router.POST("/integration/actions/refresh-account", gin.WrapF(a.handleIntegrationRefreshAccount))
 	// Bearer-style one-time account links are intentionally public. The token
