@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,9 @@ type Config struct {
 	AuthDSN           string
 	AuthMySQLDSN      string
 	IntegrationToken  string
+	// ProtocolToken protects the legacy /wx* and /wxapp/* automation routes
+	// when the service is reachable outside a trusted private network.
+	ProtocolToken     string
 	AdminUser         string
 	AdminPassword     string
 	CookieSecure      bool
@@ -950,6 +954,9 @@ type wxappRequest struct {
 type wxappCall func(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error)
 
 func (a *App) callWXApp(w http.ResponseWriter, r *http.Request, requirePayload bool, call wxappCall) {
+	if !a.authorizeProtocol(w, r) {
+		return
+	}
 	var body wxappRequest
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -992,6 +999,22 @@ func (a *App) callWXApp(w http.ResponseWriter, r *http.Request, requirePayload b
 		},
 		"result": result,
 	})
+}
+
+// authorizeProtocol is opt-in for backwards compatibility. When configured,
+// every automation request must carry the token; this prevents a public
+// YYB_SERVER address plus a numeric account id from being abused by scanners.
+func (a *App) authorizeProtocol(w http.ResponseWriter, r *http.Request) bool {
+	expected := strings.TrimSpace(a.cfg.ProtocolToken)
+	if expected == "" {
+		return true
+	}
+	provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		writeError(w, http.StatusUnauthorized, "invalid protocol token")
+		return false
+	}
+	return true
 }
 
 func decodeOptionalJSON(r *http.Request, dst any) error {
