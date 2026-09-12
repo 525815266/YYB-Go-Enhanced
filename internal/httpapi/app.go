@@ -43,6 +43,7 @@ type Config struct {
 	QingLongSecret    string
 	QingLongServer    string
 	QingLongRepo      string
+	QingLongRefMode   string
 	AuthDriver        string
 	AuthDSN           string
 	AuthMySQLDSN      string

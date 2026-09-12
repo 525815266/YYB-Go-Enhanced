@@ -104,6 +104,7 @@ func main() {
 		QingLongSecret:    clientSecret,
 		QingLongServer:    os.Getenv("YYB_QINGLONG_SERVER"),
 		QingLongRepo:      os.Getenv("YYB_QINGLONG_REPO"),
+		QingLongRefMode:   getEnvWithFallback("YYB_QINGLONG_REF_MODE", "YYB_ACCOUNT_REF_MODE"),
 		AuthDriver:        authDriver,
 		AuthDSN:           os.Getenv("YYB_AUTH_DSN"),
 		AuthMySQLDSN:      legacyAuthDSN,

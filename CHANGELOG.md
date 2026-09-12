@@ -227,3 +227,4 @@
 ## 2026-09-12
 
 - 新增可选 `YYB_PROTOCOL_TOKEN`，为 `/wx/*` 与 `/wxapp/*` 自动化接口增加 Bearer 令牌校验，降低公网暴露时数字账号 ID 被扫描滥用的风险。
+- 新增 `YYB_QINGLONG_REF_MODE=openid` 面板同步模式，可一键将 `YYB_SERVER` 从数字 ID 切换为 OpenID；默认仍为 `id` 兼容旧脚本。

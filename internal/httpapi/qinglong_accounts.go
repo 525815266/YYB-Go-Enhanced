@@ -381,7 +381,7 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 	added := 0
 	for _, acc := range accounts {
 		var changed bool
-		value, changed = mergeYYBServerValue(value, a.cfg.QingLongServer, acc)
+		value, changed = mergeYYBServerValue(value, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
 		if changed {
 			added++
 		}
@@ -415,7 +415,7 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 		return "", false, err
 	}
 	remarks = managedYYBServerRemarks(remarks, accounts)
-	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, acc)
+	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
 	if err := a.qinglong.upsertEnv(ctx, "YYB_SERVER", value, remarks); err != nil {
 		return "", false, err
 	}
@@ -450,7 +450,7 @@ func firstAccountLabel(values ...*string) string {
 	return ""
 }
 
-func mergeYYBServerValue(existing, server string, acc *store.WechatAccount) (string, bool) {
+func mergeYYBServerValue(existing, server string, acc *store.WechatAccount, modes ...string) (string, bool) {
 	existing = strings.ReplaceAll(existing, "\r\n", "\n")
 	existing = strings.TrimRight(existing, "\n")
 	id := strconv.FormatInt(acc.ID, 10)
@@ -464,7 +464,13 @@ func mergeYYBServerValue(existing, server string, acc *store.WechatAccount) (str
 			return existing, false
 		}
 	}
-	entry := strings.TrimSpace(server) + "@" + id
+	refMode := ""
+	if len(modes) > 0 { refMode = modes[0] }
+	ref := id
+	if strings.EqualFold(strings.TrimSpace(refMode), "openid") && strings.TrimSpace(acc.OpenID) != "" {
+		ref = strings.TrimSpace(acc.OpenID)
+	}
+	entry := strings.TrimSpace(server) + "@" + ref
 	if existing == "" {
 		return entry, true
 	}

@@ -100,6 +100,8 @@ Android ARM64 设备可从 [Releases](https://github.com/525815266/YYB-Go-Enhanc
 - `/wx/*`、`/wxapp/*` 保持给青龙脚本调用，不要求浏览器 Cookie；不要直接将这些协议接口暴露到公网。
 
 如必须通过公网访问协议接口，请设置 `YYB_PROTOCOL_TOKEN`，并让脚本在请求中携带 `Authorization: Bearer <token>`。设置后 `/wx/*`、`/wxapp/*` 的所有自动化调用都会校验该令牌，避免“服务地址@数字 ID”被扫描后直接调用。未设置时保持旧版兼容行为，仍应只在内网或可信反代后使用。
+
+面板同步默认沿用数字 ID 以兼容旧脚本；设置 `YYB_QINGLONG_REF_MODE=openid` 后，一键同步会写入 `地址@OpenID`，账号删除、重排不会影响外部引用。重新设为 `id` 即可切回数字 ID。
 - 修改密码会注销该用户的其他会话；管理员重置密码或停用用户会注销该用户全部会话。
 
 ### GitHub Actions 自动与手动构建镜像
