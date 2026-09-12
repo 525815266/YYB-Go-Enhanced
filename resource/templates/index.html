@@ -1541,7 +1541,7 @@
       const defaultMinutes = kind === "update" ? 10 : 30;
       pendingAccountLinkKind = kind;
       $("accountLinkDialogTitle").textContent = kind === "update" ? "生成更新链接" : "生成新增链接";
-      $("accountLinkDialogDescription").textContent = kind === "update" ? "只允许更新当前账号，扫码账号不匹配时不会写入。" : "只允许录入尚未保存的 YYB 账号，已存在账号会被拒绝。";
+      $("accountLinkDialogDescription").textContent = kind === "update" ? `仅限 ${account.remark || account.nickname || `账号 ${account.id}`} 扫码更新` : "可扫码添加任意未录入的 YYB 账号";
       $("accountLinkTTL").value = String(defaultMinutes);
       $("accountLinkConfigPane").hidden = false;
       $("accountLinkExistingPane").hidden = true;
@@ -1577,7 +1577,7 @@
         const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60 });
         try { await navigator.clipboard.writeText(result.url); } catch { /* 手动复制兜底 */ }
         const label = kind === "update" ? "更新链接" : "新增链接";
-        setActivity(`${label}已生成并尝试复制，${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟后失效`);
+        setActivity(`${label}已生成 · ${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟有效`);
         $("accountLinkDialogTitle").textContent = `${label}已生成`;
         $("accountLinkDialogDescription").textContent = "链接已复制到剪贴板，也可以在下方再次复制或打开。";
         $("accountLinkConfigPane").hidden = true;

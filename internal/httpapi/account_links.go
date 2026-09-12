@@ -590,8 +590,9 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 		return
 	}
 	if link.Kind == accountLinkKindUpdate && result.Credentials.OpenID != link.ExpectedOpenID {
-		dropAfterConfirm = true
-		writeError(w, http.StatusForbidden, "扫码账号与目标账号不匹配，未更新任何数据")
+		// Keep the QR session and one-time link alive: the operator may have
+		// opened the link on another phone or scanned with the wrong account.
+		writeError(w, http.StatusConflict, "请使用目标账号扫码：该链接仅限指定账号更新，当前账号未被修改")
 		return
 	}
 	if link.Kind == accountLinkKindAdd {
