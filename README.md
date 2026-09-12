@@ -175,6 +175,27 @@ YYB_KEEPALIVE_AHEAD=45m
 
 ## 青龙、呆呆与 Arcadia 面板接入
 
+### 脚本部署在另一台服务器：返回登录页怎么办？
+
+控制台密码保护管理页面；`POST /wxapp/getCode` 和 `POST /wx/code` 不依赖浏览器 Cookie，也不按调用方是否同机区别处理。只打开 `http://服务器IP:8000/` 显示登录页是正常的，根路径不是取码接口。采用本仓库脚本时，`YYB_SERVER` 每行填写 `http://YYB服务器IP:8000@账号ID`，不要带 `/login`、`?ref=...` 或重复的接口路径。
+
+请在**实际执行脚本的容器内**检查下面两个请求（地址换成你的 YYB 地址）：
+
+```bash
+curl -i --max-time 10 http://YYB服务器IP:8000/health
+curl -i --max-time 10 -X POST http://YYB服务器IP:8000/wxapp/getCode \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+预期分别为 `200` JSON 和 `400` JSON（`ref is required`）；第二个请求只验证路由，不实际生成 code。正式请求体是 `{"ref":"账号ID","app_id":"目标小程序AppID"}`。异机部署不能使用另一台机器的 Docker 容器名 `yyb-go` 或 `127.0.0.1`。
+
+- `303` / `302` 跳转 `/login` 或最终收到 HTML：检查脚本最终请求 URL、旧版本及反向代理路径改写。诊断时不要添加 `curl -L`，避免自动跟随跳转隐藏原因。
+- `404` JSON：接口路径不匹配，注意 `getCode` 大小写；`405` JSON：取码应使用 POST。
+- `401` JSON 来自 `/accounts` 等管理接口：这类接口仍需要网页登录，脚本读取备注失败应独立处理，不要阻断公共取码流程。
+- 直连端口正常、域名返回登录页：检查外层反代的 Basic Auth、统一登录或路径前缀；应用密码不会绕过外层认证。
+
+无需为了异机调用关闭控制台登录。公共协议接口应限制在可信内网、VPN 或调用服务器 IP 白名单内；控制台密码本身不保护这些公共取码接口。
+
 支持对接 **青龙面板 (Qinglong)**、**呆呆面板 (daidai-panel)** 与 **Arcadia**：
 
 - **Web 控制台配置**：可在 Web 控制台的“面板连接设置”中选择【青龙面板】或【呆呆面板 (daidai-panel)】，填入面板地址与对应的鉴权凭据（青龙使用 `Client ID` / `Client Secret`；呆呆面板使用 `App Key` / `App Secret`）。配置会持久化到 SQLite 数据库并优先于容器环境变量。
