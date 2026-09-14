@@ -59,8 +59,14 @@ def _load_tokens() -> List[Tuple[str, str]]:
     raw = os.getenv("FINDSTARS_TOKENS", "").strip()
     if not raw:
         raw = os.getenv("FINDSTARS_TOKEN", os.getenv("FINDSTARS_FS_TOKEN", "")).strip()
+    # 青龙会把同名环境变量拼接成 ampersand 分隔的字符串；同时保留
+    # 手工配置多行文本的兼容性。令牌本身不使用 ampersand。
+    lines: List[str] = []
+    for raw_line in raw.splitlines():
+        lines.extend(part for part in raw_line.split("&") if part.strip())
+
     result: List[Tuple[str, str]] = []
-    for index, line in enumerate(raw.splitlines(), 1):
+    for index, line in enumerate(lines, 1):
         line = line.strip()
         if not line:
             continue
