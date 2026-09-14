@@ -37,12 +37,13 @@ func TestPublicOAuthReturnsAuthorizationURL(t *testing.T) {
 			FullURL string  `json:"full_url"`
 			State   string  `json:"state"`
 			Code    *string `json:"code"`
+			NextStep string `json:"next_step"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != 0 || response.Data.Code != nil || response.Data.State == "" || !strings.Contains(response.Data.FullURL, "#wechat_redirect") {
+	if response.Code != 0 || response.Data.Code != nil || response.Data.State == "" || !strings.Contains(response.Data.FullURL, "#wechat_redirect") || !strings.Contains(response.Data.NextStep, "code=null") {
 		t.Fatalf("unexpected OAuth response: %#v", response)
 	}
 }

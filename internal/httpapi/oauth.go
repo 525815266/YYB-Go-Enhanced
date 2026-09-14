@@ -66,5 +66,7 @@ func (a *App) handlePublicOAuth(w http.ResponseWriter, r *http.Request) {
 		"authorization_required": true,
 		"callback_code_source":   "redirect_uri",
 		"mode":                   "authorization_url",
+		"next_step":              "请在微信内打开 url 并完成授权；授权后微信会请求 redirect_uri?code=...&state=...，当前响应的 code=null 是正常状态。",
+		"callback_params":        []string{"code", "state"},
 	})
 }

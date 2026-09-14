@@ -246,6 +246,8 @@ YYB_SERVER=yyb-go:8000@1
 YYB_SERVER=yyb-go:8000@owNAxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+`POST /wx/oauth` 只负责生成微信公众号网页授权链接，响应中的 `code` 在授权前固定为 `null`。用户必须在微信内打开 `full_url` 并同意授权，微信随后才会请求你填写的 `redirect_uri?code=...&state=...`；请在自己的回调页面读取这两个查询参数。YYB Go 无法替第三方公众号提前生成或截取该一次性 code。
+
 已确认报错的青龙/呆呆面板脚本修复版收录在 [`scripts/`](scripts/README.md)。
 
 ### YYB 账号公共状态缓存

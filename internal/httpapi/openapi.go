@@ -401,7 +401,7 @@ func newOpenAPISpec() map[string]any {
 						"component_appid": map[string]any{"type": "string"},
 					})),
 					defaulted(map[string]any{
-						"200": jsonResponse("生成授权链接；用户授权后 code 会回传到 redirect_uri。", freeFormObjectSchema("公众号网页授权结果")),
+						"200": jsonResponse("生成授权链接；当前 code 为 null 属正常状态，用户在微信内授权后 code 和 state 会回传到 redirect_uri。", freeFormObjectSchema("公众号网页授权结果")),
 					}),
 				),
 			},
