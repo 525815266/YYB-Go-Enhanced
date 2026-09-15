@@ -64,8 +64,8 @@ MEMBER_DAY_INFO_URL = (
     "https://images.qmai.cn/cmkcenter/activity/203192/"
     f"{MEMBER_DAY_ACTIVITY_ID}.json"
 )
-MEMBER_DAY_LIMIT_PATH = "/web/cmk-center/receive/limitEntrance"
 MEMBER_DAY_CLAIM_PATH = "/web/cmk-center/receive/takePartInReceive"
+COUPON_LIST_PATH = "/web/catering/crm/coupon/list"
 DISCOUNT_GOODS_DETAIL_PATH = "/web/mall-apiserver/integral/item/goods/detail"
 DISCOUNT_ORDER_CREATE_PATH = "/web/mall-apiserver/integral/order/create"
 DISCOUNT_PAYMENT_PATH = "/web/mall-apiserver/integral/pay/payment-info"
@@ -179,6 +179,29 @@ def _find_crypto_key(value):
     return None
 
 
+def _signed_uint64(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number - (1 << 64) if number >= (1 << 63) else number
+
+
+def _wx_operation_error(payload):
+    """解析 YYB 原始 operateWxData protobuf 包装中的业务错误。"""
+    try:
+        result = (payload.get("data") or {}).get("result") or {}
+        detail = ((result.get("2") or {}).get("2") or {})
+        code = _signed_uint64(detail.get("1"))
+        message = str(detail.get("2") or result.get("5") or "").strip()
+        if code not in (None, 0) or message:
+            text = message or "微信能力调用失败"
+            return f"{text}（code={code}）" if code is not None else text
+    except (AttributeError, TypeError):
+        pass
+    return ""
+
+
 def get_wx_latest_user_key(entry):
     server, ref = parse_yyb_entry(entry)
     response = yyb_session.post(
@@ -193,9 +216,25 @@ def get_wx_latest_user_key(entry):
     payload = safe_json(response)
     key = _find_crypto_key(payload)
     if response.status_code != 200 or not key:
+        operation_error = _wx_operation_error(payload)
+        if operation_error:
+            raise ApiError(
+                "YYB Go 当前协议无法调用小程序本地 getLatestUserKey："
+                + operation_error
+            )
         message = payload.get("message") or payload.get("msg") or payload.get("code")
-        raise ApiError(f"YYB Go 获取微信加密密钥失败：{message}")
+        raise ApiError(f"YYB Go 未返回 encryptKey/iv：{message}")
     return key
+
+
+def _walk_dicts(value):
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from _walk_dicts(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk_dicts(item)
 
 
 def qmai_member_openid(openid):
@@ -395,7 +434,7 @@ class Account:
         return data
 
     def query_member_day(self):
-        """读取周二会员日活动，供领取前判断和日志诊断使用。"""
+        """读取周二会员日活动配置。该静态配置不代表个人领取状态。"""
         response = api_session.get(
             MEMBER_DAY_INFO_URL,
             headers=build_headers(self.token),
@@ -405,15 +444,39 @@ class Account:
         if response.status_code != 200:
             raise ApiError(f"会员日活动配置 HTTP {response.status_code}")
         info = safe_json(response)
-        try:
-            limit = self.api_get(MEMBER_DAY_LIMIT_PATH, {"appid": MINI_APP_ID})
-        except ApiError as error:
-            # 该辅助入口在部分 Qmai 节点已下线（405），不影响主领取接口。
-            print(f"账号[{self.index}] 会员日限流入口查询跳过：{error}")
-            limit = {}
         if not isinstance(info, dict):
             info = {}
-        return info, limit if isinstance(limit, dict) else {}
+        return info
+
+    def find_member_day_coupon(self, activity):
+        """从个人券包核对本期会员日券，返回 (状态, 券模板)。"""
+        rewards = activity.get("rewardList") or []
+        template_ids = {
+            str(item.get("entityId"))
+            for item in rewards
+            if isinstance(item, dict) and item.get("entityId")
+        }
+        reward_names = {
+            str(item.get("rewardName"))
+            for item in rewards
+            if isinstance(item, dict) and item.get("rewardName")
+        }
+        status_names = {0: "未使用", 1: "已使用", 2: "已过期"}
+        for use_status in (0, 1, 2):
+            payload = self.api_post(
+                COUPON_LIST_PATH,
+                {"pageNo": 1, "pageSize": 1000, "useStatus": use_status},
+            )
+            data = self.ensure_success(payload, "个人券包查询") or {}
+            for item in _walk_dicts(data):
+                template = item.get("couponTemplate")
+                if not isinstance(template, dict):
+                    continue
+                template_id = str(template.get("id") or "")
+                template_name = str(template.get("name") or "")
+                if template_id in template_ids or template_name in reward_names:
+                    return status_names[use_status], template
+        return None, None
 
     def run_member_day_coupon(self):
         if not ENABLE_MEMBER_DAY_COUPON:
@@ -422,16 +485,29 @@ class Account:
         if time.localtime().tm_wday != 1:
             return
         try:
-            activity, limit = self.query_member_day()
+            activity = self.query_member_day()
         except ApiError as error:
             print(f"账号[{self.index}] 会员日活动状态查询失败：{error}")
             return
         activity_status = activity.get("activityStatus")
         receive_status = activity.get("receiveStatus")
         print(
-            f"账号[{self.index}] 周二会员日：活动状态={activity_status or '-'}，"
-            f"领取状态={receive_status or '-'}"
+            f"账号[{self.index}] 周二会员日活动配置：activityStatus={activity_status or '-'}，"
+            f"receiveStatus={receive_status or '-'}（不代表个人是否已领取）"
         )
+
+        try:
+            coupon_status, coupon = self.find_member_day_coupon(activity)
+        except ApiError as error:
+            print(f"账号[{self.index}] 个人券包核对失败，继续尝试领取：{error}")
+        else:
+            if coupon:
+                print(
+                    f"账号[{self.index}] 会员日券已领取：{coupon.get('name') or '本期会员日券'}，"
+                    f"状态={coupon_status}"
+                )
+                return
+            print(f"账号[{self.index}] 个人券包未找到本期会员日券，开始尝试领取")
 
         # 允许调试时覆盖完整参数；正常流程按小程序源码动态生成。
         raw_payload = os.environ.get("ASDCB_MEMBER_CLAIM_PAYLOAD", "").strip()
@@ -472,7 +548,10 @@ class Account:
                 )
                 claim["version"] = key.get("version") or 8
             except (ApiError, ValueError, TypeError, KeyError) as error:
-                print(f"账号[{self.index}] 会员日券未领取：生成动态参数失败：{error}")
+                print(
+                    f"账号[{self.index}] 会员日券未提交：动态参数生成失败：{error}；"
+                    "这不是已领取结果"
+                )
                 return
         claim.setdefault("activityId", MEMBER_DAY_ACTIVITY_ID)
         claim.setdefault("appid", MINI_APP_ID)
@@ -480,8 +559,12 @@ class Account:
         if self.dry_run:
             print(f"账号[{self.index}] dry-run：跳过会员日券领取")
             return
-        payload = self.api_post(MEMBER_DAY_CLAIM_PATH, claim)
-        data = self.ensure_success(payload, "会员日券领取") or {}
+        try:
+            payload = self.api_post(MEMBER_DAY_CLAIM_PATH, claim)
+            data = self.ensure_success(payload, "会员日券领取") or {}
+        except ApiError as error:
+            print(f"账号[{self.index}] 会员日券未领取：{error}")
+            return
         print(
             f"账号[{self.index}] 会员日券领取成功：activityId={data.get('activityId', MEMBER_DAY_ACTIVITY_ID)}"
         )
