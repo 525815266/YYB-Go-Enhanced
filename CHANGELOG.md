@@ -2,6 +2,12 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## 2026-09-15
+
+- 新增 `scripts/asdcb_auto_sign.py` 的阿水大杯茶周二会员日处理：自动读取活动配置和领取状态，并保留服务端状态诊断。
+- 新增 7.9 折券积分兑换链：开关 `ASDCB_ENABLE_79_COUPON` 默认关闭，开启后仅周二执行，兑换前校验商品价格、库存、活动状态、积分和每日限购，创建订单后通过 `payment-info` 确认兑换完成。
+- 根据阿水小程序解包还原会员日领取算法：`signature` 使用活动 ID 反转值作为 key 的排序 MD5，`openid` 使用 Qmai openid 的 MD5，`data` 使用 YYB `getLatestUserKey` 返回的 `encryptKey/iv` 做 AES-CBC/PKCS7 后 Base64 编码；不再依赖 HAR 一次性参数。旧 token 缓存自动补齐 `openid/userId`，Qmai 下线 `limitEntrance`（405）时不阻断主领取链。
+
 ## 2026-09-12
 
 - 跟进 Issue #43：修复未匹配接口路径被登录页遮蔽的问题，统一返回 JSON 404；未登录访问账号管理 API 返回 JSON 401，管理页面继续要求登录。补充异机青龙取码配置、反代排查说明和开启认证后的本机/异机路由回归测试。

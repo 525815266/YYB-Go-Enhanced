@@ -36,6 +36,14 @@
 
 ## YYB 活动脚本
 
+- `asdcb_auto_sign.py`：阿水大杯茶 YYB 版每日签到。每周二自动读取会员日活动状态，并按小程序源码生成 `MD5` 签名、调用 YYB `getLatestUserKey` 获取微信加密密钥后完成 AES-CBC/PKCS7 `data` 加密，再提交会员日券领取。旧版 token 缓存缺少 `openid/userId` 时会自动重新登录补齐。7.9 折券兑换通过 `ASDCB_ENABLE_79_COUPON=1` 显式开启，默认关闭，开启后仅周二校验库存、积分和限购并完成积分兑换。`--dry-run` 只查询不签到、不创建兑换订单。
+
+  ```bash
+  python3 asdcb_auto_sign.py --dry-run
+  # 青龙环境变量：ASDCB_ENABLE_79_COUPON=1
+  # 可选：ASDCB_MEMBER_CLAIM_PAYLOAD={"activityId":"...","timestamp":"...","signature":"...","data":"..."}
+  ```
+
 - `mlgogo_sign.py`：马历小程序积分商城每日签到。使用 `wx86d2d7c2d832b4ce`
   动态获取 code，按小程序内置 RSA 签名生成每次请求的 `_s`，支持多账号、签到
   状态查询、token 持久化和失效自动重登。
