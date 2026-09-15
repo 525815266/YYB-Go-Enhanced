@@ -4,6 +4,8 @@
 
 ## 2026-09-15
 
+- 修正 GitHub Actions 构建触发范围：脚本、README 和普通文档更新不再触发 Docker 镜像或 Magisk 构建；服务端、运行资源、打包文件和对应 workflow 仍会自动验证并构建。
+- 为同一 YYB 账号增加 `wx.login` 取码互斥，不同账号保持并发；避免多个青龙任务同时取码时发生账号级会话/一次性 code 竞态，并补充并发回归测试。
 - 整理 `L0NE-6/code-collection-share` 的 136 个 Python 脚本到 `scripts/code-collection-share/`：完成文件哈希、AST 和名称归一化去重，保留 136 个互不重复脚本。
 - 统一适配 `YYB_SERVER` 多账号和 `/wxapp/getCode`，支持动态 AppID、`YYB_API_KEY` 协议鉴权以及 `/wxapp/getPhoneNumber` 手机号授权；保留未配置 YYB 时的旧服务兼容入口。
 - 明确微信资料能力边界：不使用普通账号资料伪造 `encryptedData`、`iv` 或 `signature`；青龙任务脱离原仓库订阅，后续由本仓库审核发布。

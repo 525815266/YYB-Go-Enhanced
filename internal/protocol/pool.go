@@ -48,6 +48,10 @@ type Pool struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+	// codeLocks serialize wx.login requests for one account. Different
+	// accounts keep running concurrently, while a single account cannot have
+	// two one-time login codes consumed at the same time.
+	codeLocks map[int64]chan struct{}
 
 	loginSem     chan struct{}
 	shortlinkSem chan struct{}
@@ -77,12 +81,23 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 		cfg:          cfg,
 		db:           db,
 		locks:        map[string]*sync.Mutex{},
+		codeLocks:    map[int64]chan struct{}{},
 		loginSem:     make(chan struct{}, cfg.MaxLoginConcurrency),
 		shortlinkSem: make(chan struct{}, cfg.MaxShortlinkConcurrency),
 	}
 }
 
 func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool) (map[string]any, error) {
+	codeLock := p.codeLockFor(accountID)
+	if err := acquire(ctx, codeLock); err != nil {
+		return nil, err
+	}
+	defer release(codeLock)
+
+	return p.getCode(ctx, loginBuffer, appID, accountID, tcpProxy, fallbackDirect)
+}
+
+func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool) (map[string]any, error) {
 	call := func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 		hostAppID := st.Session.HostAppID
 		if len(hostAppID) == 0 {
@@ -211,6 +226,18 @@ func (p *Pool) lockFor(key string) *sync.Mutex {
 	l := &sync.Mutex{}
 	p.locks[key] = l
 	return l
+}
+
+func (p *Pool) codeLockFor(accountID int64) chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if lock := p.codeLocks[accountID]; lock != nil {
+		return lock
+	}
+	lock := make(chan struct{}, 1)
+	lock <- struct{}{}
+	p.codeLocks[accountID] = lock
+	return lock
 }
 
 func (p *Pool) loginAndSession(ctx context.Context, loginBuffer, tcpProxy string, fallbackDirect bool) (WmpfSession, error) {

@@ -21,6 +21,16 @@ on:
       - main
     tags:
       - 'magisk-v*'
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'resource/static/**'
+      - 'resource/templates/**'
+      - 'packaging/magisk/**'
+      - 'scripts/build-magisk.sh'
+      - '.github/workflows/magisk-publish.yml'
 
 permissions:
   contents: write

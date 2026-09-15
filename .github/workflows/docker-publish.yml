@@ -18,6 +18,15 @@ on:
       - main
     tags:
       - 'v*'
+    paths:
+      - 'Dockerfile'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'resource/**'
+      - 'docker-entrypoint.d/**'
+      - '.github/workflows/docker-publish.yml'
 
 permissions:
   contents: read
