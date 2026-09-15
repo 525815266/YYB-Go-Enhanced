@@ -235,7 +235,6 @@ func (p *Pool) codeLockFor(accountID int64) chan struct{} {
 		return lock
 	}
 	lock := make(chan struct{}, 1)
-	lock <- struct{}{}
 	p.codeLocks[accountID] = lock
 	return lock
 }

@@ -51,7 +51,7 @@ func TestCodeLockSerializesSameAccount(t *testing.T) {
 func TestCodeLocksAllowDifferentAccountsConcurrently(t *testing.T) {
 	p := NewPool(DefaultConfig(), nil)
 	started := make(chan struct{}, 2)
-	release := make(chan struct{})
+	releaseAll := make(chan struct{})
 	var active int32
 	var maxActive int32
 	var wg sync.WaitGroup
@@ -74,7 +74,7 @@ func TestCodeLocksAllowDifferentAccountsConcurrently(t *testing.T) {
 				}
 			}
 			started <- struct{}{}
-			<-release
+			<-releaseAll
 			atomic.AddInt32(&active, -1)
 		}(accountID)
 	}
@@ -89,6 +89,6 @@ func TestCodeLocksAllowDifferentAccountsConcurrently(t *testing.T) {
 	if got := atomic.LoadInt32(&maxActive); got != 2 {
 		t.Fatalf("max concurrent code locks = %d, want 2", got)
 	}
-	close(release)
+	close(releaseAll)
 	wg.Wait()
 }
