@@ -4,6 +4,7 @@
 
 ## 2026-09-15
 
+- 修正阿水脚本查询模式：启动日志明确标记 `--dry-run`，个人券包核验后不再继续请求动态密钥或尝试领券；同步当前小程序版本请求头和 `qm-trace-store-id`。
 - 新增 `scripts/asdcb_auto_sign.py` 的阿水大杯茶周二会员日处理：自动读取活动配置，并通过个人券包核对本期券的真实领取状态。
 - 新增 7.9 折券积分兑换链：开关 `ASDCB_ENABLE_79_COUPON` 默认关闭，开启后仅周二执行，兑换前校验商品价格、库存、活动状态、积分和每日限购，创建订单后通过 `payment-info` 确认兑换完成。
 - 根据阿水小程序解包还原会员日领取算法：`signature` 使用活动 ID 反转值作为 key 的排序 MD5，`openid` 使用 Qmai openid 的 MD5，`data` 使用 `getLatestUserKey` 返回的 `encryptKey/iv` 做 AES-CBC/PKCS7 后 Base64 编码。旧 token 缓存自动补齐 `openid/userId`。

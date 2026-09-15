@@ -33,7 +33,7 @@ MINI_APP_ID = "wxf4b12e079bb99abc"
 BASE_URL = "https://webapi.qmai.cn"
 STORE_ID = "203192"
 SCENE = "1027"
-PAGE_VERSION = "293"
+PAGE_VERSION = os.environ.get("ASDCB_PAGE_VERSION", "346").strip() or "346"
 TIMEOUT = 25
 USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_3_1 like Mac OS X) "
@@ -113,6 +113,7 @@ def build_headers(token="", include_scene=True):
         "Qm-From": "wechat",
         "Qm-From-Type": "catering",
         "store-id": STORE_ID,
+        "qm-trace-store-id": STORE_ID,
         "Referer": f"https://servicewechat.com/{MINI_APP_ID}/{PAGE_VERSION}/page-frame.html",
         "Accept-Language": "zh-CN",
     }
@@ -509,6 +510,10 @@ class Account:
                 return
             print(f"账号[{self.index}] 个人券包未找到本期会员日券，开始尝试领取")
 
+        if self.dry_run:
+            print(f"账号[{self.index}] dry-run：跳过会员日券领取")
+            return
+
         # 允许调试时覆盖完整参数；正常流程按小程序源码动态生成。
         raw_payload = os.environ.get("ASDCB_MEMBER_CLAIM_PAYLOAD", "").strip()
         if raw_payload:
@@ -556,9 +561,6 @@ class Account:
         claim.setdefault("activityId", MEMBER_DAY_ACTIVITY_ID)
         claim.setdefault("appid", MINI_APP_ID)
         claim.setdefault("v", 1)
-        if self.dry_run:
-            print(f"账号[{self.index}] dry-run：跳过会员日券领取")
-            return
         try:
             payload = self.api_post(MEMBER_DAY_CLAIM_PATH, claim)
             data = self.ensure_success(payload, "会员日券领取") or {}
@@ -772,7 +774,8 @@ def main():
     args = parser.parse_args()
 
     accounts = load_accounts()
-    print(f"========== {NAME}签到启动 ==========")
+    mode = "查询模式（--dry-run，不执行签到/领券/兑换）" if args.dry_run else "执行模式"
+    print(f"========== {NAME}签到启动｜{mode} ==========")
     for index, entry in enumerate(accounts, 1):
         print(f"\n----------- 账号【{index}/{len(accounts)}】-----------")
         try:
