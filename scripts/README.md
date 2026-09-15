@@ -1,5 +1,12 @@
 # 青龙修复脚本
 
+## code-collection-share YYB 适配合集
+
+`scripts/code-collection-share/` 收录 136 个经过 YYB 多账号适配的 Python 脚本。
+已完成文件哈希、AST 结构和名称归一化去重，并覆盖普通取码、动态 AppID、手机号
+授权 code/加密包等调用形式。青龙不再直接订阅原仓库，防止更新覆盖适配层；配置、
+限制和任务路径见 [目录说明](code-collection-share/README.md)。
+
 ## YYB 账号公共状态缓存
 
 `yyb_account_guard.py`（Python）和 `yyb-account-guard.js`（Node）提供共享的

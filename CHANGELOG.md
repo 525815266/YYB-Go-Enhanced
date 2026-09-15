@@ -4,6 +4,9 @@
 
 ## 2026-09-15
 
+- 整理 `L0NE-6/code-collection-share` 的 136 个 Python 脚本到 `scripts/code-collection-share/`：完成文件哈希、AST 和名称归一化去重，保留 136 个互不重复脚本。
+- 统一适配 `YYB_SERVER` 多账号和 `/wxapp/getCode`，支持动态 AppID、`YYB_API_KEY` 协议鉴权以及 `/wxapp/getPhoneNumber` 手机号授权；保留未配置 YYB 时的旧服务兼容入口。
+- 明确微信资料能力边界：不使用普通账号资料伪造 `encryptedData`、`iv` 或 `signature`；青龙任务脱离原仓库订阅，后续由本仓库审核发布。
 - 修正阿水脚本查询模式：启动日志明确标记 `--dry-run`，个人券包核验后不再继续请求动态密钥或尝试领券；同步当前小程序版本请求头和 `qm-trace-store-id`。
 - 新增 `scripts/asdcb_auto_sign.py` 的阿水大杯茶周二会员日处理：自动读取活动配置，并通过个人券包核对本期券的真实领取状态。
 - 新增 7.9 折券积分兑换链：开关 `ASDCB_ENABLE_79_COUPON` 默认关闭，开启后仅周二执行，兑换前校验商品价格、库存、活动状态、积分和每日限购，创建订单后通过 `payment-info` 确认兑换完成。
