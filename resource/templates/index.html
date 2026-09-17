@@ -353,6 +353,9 @@
     }
 
     .account-card {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
       width: 100%;
       min-width: 0;
       min-height: 148px;
@@ -366,7 +369,112 @@
       grid-template-columns: 36px minmax(0, 1fr);
       gap: 9px;
       align-items: start;
-      transition: background 160ms ease, border-color 160ms ease;
+      transition: background 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    .account-card.alive {
+      border-color: oklch(0.84 0.055 145);
+      background: oklch(0.985 0.008 145);
+    }
+
+    .account-card.alive .account-status {
+      color: oklch(0.43 0.12 145);
+      font-weight: 680;
+    }
+
+    .account-card.warning {
+      border-color: oklch(0.84 0.07 82);
+      background: oklch(0.985 0.014 82);
+    }
+
+    .account-card.warning .account-status {
+      color: oklch(0.47 0.11 72);
+      font-weight: 680;
+    }
+
+    .account-card.expired {
+      border-color: oklch(0.78 0.025 20);
+      background: oklch(0.94 0.008 20);
+      box-shadow: inset 0 0 0 1px oklch(0.74 0.03 20 / 0.22);
+    }
+
+    .account-card.expired .avatar,
+    .account-card.expired .account-main {
+      opacity: 0.58;
+      filter: grayscale(0.88) saturate(0.35);
+      transition: opacity 420ms cubic-bezier(0.25, 1, 0.5, 1), filter 420ms cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    .account-card.expired .account-status {
+      color: oklch(0.42 0.12 24);
+      font-weight: 760;
+    }
+
+    .account-card.expired::after {
+      content: attr(data-state-label);
+      position: absolute;
+      right: 14px;
+      top: 55px;
+      z-index: 2;
+      padding: 4px 10px 3px;
+      border: 3px double oklch(0.49 0.19 24 / 0.72);
+      border-radius: 4px;
+      color: oklch(0.45 0.2 24 / 0.76);
+      background: oklch(0.97 0.02 24 / 0.48);
+      box-shadow: 0 0 0 1px oklch(0.99 0 0 / 0.5), 0 2px 8px oklch(0.35 0.12 24 / 0.12);
+      font-size: 17px;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      line-height: 1.1;
+      text-indent: 0.16em;
+      transform: rotate(-13deg);
+      pointer-events: none;
+    }
+
+    .account-card.expired.expired-alert {
+      animation: expired-neon-alert 2.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .account-card.expired.expired-alert::after {
+      animation: expired-stamp-in 720ms cubic-bezier(0.16, 1, 0.3, 1) 260ms both;
+    }
+
+    .account-card.expired.expired-alert .avatar,
+    .account-card.expired.expired-alert .account-main {
+      animation: expired-content-dim 2.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes expired-neon-alert {
+      0%, 22% {
+        border-color: oklch(0.61 0.24 24);
+        background: oklch(0.965 0.04 24);
+        box-shadow: 0 0 0 2px oklch(0.68 0.25 24 / 0.34), 0 0 22px oklch(0.61 0.25 24 / 0.56), inset 0 0 18px oklch(0.65 0.19 24 / 0.12);
+      }
+      38% {
+        border-color: oklch(0.78 0.08 24);
+        box-shadow: 0 0 0 1px oklch(0.68 0.21 24 / 0.18), 0 0 7px oklch(0.61 0.25 24 / 0.2);
+      }
+      52% {
+        border-color: oklch(0.62 0.21 24);
+        background: oklch(0.965 0.026 24);
+        box-shadow: 0 0 0 2px oklch(0.68 0.22 24 / 0.24), 0 0 15px oklch(0.61 0.23 24 / 0.34);
+      }
+      100% {
+        border-color: oklch(0.78 0.025 20);
+        background: oklch(0.94 0.008 20);
+        box-shadow: inset 0 0 0 1px oklch(0.74 0.03 20 / 0.22);
+      }
+    }
+
+    @keyframes expired-stamp-in {
+      0% { opacity: 0; transform: rotate(-13deg) scale(1.42); filter: blur(2px); }
+      54% { opacity: 0.96; transform: rotate(-13deg) scale(0.96); filter: blur(0); }
+      100% { opacity: 1; transform: rotate(-13deg) scale(1); filter: blur(0); }
+    }
+
+    @keyframes expired-content-dim {
+      0%, 32% { opacity: 0.92; filter: grayscale(0.15) saturate(0.9); }
+      100% { opacity: 0.58; filter: grayscale(0.88) saturate(0.35); }
     }
 
     .account-card:hover {
@@ -374,9 +482,20 @@
       border-color: oklch(0.78 0.035 190);
     }
 
+    .account-card.expired:hover {
+      background: oklch(0.955 0.01 20);
+      border-color: oklch(0.69 0.08 24);
+    }
+
     .account-card.selected {
       background: var(--accent-soft);
       border-color: var(--accent);
+    }
+
+    .account-card.expired.selected {
+      background: oklch(0.94 0.012 20);
+      border-color: oklch(0.58 0.15 24);
+      box-shadow: 0 0 0 2px oklch(0.68 0.16 24 / 0.2), inset 0 0 0 1px oklch(0.74 0.04 20 / 0.24);
     }
 
     .avatar {
@@ -762,6 +881,12 @@
         max-height: none;
         overflow: visible;
       }
+
+      .account-card.expired::after {
+        right: 18px;
+        top: 58px;
+        font-size: 16px;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -771,6 +896,21 @@
         scroll-behavior: auto !important;
         transition-duration: 1ms !important;
         animation-duration: 1ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+      }
+
+      .account-card.expired.expired-alert {
+        animation: none !important;
+      }
+
+      .account-card.expired.expired-alert::after {
+        animation: none !important;
+      }
+
+      .account-card.expired.expired-alert .avatar,
+      .account-card.expired.expired-alert .account-main {
+        animation: none !important;
       }
     }
   </style>
@@ -1035,9 +1175,10 @@
         { name: "appmsglike", label: "/wx/appmsglike 文章点赞", route: "/wx/appmsglike", requiresAppID: true, needsPayload: true },
         { name: "oauth", label: "/wx/oauth 公众号授权", route: "/wx/oauth", requiresAppID: true }
       ],
-	  proxyConfigs: new Map(),
+      proxyConfigs: new Map(),
       selectedOpenID: "",
-      lastResult: ""
+      lastResult: "",
+      expiredIntroPlayed: false
     };
 
     const $ = id => document.getElementById(id);
@@ -1227,6 +1368,7 @@
       }
 
       strip.innerHTML = "";
+      const playExpiredIntro = !state.expiredIntroPlayed;
       for (const account of state.accounts) {
         const name = accountName(account);
 		const proxy = proxyText(state.proxyConfigs.get(String(account.id)));
@@ -1235,11 +1377,12 @@
         const pendingConfirmation = account.status !== "alive" && account.status !== "expired";
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "account-card";
+        button.className = `account-card ${cls}${account.status === "expired" && playExpiredIntro ? " expired-alert" : ""}`;
         button.dataset.openid = account.openid;
+        if (account.status === "expired") button.dataset.stateLabel = "已失效";
         button.setAttribute("aria-pressed", "false");
         const number = accountNumber(account);
-        button.setAttribute("aria-label", `选择账号 ${number}，${name}`);
+        button.setAttribute("aria-label", `选择账号 ${number}，${name}，状态：${status}`);
         button.innerHTML = `
           <span class="avatar">
             <img alt="" src="/accounts/avatar?ref=${encodeURIComponent(account.openid)}">
@@ -1284,6 +1427,7 @@
         }));
         strip.appendChild(button);
       }
+      state.expiredIntroPlayed = true;
       renderStats();
       loadAccountProxySummary();
     }
