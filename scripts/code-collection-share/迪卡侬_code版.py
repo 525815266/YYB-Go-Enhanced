@@ -13,7 +13,7 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
 
 
 """
-迪卡侬小程序动态 code 版
+迪卡侬小程序动态 code 版 9.17
 
 功能：
   1. 本地 code 服务获取微信 code
@@ -34,9 +34,9 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
   socks5 代理需：
   pip install requests[socks]
 
-⚠️ 登录接口与 token 校验接口为推断，未经真机验证，失败请抓包核对
-   （源脚本为 Bearer token 抓包型，仅含签到接口）
+⚠️ 9.17已完成实机测试，签到功能正常
 """
+
 
 
 import json
@@ -72,9 +72,17 @@ ENABLE_DIRECT_FALLBACK = True
 REQUEST_TIMEOUT = 30
 
 BASE_URL = "https://api-cn.decathlon.com.cn"
-LOGIN_URL = f"{BASE_URL}/membership/membership-portal/mp/api/v1/login"
-VALIDATE_URL = f"{BASE_URL}/membership/membership-portal/mp/api/v1/customer/info"
+BFF_BASE_URL = "https://mpm-store.decathlon.com.cn"
+LOGIN_URL = f"{BFF_BASE_URL}/wcc_bff/api/v1/auth/simplify/login"
+VALIDATE_URL = f"{BFF_BASE_URL}/wcc_bff/api/v1/member/member_info/query"
 CHECK_IN_URL = f"{BASE_URL}/membership/membership-portal/mp/api/v1/business-center/reward/CHECK_IN_DAILY"
+
+# Values used by the current production mini-program (package 551, 2026-09-17).
+# The BFF login and membership portal use different x-api-key values.
+BFF_API_KEY = "ace22a30-579d-475f-99fc-138b71bc2ab9"
+MEMBERSHIP_API_KEY = "8f3f8d79-8b19-4c79-8f54-4d0cdd1f8426"
+SHOP_ID = "7"
+ETAG = "93cae974-9bbb-48a4-9f5c-afb3ffc830b8"
 
 COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dklcookie.json")
 
@@ -357,12 +365,15 @@ def get_code(server: str) -> str | None:
         return None
 
 
-def common_headers(token: str | None = None) -> Dict[str, str]:
+def common_headers(token: str | None = None, *, membership: bool = False) -> Dict[str, str]:
     headers = {
         "User-Agent": USER_AGENT,
         "Content-Type": "application/json",
         "Accept": "*/*",
         "xweb_xhr": "1",
+        "x-api-key": MEMBERSHIP_API_KEY if membership else BFF_API_KEY,
+        "shop-id": SHOP_ID,
+        "Etag": ETAG,
         "Referer": f"https://servicewechat.com/{APPID}/337/page-frame.html",
         "Accept-Language": "zh-CN,zh;q=0.9",
     }
@@ -380,6 +391,7 @@ def extract_token(data: Any) -> str | None:
         data.get("accessToken"),
         data.get("access_token"),
         data.get("jwt"),
+        data.get("member_token"),
     ]
 
     inner = data.get("data")
@@ -389,6 +401,7 @@ def extract_token(data: Any) -> str | None:
             inner.get("accessToken"),
             inner.get("access_token"),
             inner.get("jwt"),
+            inner.get("member_token"),
         ])
 
         user = inner.get("user")
@@ -442,7 +455,7 @@ def api_get(server: str, url: str, token: str, proxies: Dict[str, str] | None) -
     response = request_with_proxy(
         "GET",
         url,
-        headers=common_headers(token),
+        headers=common_headers(token, membership=url.startswith(f"{BASE_URL}/membership/")),
         proxies=proxies,
         server=server,
     )
@@ -459,7 +472,7 @@ def api_post(server: str, url: str, token: str, proxies: Dict[str, str] | None, 
     response = request_with_proxy(
         "POST",
         url,
-        headers=common_headers(token),
+        headers=common_headers(token, membership=url.startswith(f"{BASE_URL}/membership/")),
         json=payload,
         proxies=proxies,
         server=server,
@@ -555,6 +568,7 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
     result = {
         "server": server,
         "success": False,
+        "skipped": False,
         "proxyStatus": "未使用代理",
         "proxyIp": "-",
         "token": "-",
@@ -603,10 +617,18 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
             result["signMsg"] = "今日已签到"
             result["pointsMsg"] = str(msg)
             print(f"⚠️ [签到] 今日已签到 {msg}")
+        elif str(code_val) == "Portal_2":
+            result["skipped"] = True
+            result["signMsg"] = "非迪卡侬会员，跳过签到"
+            result["pointsMsg"] = "请先在小程序注册/绑定会员"
+            print(f"⚠️ [签到] {result['signMsg']}")
+            return result
         else:
             msg = sign_resp.get("msg") or json_preview(sign_resp, 300)
             result["signMsg"] = f"签到失败: {msg}"
+            result["error"] = result["signMsg"]
             print(f"❌ [签到] {result['signMsg']}")
+            return result
 
         result["success"] = True
         return result
@@ -619,27 +641,29 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
 
 def build_notify(results: List[Dict[str, Any]]) -> str:
     success_count = sum(1 for item in results if item["success"])
-    fail_count = len(results) - success_count
+    skipped_count = sum(1 for item in results if item.get("skipped"))
+    fail_count = len(results) - success_count - skipped_count
 
     content = f"""🏃 迪卡侬小程序任务结果
 
 ━━━━━━━━━━━━━━━━━━━━
-🏁 总结：{success_count} 成功 / {fail_count} 失败
+🏁 总结：{success_count} 成功 / {skipped_count} 跳过 / {fail_count} 失败
 🕒 时间：{now_text()}
 ━━━━━━━━━━━━━━━━━━━━
 """
 
     for idx, res in enumerate(results, 1):
-        icon = "✅" if res["success"] else "❌"
+        icon = "✅" if res["success"] else ("⚠️" if res.get("skipped") else "❌")
+        status_text = "成功" if res["success"] else ("跳过" if res.get("skipped") else "失败")
 
         content += f"""
 🧩 账号 {idx}
 📝 签到：{res["signMsg"]}
 🎯 积分：{res["pointsMsg"]}
-{icon} 结果：{"成功" if res["success"] else "失败"}
+{icon} 结果：{status_text}
 """
 
-        if not res["success"]:
+        if not res["success"] and not res.get("skipped"):
             content += f"❌ 原因：{res['error']}\n"
 
         content += "━━━━━━━━━━━━━━━━━━━━\n"
@@ -661,6 +685,7 @@ def main() -> None:
             results.append({
                 "server": server,
                 "success": False,
+                "skipped": False,
                 "proxyStatus": "-",
                 "proxyIp": "-",
                 "token": "-",
@@ -674,12 +699,14 @@ def main() -> None:
             sleep(2)
 
     success_count = sum(1 for item in results if item["success"])
-    fail_count = len(results) - success_count
+    skipped_count = sum(1 for item in results if item.get("skipped"))
+    fail_count = len(results) - success_count - skipped_count
 
     print()
     print("╔" + "═" * 50 + "╗")
     print("║ 🏁 迪卡侬任务执行完成                        ║")
     print(f"║ ✅ 成功: {success_count:<39}║")
+    print(f"║ ⚠️ 跳过: {skipped_count:<39}║")
     print(f"║ ❌ 失败: {fail_count:<39}║")
     print(f"║ 🕒 结束时间: {now_text():<32}║")
     print("╚" + "═" * 50 + "╝")
