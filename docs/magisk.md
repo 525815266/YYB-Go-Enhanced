@@ -13,6 +13,9 @@ explicit DNS resolver fallback for Android ROMs that expose an unavailable
 `[::1]:53` resolver to static Go programs.
 Version `0.1.4` repairs CRLF configuration files created by Windows packaging;
 existing `/data/adb/yyb-go/config.conf` files are normalized automatically.
+Version `0.2.0` includes the current account keepalive and multi-account
+isolation fixes. Temporary network, proxy, and DNS failures remain retryable;
+the console asks for a rescan only after a definitive refresh-token rejection.
 
 ## Current scope
 
@@ -24,15 +27,16 @@ existing `/data/adb/yyb-go/config.conf` files are normalized automatically.
 - Browser authentication uses local SQLite by default and can optionally use a
   reachable external MySQL server.
 
-Version `0.1.4` has been validated with the official Magisk installer on a
-rooted ARM64 device, including service startup, console access, and QR login.
+Version `0.1.4` installation was validated with the official Magisk installer
+on a rooted ARM64 device. Version `0.2.0` keeps the same installer and persistent
+data layout while updating the service binary and web resources.
 
 ## Build
 
 The build host needs Go 1.23+, Bash, and `zip`.
 
 ```sh
-VERSION=0.1.4 VERSION_CODE=5 bash ./scripts/build-magisk.sh arm64
+VERSION=0.2.0 VERSION_CODE=2000 bash ./scripts/build-magisk.sh arm64
 ```
 
 The ZIP is written to `dist/` and can be installed from the Magisk app.

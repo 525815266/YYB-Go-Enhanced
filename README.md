@@ -89,7 +89,7 @@ YYB_AUTH_DSN=yyb_go:数据库密码@tcp(mysql:3306)/yyb_go?charset=utf8mb4&parse
 
 ## Magisk 模块
 
-Android ARM64 设备可从 [Releases](https://github.com/525815266/YYB-Go-Enhanced/releases) 安装最新版 Magisk 模块。模块由 `late_start service` 开机常驻运行，不依赖 Termux；默认控制台为 `http://127.0.0.1:8000`，账号和配置持久化在 `/data/adb/yyb-go`。v0.1.4 已通过官方 Magisk 真机安装、进入控制台和扫码验证。
+Android ARM64 设备可从 [Releases](https://github.com/525815266/YYB-Go-Enhanced/releases) 安装最新版 Magisk 模块。模块由 `late_start service` 开机常驻运行，不依赖 Termux；默认控制台为 `http://127.0.0.1:8000`，账号和配置持久化在 `/data/adb/yyb-go`。v0.2.0 合入新版保活与多账号隔离：临时网络、代理或 DNS 错误不会再误报账号失效，只有微信明确拒绝 refresh token 时才提示重扫。
 
 模块目前只提供 ARM64 构建，不支持 32 位 Android。需要让青龙或呆呆面板访问手机服务时，必须在 `/data/adb/yyb-go/config.conf` 中配置局域网监听和面板地址；不要把端口暴露到公网。完整安装、升级、DNS 和局域网配置见 [Magisk 模块文档](docs/magisk.md)。
 
@@ -115,7 +115,7 @@ Android ARM64 设备可从 [Releases](https://github.com/525815266/YYB-Go-Enhanc
 - **失败恢复**：代码拉取、QEMU 初始化、Buildx 启动、GHCR 登录及镜像构建推送均最多重试 3 次；镜像标签由工作流直接生成，不依赖需要在 Set up job 下载的第三方 Action。
 - **发布校验**：Docker 构建会先执行 `go test ./...`，测试失败时不会生成或推送镜像。
 
-Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行前端资源或 Magisk 打包文件变更时会编译并校验 ARM64 安装包；推送 `magisk-v0.1.5` 这类标签时，会自动创建对应 Release 并上传 ZIP。也可在 Actions 页面手动填写版本并选择是否发布 Release。Docker 与 Magisk 为两条独立任务，一方失败不会阻塞另一方。
+Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行前端资源或 Magisk 打包文件变更时会编译并校验 ARM64 安装包；推送 `magisk-v0.2.0` 这类标签时，会自动创建对应 Release 并上传 ZIP。也可在 Actions 页面手动填写版本并选择是否发布 Release。Docker 与 Magisk 为两条独立任务，一方失败不会阻塞另一方。
 
 Docker 镜像只在服务端代码、运行资源、Go 依赖、Docker 构建文件或对应 workflow 变更时构建；`scripts/**`、README 和普通文档更新不会再触发镜像更新提示。Magisk 只在服务端代码、运行前端资源、打包文件、Go 依赖或对应 workflow 变更时构建。这样脚本发布不会伪装成 Docker/Magisk 版本更新，但核心服务提交仍会自动验证和构建。
 
