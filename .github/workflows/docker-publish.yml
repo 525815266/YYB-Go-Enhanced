@@ -138,8 +138,16 @@ jobs:
           done
 
           for attempt in 1 2 3; do
+            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+              build_version="${GITHUB_REF_NAME#v}"
+            else
+              build_version="dev-${GITHUB_SHA::7}"
+            fi
             if docker buildx build \
               --file ./Dockerfile \
+              --build-arg VERSION="$build_version" \
+              --build-arg COMMIT="$GITHUB_SHA" \
+              --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --platform linux/amd64,linux/arm64 \
               --push \
               --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \

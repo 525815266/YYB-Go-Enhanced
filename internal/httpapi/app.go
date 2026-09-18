@@ -293,6 +293,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/settings", gin.WrapF(a.handleSettingsPage))
 	router.Any("/users", gin.WrapF(a.handleUsersPage))
 	router.Any("/api/auth/me", gin.WrapF(a.handleAuthMe))
+	router.GET("/api/version", gin.WrapF(a.handleVersion))
 	router.Any("/api/auth/profile", gin.WrapF(a.handleProfile))
 	router.Any("/api/auth/password", gin.WrapF(a.handlePassword))
 	router.Any("/api/auth/sessions", gin.WrapF(a.handleSessions))

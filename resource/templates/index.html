@@ -352,6 +352,16 @@
       min-height: 112px;
     }
 
+    .version-meta {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .version-meta a {
+      color: inherit;
+    }
+
     .account-card {
       position: relative;
       isolation: isolate;
@@ -927,6 +937,7 @@
       </div>
       <div class="top-actions">
         <span class="status-pill" id="healthPill"><span class="status-dot"></span><span>检测服务中</span></span>
+        <span class="version-meta" id="versionInfo" title="构建版本">版本读取中</span>
         <a class="btn secondary" href="/runs">运行管理</a>
         <a class="btn secondary" href="/docs/index.html">Swagger</a>
         <a class="btn secondary" id="usersNav" href="/users">用户管理</a>
@@ -1525,6 +1536,20 @@
       }
     }
 
+    async function loadVersion() {
+      const target = $("versionInfo");
+      try {
+        const info = await api("GET", "/api/version");
+        const shortCommit = (info.commit || "unknown").slice(0, 7);
+        const version = info.version || "dev";
+        target.innerHTML = `<a href="${escapeHTML(info.update_url || "#")}" target="_blank" rel="noreferrer">v${escapeHTML(version)} · ${escapeHTML(shortCommit)}</a>`;
+        target.title = `构建时间：${info.build_date || "未知"}`;
+      } catch {
+        target.textContent = "版本未知";
+        target.title = "无法读取服务版本信息";
+      }
+    }
+
     async function repairAccounts() {
       const button = $("repairAccountsBtn");
       button.disabled = true;
@@ -1990,6 +2015,7 @@
 
     applyRoleVisibility();
     loadHealth();
+    loadVersion();
     loadFeatures();
     loadAccounts();
     loadQingLongConfig();

@@ -72,6 +72,25 @@ func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
 		t.Fatalf("GET /health body = %#v", healthBody)
 	}
 
+	versionResponse := httptest.NewRecorder()
+	handler.ServeHTTP(versionResponse, httptest.NewRequest(http.MethodGet, "/api/version", nil))
+	if versionResponse.Code != http.StatusOK {
+		t.Fatalf("GET /api/version status = %d", versionResponse.Code)
+	}
+	var versionBody struct {
+		Code int `json:"code"`
+		Data struct {
+			Version string `json:"version"`
+			Commit  string `json:"commit"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(versionResponse.Body.Bytes(), &versionBody); err != nil {
+		t.Fatalf("decode version JSON: %v", err)
+	}
+	if versionBody.Code != 0 || versionBody.Data.Version == "" || versionBody.Data.Commit == "" {
+		t.Fatalf("GET /api/version body = %#v", versionBody)
+	}
+
 	openapi := httptest.NewRecorder()
 	handler.ServeHTTP(openapi, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))
 	if openapi.Code != http.StatusOK {

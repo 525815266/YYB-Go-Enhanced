@@ -45,6 +45,17 @@ func newOpenAPISpec() map[string]any {
 					}),
 				),
 			},
+			"/api/version": map[string]any{
+				"get": openAPIOperation(
+					[]string{"health"},
+					"读取当前构建版本信息",
+					nil,
+					nil,
+					defaulted(map[string]any{
+						"200": jsonResponse("版本、commit 和构建时间。", freeFormObjectSchema("version、commit、build_date、update_url。")),
+					}),
+				),
+			},
 			"/qr": map[string]any{
 				"post": openAPIOperation(
 					[]string{"qr"},
@@ -124,7 +135,7 @@ func newOpenAPISpec() map[string]any {
 					}),
 				),
 			},
-			"/api/account-links": map[string]any{
+		"/api/account-links": map[string]any{
 				"post": openAPIOperation(
 					[]string{"account-links"},
 					"生成一次性账号扫码授权链接",

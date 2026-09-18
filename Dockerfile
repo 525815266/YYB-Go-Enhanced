@@ -1,5 +1,9 @@
 FROM golang:1.23-alpine AS build
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 
@@ -8,7 +12,7 @@ RUN go mod download
 
 COPY . .
 RUN go test ./...
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/yyb-go ./cmd/yyb-go
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X yyb_go/internal/version.Version=${VERSION} -X yyb_go/internal/version.Commit=${COMMIT} -X yyb_go/internal/version.BuildDate=${BUILD_DATE}" -o /out/yyb-go ./cmd/yyb-go
 
 FROM alpine:3.21
 

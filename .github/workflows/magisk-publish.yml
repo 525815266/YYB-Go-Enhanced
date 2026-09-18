@@ -105,6 +105,8 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          COMMIT: ${{ github.sha }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp || '' }}
         run: |
           set -Eeuo pipefail
           go version
