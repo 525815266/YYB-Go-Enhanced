@@ -22,6 +22,7 @@ on:
       - 'Dockerfile'
       - 'go.mod'
       - 'go.sum'
+      - 'VERSION'
       - 'cmd/**'
       - 'internal/**'
       - 'resource/**'
@@ -141,7 +142,7 @@ jobs:
             if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
               build_version="${GITHUB_REF_NAME#v}"
             else
-              build_version="dev-${GITHUB_SHA::7}"
+              build_version="$(tr -d '[:space:]' < VERSION)"
             fi
             if docker buildx build \
               --file ./Dockerfile \

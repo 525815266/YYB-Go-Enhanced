@@ -24,6 +24,7 @@ on:
     paths:
       - 'go.mod'
       - 'go.sum'
+      - 'VERSION'
       - 'cmd/**'
       - 'internal/**'
       - 'resource/static/**'
@@ -75,14 +76,12 @@ jobs:
             tag="magisk-v$version"
             publish="${INPUT_PUBLISH_RELEASE:-false}"
           else
-            version="dev-${GITHUB_SHA::7}"
+            version="$(tr -d '[:space:]' < VERSION)"
             tag=""
           fi
 
           if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             calculated_code=$((10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]}))
-          elif [[ "$version" == dev-* ]]; then
-            calculated_code=$((10000000 + GITHUB_RUN_NUMBER))
           else
             echo "Version must use x.y.z format: $version" >&2
             exit 2

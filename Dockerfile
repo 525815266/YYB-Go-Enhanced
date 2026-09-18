@@ -1,6 +1,6 @@
 FROM golang:1.23-alpine AS build
 
-ARG VERSION=dev
+ARG VERSION=0.2.1
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 

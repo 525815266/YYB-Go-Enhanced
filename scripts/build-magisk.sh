@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=${VERSION:-dev}
+VERSION=${VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}
 VERSION_CODE=${VERSION_CODE:-1}
 COMMIT=${COMMIT:-unknown}
 BUILD_DATE=${BUILD_DATE:-unknown}

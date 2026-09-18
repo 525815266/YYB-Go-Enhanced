@@ -10,7 +10,7 @@ import (
 // These values are replaced by -ldflags in release builds. Keeping useful
 // defaults makes source builds and locally copied binaries identifiable too.
 var (
-	Version   = "dev"
+	Version   = "0.2.1"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )
@@ -34,7 +34,7 @@ func Info() (string, string, string) {
 		}
 	}
 	if strings.TrimSpace(version) == "" {
-		version = "dev"
+		version = "0.2.1"
 	}
 	return version, commit, buildDate
 }
