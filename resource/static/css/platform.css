@@ -43,6 +43,10 @@ body.platform-ready > .app { display: none !important; }
 .platform-breadcrumb { color: var(--platform-muted); font-size: 11px; }
 .platform-page-title { margin-top: 2px; color: var(--platform-ink); font-size: 15px; font-weight: 730; }
 .platform-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.platform-build { min-width: 92px; display: grid; justify-items: end; padding-right: 12px; border-right: 1px solid var(--platform-line); color: var(--platform-muted); line-height: 1.25; text-decoration: none; }
+.platform-build span { font-size: 10px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.platform-build strong { max-width: 150px; overflow: hidden; color: var(--platform-ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.platform-build:hover strong { color: var(--platform-accent); }
 .platform-user-copy { display: grid; text-align: right; line-height: 1.25; }
 .platform-user-copy strong { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .platform-user-copy span { color: var(--platform-muted); font-size: 11px; }
@@ -86,6 +90,9 @@ dialog.platform-dialog::backdrop { background: oklch(0.12 0.02 252 / .54); }
   .platform-topbar { padding: 0 14px; }
   .platform-main > main { padding: 16px 12px 28px !important; }
   .platform-user-copy span { display: none; }
+  .platform-build { min-width: 0; padding-right: 9px; }
+  .platform-build span { display: none; }
+  .platform-build strong { max-width: 94px; font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
