@@ -1,11 +1,11 @@
 # 青龙修复脚本
 
-## code-collection-share YYB 适配合集
+## YYB 适配脚本
 
-`scripts/code-collection-share/` 收录 136 个经过 YYB 多账号适配的 Python 脚本。
+`scripts/` 统一收录原有业务脚本和 136 个经过 YYB 多账号适配的 Python 脚本。
 已完成文件哈希、AST 结构和名称归一化去重，并覆盖普通取码、动态 AppID、手机号
 授权 code/加密包等调用形式。青龙不再直接订阅原仓库，防止更新覆盖适配层；配置、
-限制和任务路径见 [目录说明](code-collection-share/README.md)。
+青龙任务统一使用 `task 525815266_YYB-Go-Enhanced/scripts/脚本名.py`，脚本由本仓库审核发布。
 
 ## YYB 账号公共状态缓存
 
@@ -54,6 +54,15 @@
 - `mlgogo_sign.py`：马历小程序积分商城每日签到。使用 `wx86d2d7c2d832b4ce`
   动态获取 code，按小程序内置 RSA 签名生成每次请求的 `_s`，支持多账号、签到
   状态查询、token 持久化和失效自动重登。
+
+- `汇翼云会员日抽奖.py`：适配 `wxab79cb37a805c1ca`（響Livehouse）会员日转盘。
+  通过 `YYB_SERVER` 获取小程序登录 code，校验汇翼云账号后查询活动开放状态和
+  剩余次数，最多按服务端次数循环抽奖并汇总奖品。汇翼云自己的 JWT 并非
+  `wx.login` 返回值，首次需通过 `HYY_ACCESS_TOKENS` 按 `账号ID=JWT` 建立映射；
+  脚本随后把 `external_userid` 原子缓存到
+  `/ql/data/config/hyy_turntable_accounts.json`，后续无需反复提供 JWT。也可直接用
+  `HYY_EXTERNAL_USERIDS` 按账号配置已有的 `external_userid`。多账号模式不会共用
+  单账号凭据，避免串号；`HYY_DRAW=0` 可只查询不抽奖。
 
 - `毛豆充.py`：毛豆充 YYB 版，参考菠萝充电脚本的任务编排，但独立使用 HAR
   确认的 `hichar.user.wxapp` 业务接口。支持动态登录、会员积分查询、每日签到

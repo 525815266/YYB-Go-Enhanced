@@ -2,6 +2,12 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## 未发布
+
+- 代理配置库支持保存静态代理预设；账号可直接选择固定出口，适合需要稳定保活的场景。
+- 合并自有脚本目录：将 `scripts/code-collection-share/` 的 136 个 YYB 适配脚本统一到 `scripts/`，青龙任务路径同步改为统一目录，减少双目录维护和订阅误覆盖。
+- 清理青龙中 5 个与启用任务完全相同的禁用重复任务；OPPO、sinsin、DW 等同名但实现不同的脚本保留，避免误删功能。
+
 ## 2026-09-18
 
 - 发布 `v0.2.1`：控制台全局顶栏显示正式语义版本号，桌面端和手机端均可见，点击可进入发布页。
@@ -18,7 +24,7 @@
 
 - 修正 GitHub Actions 构建触发范围：脚本、README 和普通文档更新不再触发 Docker 镜像或 Magisk 构建；服务端、运行资源、打包文件和对应 workflow 仍会自动验证并构建。
 - 为同一 YYB 账号增加 `wx.login` 取码互斥，不同账号保持并发；避免多个青龙任务同时取码时发生账号级会话/一次性 code 竞态，并补充并发回归测试。
-- 整理 `L0NE-6/code-collection-share` 的 136 个 Python 脚本到 `scripts/code-collection-share/`：完成文件哈希、AST 和名称归一化去重，保留 136 个互不重复脚本。
+- 整理 `L0NE-6/code-collection-share` 的 136 个 Python 脚本到 `scripts/`：完成文件哈希、AST 和名称归一化去重，保留 136 个互不重复脚本。
 - 统一适配 `YYB_SERVER` 多账号和 `/wxapp/getCode`，支持动态 AppID、`YYB_API_KEY` 协议鉴权以及 `/wxapp/getPhoneNumber` 手机号授权；保留未配置 YYB 时的旧服务兼容入口。
 - 明确微信资料能力边界：不使用普通账号资料伪造 `encryptedData`、`iv` 或 `signature`；青龙任务脱离原仓库订阅，后续由本仓库审核发布。
 - 修正阿水脚本查询模式：启动日志明确标记 `--dry-run`，个人券包核验后不再继续请求动态密钥或尝试领券；同步当前小程序版本请求头和 `qm-trace-store-id`。
