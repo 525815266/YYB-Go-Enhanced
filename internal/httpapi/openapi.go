@@ -27,7 +27,7 @@ func newOpenAPISpec() map[string]any {
 			{"name": "account-links", "description": "一次性账号扫码授权链接"},
 			{"name": "quick-login", "description": "桌面微信快速授权"},
 			{"name": "accounts", "description": "已保存的微信账号"},
-			{"name": "proxy-profiles", "description": "可复用的品赞代理配置与地区"},
+			{"name": "proxy-profiles", "description": "可复用的品赞、巨量和静态代理配置与地区"},
 			{"name": "qinglong", "description": "账号级自动化面板任务与推送管理（兼容青龙、呆呆和 Arcadia）"},
 			{"name": "wxapp", "description": "wxapp 业务接口调用"},
 			{"name": "wx", "description": "兼容 /wx/* 的微信业务接口"},
@@ -612,7 +612,7 @@ func newOpenAPISpec() map[string]any {
 				}),
 				"ProxyProviderProfileRequest": objectSchema([]string{"name", "provider"}, map[string]any{
 					"name":               map[string]any{"type": "string", "maxLength": 50, "example": "巨量代理 1"},
-					"provider":           map[string]any{"type": "string", "enum": []string{"ipzan", "juliang"}, "default": "ipzan"},
+					"provider":           map[string]any{"type": "string", "enum": []string{"ipzan", "juliang", "static"}, "default": "ipzan"},
 					"proxy_type":         map[string]any{"type": "string", "enum": []string{"http", "socks5"}, "default": "http"},
 					"authorization_mode": map[string]any{"type": "string", "enum": []string{"auth", "whitelist"}, "default": "auth", "description": "auth 使用提取结果中的临时账号密码；whitelist 依赖服务器出口 IP 白名单。"},
 					"api_url":            map[string]any{"type": "string", "format": "uri", "description": "品赞配置填写包含 no 和 secret 的 core-extract HTTPS 链接。"},
@@ -622,7 +622,7 @@ func newOpenAPISpec() map[string]any {
 				"ProxyProviderProfile": objectSchema([]string{"id", "name", "provider", "proxy_type", "api_url"}, map[string]any{
 					"id":         int64Schema(),
 					"name":       map[string]any{"type": "string"},
-					"provider":   map[string]any{"type": "string", "enum": []string{"ipzan", "juliang"}},
+					"provider":   map[string]any{"type": "string", "enum": []string{"ipzan", "juliang", "static"}},
 					"proxy_type": map[string]any{"type": "string", "enum": []string{"http", "socks5"}},
 					"api_url":    map[string]any{"type": "string", "format": "uri"},
 					"created_at": int64Schema(),

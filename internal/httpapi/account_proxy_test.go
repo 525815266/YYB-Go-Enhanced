@@ -266,6 +266,47 @@ func TestJuliangProfilesSignEachAccountRegion(t *testing.T) {
 	}
 }
 
+func TestStaticProxyProfileCanBeSelectedAndReused(t *testing.T) {
+	t.Setenv("GIN_MODE", "test")
+	app, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("NewApp() error = %v", err)
+	}
+	defer app.Close()
+	status := "alive"
+	account, err := app.db.UpsertAccount(context.Background(), "static-profile-openid", "buffer", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatalf("UpsertAccount() error = %v", err)
+	}
+	handler := app.Handler()
+	created := apiRequest(t, handler, http.MethodPost, "/api/proxy-profiles", map[string]any{
+		"name": "家庭固定出口", "provider": "static", "proxy_type": "http",
+		"api_url": "user:pass@203.0.113.40:8080",
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("POST static profile status = %d body=%s", created.Code, created.Body.String())
+	}
+	var profileResponse struct{ Data store.ProxyProviderProfile `json:"data"` }
+	if err := json.Unmarshal(created.Body.Bytes(), &profileResponse); err != nil || profileResponse.Data.ID == 0 {
+		t.Fatalf("decode static profile = %#v, %v", profileResponse, err)
+	}
+	saved := apiRequest(t, handler, http.MethodPut, "/accounts/proxy", map[string]any{
+		"ref": fmt.Sprint(account.ID), "provider_profile_id": profileResponse.Data.ID,
+		"refresh_ahead_minutes": 5,
+	})
+	if saved.Code != http.StatusOK {
+		t.Fatalf("PUT static profile selection status = %d body=%s", saved.Code, saved.Body.String())
+	}
+	setting, err := app.db.GetAccountProxySetting(context.Background(), account.ID)
+	if err != nil || setting.Mode != "static" || setting.ProviderProfileID == nil {
+		t.Fatalf("static profile setting = %#v, %v", setting, err)
+	}
+	spec, err := app.proxySpecForSetting(context.Background(), setting)
+	if err != nil || spec.Mode != "static" || !strings.Contains(spec.StaticProxy, "203.0.113.40:8080") {
+		t.Fatalf("resolved static profile spec = %#v, %v", spec, err)
+	}
+}
+
 func TestExistingAccountRescanPreservesProxySetting(t *testing.T) {
 	t.Setenv("GIN_MODE", "test")
 	app, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second})

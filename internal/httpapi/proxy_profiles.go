@@ -174,8 +174,16 @@ func decodeProxyProfile(w http.ResponseWriter, r *http.Request) (proxyProfileIn,
 		apiURL, err = normalizeIPZanURL(body.APIURL, body.ProxyType, body.AuthorizationMode)
 	case "juliang":
 		apiURL, err = normalizeJuliangProfile(body.APIURL, body.TradeNo, body.APIKey, body.AuthorizationMode)
+	case "static":
+		var normalized proxysource.Spec
+		normalized, err = proxysource.NormalizeSpec(proxysource.Spec{
+			Mode: "static", ProxyType: body.ProxyType, StaticProxy: body.APIURL,
+		})
+		if err == nil {
+			apiURL = normalized.StaticProxy
+		}
 	default:
-		err = fmt.Errorf("代理供应商必须为 ipzan 或 juliang")
+		err = fmt.Errorf("代理配置类型必须为 static、ipzan 或 juliang")
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -375,15 +383,29 @@ func (a *App) normalizeAccountProxyInput(ctx context.Context, body accountProxyI
 		if err != nil {
 			return accountProxyIn{}, proxysource.Spec{}, err
 		}
-		apiURL, err := proxyProfileURLForRegion(profile, body.RegionCode, body.RegionProvince, body.RegionCity)
-		if err != nil {
-			return accountProxyIn{}, proxysource.Spec{}, err
+		profileMode := "api"
+		profileValue := ""
+		if strings.EqualFold(profile.Provider, "static") {
+			profileMode = "static"
+			profileValue = profile.APIURL
+		} else {
+			apiURL, err := proxyProfileURLForRegion(profile, body.RegionCode, body.RegionProvince, body.RegionCity)
+			if err != nil {
+				return accountProxyIn{}, proxysource.Spec{}, err
+			}
+			profileValue = apiURL
 		}
-		body.Mode = "api"
+		body.Mode = profileMode
 		body.ProxyType = profile.ProxyType
 		body.StaticProxy = ""
 		body.APIURL = ""
-		normalized, err := proxysource.NormalizeSpec(proxysource.Spec{Mode: "api", ProxyType: profile.ProxyType, APIURL: apiURL})
+		profileSpec := proxysource.Spec{Mode: profileMode, ProxyType: profile.ProxyType}
+		if profileMode == "static" {
+			profileSpec.StaticProxy = profileValue
+		} else {
+			profileSpec.APIURL = profileValue
+		}
+		normalized, err := proxysource.NormalizeSpec(profileSpec)
 		return body, normalized, err
 	}
 	normalized, err := proxysource.NormalizeSpec(body.spec())
@@ -397,6 +419,9 @@ func (a *App) proxySpecForSetting(ctx context.Context, setting *store.AccountPro
 	profile, err := a.db.GetProxyProviderProfile(ctx, *setting.ProviderProfileID)
 	if err != nil {
 		return proxysource.Spec{}, err
+	}
+	if strings.EqualFold(profile.Provider, "static") {
+		return proxysource.NormalizeSpec(proxysource.Spec{Mode: "static", ProxyType: profile.ProxyType, StaticProxy: profile.APIURL})
 	}
 	apiURL, err := proxyProfileURLForRegion(profile, setting.RegionCode, setting.RegionProvince, setting.RegionCity)
 	if err != nil {
