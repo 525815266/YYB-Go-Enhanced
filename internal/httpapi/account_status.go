@@ -3,7 +3,6 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
-
 )
 
 // handleAccountStatus lets an operator resolve an inconclusive account check.
@@ -33,7 +32,7 @@ func (a *App) handleAccountStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := a.db.SetAccountStatus(r.Context(), acc.ID, body.Status); err != nil {
+	if err := a.setAccountStatus(r.Context(), acc.ID, body.Status); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -45,9 +44,6 @@ func (a *App) handleAccountStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "账号已标记失效，但青龙清理失败："+err.Error())
 			return
 		}
-		_ = a.db.InvalidateAccountSessions(r.Context(), acc.ID)
-		a.invalidateProxyLease(acc.ID)
-		a.clearKeepAliveRetry(acc.ID)
 	}
 	updated, _ := a.db.GetAccount(r.Context(), acc.ID)
 	if updated == nil {

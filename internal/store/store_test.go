@@ -136,6 +136,40 @@ func TestAccountPublicRecommendsRescanAfterTwentyFiveDays(t *testing.T) {
 	}
 }
 
+func TestSetAccountStatusExpiredClearsCredentials(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	status := "alive"
+	account, err := db.UpsertAccount(ctx, "expired-openid", "login-buffer", nil, nil, nil, nil, map[string]any{
+		"refreshtoken":              "refresh-token",
+		"refresh_token_observed_at": time.Now().Unix(),
+		"expires_at":                time.Now().Add(time.Hour).Unix(),
+	}, &status)
+	if err != nil {
+		t.Fatalf("UpsertAccount() error = %v", err)
+	}
+	if err := db.PutSession(ctx, account.ID, nil, map[string]any{"ready": true}, time.Now().Add(time.Hour).Unix(), ""); err != nil {
+		t.Fatalf("PutSession() error = %v", err)
+	}
+	if err := db.SetAccountStatus(ctx, account.ID, "expired"); err != nil {
+		t.Fatalf("SetAccountStatus() error = %v", err)
+	}
+	updated, err := db.GetAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("GetAccount() error = %v", err)
+	}
+	if updated.LoginBuffer != "" || updated.Credentials != nil || updated.Status == nil || *updated.Status != "expired" {
+		t.Fatalf("expired account still retains credentials: %+v", updated)
+	}
+	if _, err := db.GetSession(ctx, account.ID, ""); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expired account session error = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestUpsertAccountReusesLowestFreeID(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {

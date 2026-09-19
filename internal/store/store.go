@@ -733,6 +733,13 @@ func (db *DB) SetAccountCredentialStatus(ctx context.Context, id int64, loginBuf
 
 func (db *DB) SetAccountStatus(ctx context.Context, id int64, status string) error {
 	now := time.Now().Unix()
+	if status == "expired" {
+		_, err := db.sql.ExecContext(ctx,
+			"UPDATE wechat_accounts SET login_buffer='', credentials=NULL, status=?, last_checked_at=?, updated_at=? WHERE id=?",
+			status, now, now, id,
+		)
+		return err
+	}
 	_, err := db.sql.ExecContext(ctx,
 		"UPDATE wechat_accounts SET status=?, last_checked_at=?, updated_at=? WHERE id=?",
 		status, now, now, id,

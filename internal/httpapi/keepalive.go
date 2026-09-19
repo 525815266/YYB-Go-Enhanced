@@ -204,7 +204,7 @@ func (a *App) refreshAccountWithPolicy(ctx context.Context, acc *store.WechatAcc
 	result, err := a.refreshLoginBufferWithProxy(ctx, creds, proxyValue, fallbackDirect)
 	if err != nil {
 		status := refreshFailureStatus(accountStatus(latest), creds, err, time.Now())
-		if setErr := a.db.SetAccountStatus(ctx, latest.ID, status); setErr != nil {
+		if setErr := a.setAccountStatus(ctx, latest.ID, status); setErr != nil {
 			err = fmt.Errorf("%v; update status: %w", err, setErr)
 		}
 		return status, false, err
@@ -213,6 +213,21 @@ func (a *App) refreshAccountWithPolicy(ctx context.Context, acc *store.WechatAcc
 		return "expired", false, err
 	}
 	return "alive", true, nil
+}
+
+// setAccountStatus applies the lifecycle side effects for an account status
+// transition. Expiration is terminal for the current credentials: remove
+// cached sessions and leases so the keepalive loop and scripts stop using it.
+func (a *App) setAccountStatus(ctx context.Context, accountID int64, status string) error {
+	if err := a.db.SetAccountStatus(ctx, accountID, status); err != nil {
+		return err
+	}
+	if status == "expired" {
+		_ = a.db.InvalidateAccountSessions(ctx, accountID)
+		a.invalidateProxyLease(accountID)
+		a.clearKeepAliveRetry(accountID)
+	}
+	return nil
 }
 
 func (a *App) refreshLockFor(accountID int64) *sync.Mutex {

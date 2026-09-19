@@ -1282,6 +1282,7 @@
       const hours = Math.floor((seconds % 86400) / 3600);
       if (days > 0) return `${days}天${hours}小时`;
       const minutes = Math.max(0, Math.floor(seconds / 60));
+      if (hours > 0) return `${hours}小时${minutes}分钟`;
       return `${minutes}分钟`;
     }
 
