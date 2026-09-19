@@ -77,9 +77,13 @@ accountsLoop:
 			defer func() { <-sem }()
 			accountCtx, cancel := context.WithTimeout(ctx, keepAliveAccountTimeout(a.cfg.RequestTimeout))
 			defer cancel()
-			_, refreshed, err := a.refreshAccount(accountCtx, acc, false)
+			status, refreshed, err := a.refreshAccount(accountCtx, acc, false)
 			if err != nil {
-				a.setKeepAliveRetry(acc.ID, time.Now().Add(keepAliveRetryBackoff))
+				if status == "expired" {
+					a.clearKeepAliveRetry(acc.ID)
+				} else {
+					a.setKeepAliveRetry(acc.ID, time.Now().Add(keepAliveRetryBackoff))
+				}
 				if ctx.Err() == nil {
 					log.Printf("keepalive: account id=%d refresh failed: %v", acc.ID, err)
 				}
