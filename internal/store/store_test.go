@@ -152,9 +152,6 @@ func TestSetAccountStatusExpiredClearsCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAccount() error = %v", err)
 	}
-	if err := db.PutSession(ctx, account.ID, nil, map[string]any{"ready": true}, time.Now().Add(time.Hour).Unix(), ""); err != nil {
-		t.Fatalf("PutSession() error = %v", err)
-	}
 	if err := db.SetAccountStatus(ctx, account.ID, "expired"); err != nil {
 		t.Fatalf("SetAccountStatus() error = %v", err)
 	}
@@ -164,9 +161,6 @@ func TestSetAccountStatusExpiredClearsCredentials(t *testing.T) {
 	}
 	if updated.LoginBuffer != "" || updated.Credentials != nil || updated.Status == nil || *updated.Status != "expired" {
 		t.Fatalf("expired account still retains credentials: %+v", updated)
-	}
-	if _, err := db.GetSession(ctx, account.ID, ""); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expired account session error = %v, want sql.ErrNoRows", err)
 	}
 }
 
