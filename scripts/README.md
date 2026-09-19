@@ -7,6 +7,14 @@
 授权 code/加密包等调用形式。青龙不再直接订阅原仓库，防止更新覆盖适配层；配置、
 青龙任务统一使用 `task 525815266_YYB-Go-Enhanced/scripts/脚本名.py`，脚本由本仓库审核发布。
 
+本次同步的 3 个脚本：
+
+- `心相印_code版.py`：采用最新心相印 AppID 和恒安 `wxappLogin` 登录/签到接口，保留 token 缓存与备用后端。
+- `益禾堂_code版.py`：采用最新企迈明文换 token 和兑吧 `3fd0cbet` 动态签到 token 解析。
+- `伊利QQ星_code.py`：新增伊利 QQ 星签到、积分任务和抽奖流程。
+
+以上脚本共用 `yyb_compat.py`，从 `YYB_SERVER` 按行读取 `地址@账号ID或OpenID`，不会伪造微信手机号授权或加密字段。
+
 ## YYB 账号公共状态缓存
 
 `yyb_account_guard.py`（Python）和 `yyb-account-guard.js`（Node）提供共享的

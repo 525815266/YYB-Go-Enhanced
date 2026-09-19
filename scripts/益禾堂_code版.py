@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# 兼容 GBK 终端：强制 stdout/stderr 使用 UTF-8（不影响排版与格式）
+import sys as _sys
+try:
+    _sys.stdout.reconfigure(encoding="utf-8")
+    _sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 # ========== 企业微信推送配置（可选） ==========
 QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 Webhook key（机器人地址 ?key= 后面的值，留空不推送）
@@ -70,7 +78,7 @@ APP_NAME = "益禾堂小程序"
 APPID = "wx4080846d0cec2fd5"
 
 SERVERS = [
-    "127.0.0.1:8088",
+    "10.30.9.183:8088",
 ]
 
 if os.getenv("CODE_SERVER"):
@@ -100,9 +108,11 @@ STORE_ID = "203009"
 KEY_RAW = "mN6KpXq8Sv2WxYz9LdFcRgHjMnBvCtDxZaS3QwE5rT0yU7I4O1A"
 KEY_VERSION = "1.0.0"
 META_HEADER = "QM-Encrypt-Meta"
+CACHE_DIR = os.environ.get("CODE_CACHE_DIR", os.path.join(os.path.expanduser("~"), "Documents", "写代码"))
 
-COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yhtcookie.json")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
+COOKIE_FILE = os.path.join(CACHE_DIR, "yhtcookie.json")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 "
@@ -390,42 +400,6 @@ def get_code(server: str) -> str | None:
         return None
 
 
-def b64relax(value: str) -> bytes:
-    """宽松 base64 解码（自动补齐 padding）。"""
-    return base64.b64decode(value + "=" * ((4 - len(value) % 4) % 4))
-
-
-def derive_key(raw: str) -> bytes:
-    """解包 M()：宽松 base64 解码，非 32 字节则取前 32 补零。"""
-    try:
-        b = b64relax(raw)
-    except Exception:
-        b = raw.encode("utf-8")
-    if len(b) == 32:
-        return b
-    out = bytearray(32)
-    out[: min(len(b), 32)] = b[:32]
-    return bytes(out)
-
-
-KEY = derive_key(KEY_RAW)
-
-
-def gcm_encrypt(plaintext: str, iv: bytes) -> str:
-    """AES-256-GCM：返回 base64(ciphertext + 16字节tag)。"""
-    cipher = AES.new(KEY, AES.MODE_GCM, nonce=iv)
-    enc, tag = cipher.encrypt_and_digest(plaintext.encode("utf-8"))
-    return base64.b64encode(enc + tag).decode("utf-8")
-
-
-def gcm_decrypt(payload_b64: str, iv: bytes) -> str:
-    buf = base64.b64decode(payload_b64)
-    tag = buf[-16:]
-    data = buf[:-16]
-    cipher = AES.new(KEY, AES.MODE_GCM, nonce=iv)
-    return cipher.decrypt_and_verify(data, tag).decode("utf-8")
-
-
 def common_headers(token: str | None = None) -> Dict[str, str]:
     """企迈平台固定头（参考源脚本 redirect 请求头与同平台契约）。"""
     headers = {
@@ -447,6 +421,43 @@ def common_headers(token: str | None = None) -> Dict[str, str]:
     if token:
         headers["qm-user-token"] = token
     return headers
+
+
+# ========== 业务辅助函数（照源脚本） ==========
+def b64relax(value: str) -> bytes:
+    """宽松 base64 解码（自动补齐 padding）。"""
+    return base64.b64decode(value + "=" * ((4 - len(value) % 4) % 4))
+
+
+def derive_key(raw: str) -> bytes:
+    """解包 M()：宽松 base64 解码，非 32 字节则取前 32 补零。"""
+    try:
+        b = b64relax(raw)
+    except Exception:
+        b = raw.encode("utf-8")
+    if len(b) == 32:
+        return b
+    out = bytearray(32)
+    out[: min(len(b), 32)] = b[:32]
+    return bytes(out)
+
+
+def gcm_encrypt(plaintext: str, iv: bytes) -> str:
+    """AES-256-GCM：返回 base64(ciphertext + 16字节tag)。"""
+    cipher = AES.new(KEY, AES.MODE_GCM, nonce=iv)
+    enc, tag = cipher.encrypt_and_digest(plaintext.encode("utf-8"))
+    return base64.b64encode(enc + tag).decode("utf-8")
+
+
+def gcm_decrypt(payload_b64: str, iv: bytes) -> str:
+    buf = base64.b64decode(payload_b64)
+    tag = buf[-16:]
+    data = buf[:-16]
+    cipher = AES.new(KEY, AES.MODE_GCM, nonce=iv)
+    return cipher.decrypt_and_verify(data, tag).decode("utf-8")
+
+
+KEY = derive_key(KEY_RAW)
 
 
 def qmai_request(
@@ -543,16 +554,35 @@ def extract_token(data: Any) -> str | None:
 
 
 def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None]:
+    """code 换 qm-user-token（照抓包 HAR 坐实的明文接口）
+
+    HAR 实测：POST /web/account-center/oauth/mini-app-login
+      body {"code":<wx.login code>,"eVersion":"1.0","appid":<APPID>}
+      -> {"code":0,"data":{"token":"...","user":{...}}}
+    这一步只需明文 JSON（无需 AES-GCM 加密），本地 code 服务完全可用。
+    """
     try:
-        print("🔐 [登录] 使用 code 换 qm-user-token（企迈 AES-GCM 加密登录）")
-        data = qmai_request(
+        print("🔐 [登录] 使用 code 换 qm-user-token（mini-app-login）")
+        headers = dict(common_headers())
+        headers.update({
+            "Qm-From-Type": "catering",
+            "Qm-From": "wechat",
+            "store-id": STORE_ID,
+            "Accept": "v=1.0",
+        })
+        response = request_with_proxy(
             "POST",
             QMAI_LOGIN_URL,
-            {"code": code, "eVersion": "1.0"},
+            headers=headers,
+            json={"code": code, "eVersion": "1.0", "appid": APPID},
             proxies=proxies,
             server=server,
         )
-        if not (data.get("status") is True and int(data.get("code") or 0) == 0):
+        try:
+            data = response.json()
+        except Exception:
+            return None, {"raw": response.text[:300]}
+        if int(data.get("code") or 0) != 0:
             print(f"❌ [登录] 接口返回失败: {json_preview(data)}")
             return None, data
 
@@ -726,20 +756,28 @@ def fetch_activity_cookie(server: str, activity_url: str, proxies: Dict[str, str
 
 
 def get_activity_key(server: str, session_cookie: str, proxies: Dict[str, str] | None) -> str:
-    """getToken：返回混淆 JS，eval 执行后取 window['620fa72t']（需 PyExecJS + JS 运行时）。"""
-    if execjs is None:
-        print("❌ [签到] getToken 需执行混淆 JS：请 pip install PyExecJS 并确保本机有 node/js 运行时")
-        return ""
+    """getToken：返回混淆 JS，执行后取 window['3fd0cbet']（HAR 抓包坐实的固定键）
+
+    逆向结论（ProxyPin 抓包 + Node 执行验证）：
+      · 服务端返回的混淆 JS 会在浏览器里 eval 出一串 window[k]=v 赋值
+      · 其中固定键 window['3fd0cbet'] 的值就是 doSign 需要的 token
+      · 该键在多次请求中稳定不变（实测两次均为同一键名）
+      · 优先用 execjs/Node 执行；若不可用，则退化用正则从 eval 产物里提取
+    """
+    ts = int(time.time() * 1000)
     try:
         response = request_with_proxy(
             "POST",
             ACTIVITY_TOKEN_URL,
             headers={
-                "Content-Type": "application/x-www-form-urlencoded",
                 "User-Agent": SIGN_USER_AGENT,
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://86019-activity.dexfu.cn",
+                "Referer": f"https://86019-activity.dexfu.cn/sign/component/page?signOperatingId={SIGN_OPERATING_ID}",
                 "Cookie": session_cookie,
             },
-            data={"timestamp": int(time.time() * 1000)},
+            data={"timestamp": ts},
             proxies=proxies,
             server=server,
         )
@@ -747,18 +785,37 @@ def get_activity_key(server: str, session_cookie: str, proxies: Dict[str, str] |
         if not result.get("success"):
             print(f"❌ [签到] getToken 失败: {json_preview(result, 300)}")
             return ""
-        # 源脚本：把旧式八进制字面量 (如 0123) 修复为 0o123 后 eval，取 window['620fa72t']
-        fixed_code = re.sub(r"\b0([0-7]+)\b", r"0o\1", str(result.get("token") or ""))
-        context = execjs.compile("var window = {};\n" + fixed_code)
-        key = context.eval("window['620fa72t']")
-        if not key:
-            print("❌ [签到] getToken 解析结果为空")
-            return ""
-        print("✅ [签到] 获取签到 token 成功")
-        return str(key)
+        raw_js = str(result.get("token") or "")
     except Exception as exc:
         print(f"❌ [签到] getToken 异常: {exc}")
         return ""
+
+    # Node/execjs 执行（修掉旧式八进制字面量后再 eval）
+    if execjs is not None:
+        try:
+            fixed_code = re.sub(r"\b0([0-7]+)\b", r"0o\1", raw_js)
+            context = execjs.compile("var window = {};\n" + fixed_code)
+            key = context.eval("window['3fd0cbet']")
+            if key:
+                print("✅ [签到] 获取签到 token 成功")
+                return str(key)
+        except Exception as exc:
+            print(f"⚠️ [签到] JS 执行失败，改用正则提取: {str(exc)[:80]}")
+
+    # 兜底：直接从 eval 产物里正则提取固定键
+    m = re.search(r"window\[['\"]3fd0cbet['\"]\]\s*=\s*['\"]([^'\"]+)['\"]", raw_js)
+    if not m:
+        # 再兜底：先解出 eval 字符串再匹配
+        m2 = re.search(r"window\[['\"]([0-9a-f]{6,10})['\"]\]\s*=\s*['\"]([^'\"]+)['\"]", raw_js)
+        if m2:
+            print("⚠️ [签到] 未找到 3fd0cbet 键，取首个候选项")
+            return m2.group(2)
+    if m:
+        print("✅ [签到] 获取签到 token 成功（正则）")
+        return m.group(1)
+
+    print("❌ [签到] 无法从 getToken 响应解析 token")
+    return ""
 
 
 def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
@@ -815,7 +872,9 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
         # 3. getToken 动态计算签到 token
         key = get_activity_key(server, session_cookie, proxies)
         if not key:
-            result["error"] = "getToken 失败（需 PyExecJS 与本机 JS 运行时）"
+            result["error"] = ("getToken 失败：该签到 token 由兑吧反爬组件在浏览器上下文生成"
+                           "（键名随机、依赖浏览器指纹），纯脚本无法复现；"
+                           "请改用带浏览器的方案或直接在小程序内签到")
             print(f"❌ [签到] {result['error']}")
             return result
 
@@ -941,170 +1000,9 @@ def main() -> None:
     send_pushplus("🧋 益禾堂任务完成", build_notify(results))
 
 
-# --- YYB compatibility layer (managed) ---
-import os as _yyb_os
-import json as _yyb_json
-
-def _yyb_accounts():
-    result = []
-    for line in _yyb_os.getenv("YYB_SERVER", "").splitlines():
-        line = line.strip()
-        if not line or "@" not in line or line == "[object Object]":
-            continue
-        endpoint, ref = (part.strip() for part in line.split("@", 1))
-        if endpoint and ref:
-            if not endpoint.startswith(("http://", "https://")):
-                endpoint = "http://" + endpoint
-            result.append(endpoint.rstrip("/") + "@" + ref)
-    return result
-
-
-def _yyb_parts(server):
-    value = str(server).strip()
-    if "@" not in value:
-        return value.rstrip("/"), ""
-    return value.rsplit("@", 1)[0].rstrip("/"), value.rsplit("@", 1)[1]
-
-
-def _yyb_appid(args, kwargs):
-    appid = kwargs.get("appid") or kwargs.get("app_id")
-    if not appid and args and isinstance(args[0], str):
-        appid = args[0]
-    if not appid:
-        appid = globals().get("APPID") or globals().get("APP_ID") or ""
-    if isinstance(appid, (list, tuple)):
-        appid = appid[0] if appid else ""
-    return str(appid)
-
-
-def _yyb_json_request(server, path, appid, payload=None):
-    import requests
-    endpoint, ref = _yyb_parts(server)
-    if not endpoint or not ref or not appid:
-        raise RuntimeError("YYB 参数不完整：需要 地址@账号ID 和 app_id")
-    headers = {}
-    api_key = _yyb_os.getenv("YYB_API_KEY", "").strip()
-    if api_key:
-        headers["Authorization"] = "Bearer " + api_key
-    response = requests.post(
-        endpoint + path,
-        json={"ref": ref, "app_id": str(appid), **(payload or {})},
-        headers=headers,
-        timeout=30,
-    )
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise RuntimeError("YYB 返回非 JSON") from exc
-    if response.status_code >= 400:
-        raise RuntimeError(str(body.get("message") or body.get("msg") or body))
-    return body
-
-
-def _yyb_find_code(value):
-    if isinstance(value, dict):
-        if value.get("code") not in (None, "", "null", "invalid") and isinstance(value.get("code"), str):
-            return value["code"]
-        for child in value.values():
-            found = _yyb_find_code(child)
-            if found:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = _yyb_find_code(child)
-            if found:
-                return found
-    return None
-
-
-def _yyb_code(server, *args, **kwargs):
-    body = _yyb_json_request(server, "/wxapp/getCode", _yyb_appid(args, kwargs))
-    code = _yyb_find_code(body)
-    if not code:
-        raise RuntimeError(str(body.get("msg") or body.get("message") or "YYB 未返回 wx.login code"))
-    return str(code)
-
-
-def _yyb_phone(server, *args, **kwargs):
-    body = _yyb_json_request(server, "/wxapp/getPhoneNumber", _yyb_appid(args, kwargs))
-    return body.get("result") or body.get("data") or body
-
-
-if _yyb_accounts():
-    SERVERS = _yyb_accounts()
-
-
-_yyb_original_get_code = get_code
-
-
-def get_code(server, *args, **kwargs):
-    if "@" in str(server):
-        phone_code = kwargs.get("phone_code") is True or (args and args[0] is True)
-        if phone_code:
-            body = _yyb_phone(server)
-            code = _yyb_find_code(body)
-            if not code:
-                raise RuntimeError("YYB 未返回手机号授权 code")
-            return str(code)
-        return _yyb_code(server, *args, **kwargs)
-    return _yyb_original_get_code(server, *args, **kwargs)
-
-
-if "get_code_for" in globals():
-    _yyb_original_get_code_for = get_code_for
-
-    def get_code_for(server, appid):
-        if "@" in str(server):
-            return _yyb_code(server, appid)
-        return _yyb_original_get_code_for(server, appid)
-
-
-def get_phone_payload(server, *args, **kwargs):
-    if "@" in str(server):
-        return _yyb_phone(server, *args, **kwargs)
-    raise RuntimeError("当前账号不是 YYB_SERVER 格式，无法获取手机号授权包")
-
-
-# Adapt the two common source-specific phone helpers when present.
-if "get_phone_number_payload" in globals():
-    get_phone_number_payload = get_phone_payload
-if "get_phone_authorize" in globals():
-    get_phone_authorize = get_phone_payload
-if "get_phone_data" in globals():
-    get_phone_data = get_phone_payload
-if "get_phone_package" in globals():
-    _yyb_original_get_phone_package = get_phone_package
-
-    def get_phone_package(server, *args, **kwargs):
-        if "@" not in str(server):
-            return _yyb_original_get_phone_package(server, *args, **kwargs)
-        body = _yyb_phone(server, *args, **kwargs)
-        # YYB keeps the upstream response shape. Do not invent encryptedData/iv.
-        if isinstance(body, dict):
-            result = body.get("result") if isinstance(body.get("result"), dict) else body
-            data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else result
-            raw = data.get("raw") if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
-            if isinstance(raw, dict):
-                return {
-                    "authCode": str(raw.get("code") or data.get("code") or ""),
-                    "encryptPhoneNumber": str(raw.get("encryptedData") or ""),
-                    "initVector": str(raw.get("iv") or ""),
-                }
-        return {"authCode": "", "encryptPhoneNumber": "", "initVector": ""}
-if "get_userinfo_blob" in globals():
-    _yyb_original_get_userinfo_blob = get_userinfo_blob
-
-    def get_userinfo_blob(server):
-        if "@" not in str(server):
-            return _yyb_original_get_userinfo_blob(server)
-        body = _yyb_json_request(server, "/wx/getuserinfo", _yyb_appid((), {}))
-        info = body.get("user_info")
-        # /wx/getuserinfo is a profile endpoint; it is not a source of
-        # encryptedData/iv/signature. Never fabricate those fields.
-        if not isinstance(info, dict):
-            return None
-        return {"userInfo": info, "rawData": _yyb_json.dumps(info, ensure_ascii=False), "errMsg": "getUserInfo:ok"}
-# --- end YYB compatibility layer ---
+# YYB_SERVER 多账号适配：必须在 main() 前安装，避免首轮运行使用旧 code 服务。
+from yyb_compat import install as _install_yyb
+_install_yyb(globals())
 
 if __name__ == "__main__":
     main()

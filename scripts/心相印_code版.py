@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# 兼容 GBK 终端：强制 stdout/stderr 使用 UTF-8（不影响排版与格式）
+import sys as _sys
+try:
+    _sys.stdout.reconfigure(encoding="utf-8")
+    _sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 # ========== 企业微信推送配置（可选） ==========
 QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 Webhook key（机器人地址 ?key= 后面的值，留空不推送）
@@ -55,9 +63,10 @@ import requests
 
 
 APP_NAME = "芯享会（心相印）"
-APPID = "wx13ce9eedfb50ea1b"
+# 真实小程序 appid（2026-09-15 抓包坐实 servicewechat.com/wxfc766f1e9a63b01f/340）
+APPID = os.getenv("XXH_APPID", "wxfc766f1e9a63b01f")
 
-SERVERS = ["127.0.0.1:8088"]
+SERVERS = ["10.30.9.183:8088"]
 
 if os.getenv("CODE_SERVER"):
     SERVERS = [os.getenv("CODE_SERVER")]
@@ -86,10 +95,31 @@ SIGN_IN_URL = "/user-member/sign-in"
 # miniProgram.version, 发布版通常为空串; 服务端按传入值重算签名, 一般无需修改
 VERSION = os.getenv("xxh_version", "")
 # 首次登录(注册)时提交的昵称; 仅在账号未授权时使用, 不会覆盖已注册账号
+
+# ========== HAR 抓包坐实的备用后端（mshopapi.hengan.cn） ==========
+# 该后端与上面的 91dh 后端是两套系统；token 互不通用。
+# 抓包实测：Authorization: Bearer <UUID> 且签到成功（+5积分）。
+HENGAN_BASE = os.getenv("HENGAN_BASE", "https://mshopapi.hengan.cn/mall/app").rstrip("/")
+HENGAN_APPID = os.getenv("HENGAN_APPID", "wxfc766f1e9a63b01f")
+HENGAN_TOKEN = os.getenv("HENGAN_TOKEN", "")   # 抓包得到的 Bearer token（可选）
+HENGAN_USERINFO = "/userinfo?login=true"
+HENGAN_CHECK_TOKEN = "/anon/api/auth/checkAppToken"
+HENGAN_SIGN = "/sign/user"
+HENGAN_SIGN_INTEGRAL = "/api/sign/v2/integral"
+HENGAN_SIGN_CALENDAR = "/api/sign/v2/currentMonthSignInfo"
+HENGAN_SIGN_CONFIG = "/api/sign/v2/currentActiveSignConfig"
+HENGAN_SIGN_REWARDS = "/api/sign/v2/mySignRewardList"
+HENGAN_APP_VERSION = "1.2.11"
+# 真实登录接口（逆向 __APP__.wxapkg 坐实）：POST /auth/app/anon/oauth/wxappLogin
+HENGAN_OAUTH_BASE = os.getenv("HENGAN_OAUTH_BASE", "https://mshopapi.hengan.cn").rstrip("/")
+HENGAN_OAUTH_LOGIN = "/auth/app/anon/oauth/wxappLogin"
+
 NICKNAME = os.getenv("xxh_nickname", "微信用户")
+CACHE_DIR = os.environ.get("CODE_CACHE_DIR", os.path.join(os.path.expanduser("~"), "Documents", "写代码"))
 
-COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xxhcookie.json")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
+COOKIE_FILE = os.path.join(CACHE_DIR, "xxhcookie.json")
 USER_AGENT = (
     "Mozilla/5.0 (Linux; Android 13; SM-G9910 Build/TP1A.220624.014) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36 "
@@ -100,11 +130,6 @@ USER_AGENT = (
 
 def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def now_time() -> str:
-    """本地(北京)时间 YYYY-MM-DD HH:MM:SS, 对应 util.getNowTime()。"""
-    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def sleep(seconds: float) -> None:
@@ -374,6 +399,20 @@ def get_code(server: str) -> str | None:
         return None
 
 
+def common_headers(token: str | None = None) -> Dict[str, str]:
+    return {
+        "content-type": "application/json",
+        "User-Agent": USER_AGENT,
+        "Referer": f"https://servicewechat.com/{APPID}/0/page-frame.html",
+    }
+
+
+# ========== 业务辅助函数（照源脚本） ==========
+def now_time() -> str:
+    """本地(北京)时间 YYYY-MM-DD HH:MM:SS, 对应 util.getNowTime()。"""
+    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def sign_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
     """复刻 util.getRequestData: 键名排序后拼接 key+value, sign=sha1(SALT+拼接+SALT)。"""
     concat = ""
@@ -386,14 +425,6 @@ def sign_payload(fields: Dict[str, Any]) -> Dict[str, Any]:
     signed = dict(fields)
     signed["sign"] = hashlib.sha1((SALT + concat + SALT).encode("utf-8")).hexdigest()
     return signed
-
-
-def common_headers(token: str | None = None) -> Dict[str, str]:
-    return {
-        "content-type": "application/json",
-        "User-Agent": USER_AGENT,
-        "Referer": f"https://servicewechat.com/{APPID}/0/page-frame.html",
-    }
 
 
 def extract_token(data: Any) -> str | None:
@@ -465,46 +496,50 @@ def api_post(server: str, url: str, token: str, proxies: Dict[str, str] | None, 
 
 
 def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None]:
-    """wx.login code -> access_token。
+    """wx.login 的 code -> Bearer token（真实接口，逆向 __APP__.wxapkg 坐实）。
 
-    优先走 /user-member/auto-login (刷新已注册账号会话, 非破坏性);
-    若账号首次使用/未授权, 回退到 /user-member/user-auth 完成微信授权注册。
+    JS 源码：
+        g.request("/auth/app/anon/oauth/wxappLogin",
+                  {code: <wx.login code>, spread: 0, labelValue: null},
+                  {headers: {appVersion, envVersion}, method: "post"})
+        -> resp.data.data.token，写入 storage["login_status"]
+    注意：该接口挂在域名根路径，不在 /mall/app 前缀下。
     """
     try:
-        print("🔐 [登录] 使用 code 换 token")
-        result = api_request(AUTO_LOGIN_URL, "POST", "", proxies, {"wx_code": code}, server)
-        rcode = int(result.get("code", -1))
-        if rcode == SUCCESS_CODE:
-            token = extract_token(result)
-            if not token:
-                print(f"❌ [登录] 登录响应缺少 access_token: {json_preview(result)}")
-                return None, result
+        print("🔐 [登录] 使用 code 换 token (/auth/app/anon/oauth/wxappLogin)")
+        url = HENGAN_OAUTH_BASE + HENGAN_OAUTH_LOGIN
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+            "xweb_xhr": "1",
+            "appVersion": HENGAN_APP_VERSION,
+            "envVersion": "release",
+            "Referer": f"https://servicewechat.com/{APPID}/340/page-frame.html",
+        }
+        body = {"code": code, "spread": 0, "labelValue": None}
+        response = request_with_proxy(
+            "POST", url,
+            headers=headers,
+            data=json.dumps(body, separators=(",", ":"), ensure_ascii=False),
+            proxies=proxies, server=server,
+        )
+        try:
+            result = response.json()
+        except Exception:
+            result = {"raw": response.text[:500]}
+
+        # 成功: {"code":200,"data":{"token":"<uuid>"}}；失败: {"msg":...,"code":500}
+        token = extract_token(result)
+        if token:
             print(f"✅ [登录] token 获取成功: {mask(token)}")
             return token, result
 
-        # 首次登录: 未授权 -> 走 app 自身的授权注册流程 (user-auth)
-        msg = str(result.get("msg") or "")
-        if rcode in NEED_AUTH_CODES or "授权" in msg or "未注册" in msg:
-            print(f"🔄 [登录] 账号首次使用, 执行微信授权注册... ({msg})")
-            code2 = get_code(server)  # code 单次有效, 重新获取
-            if not code2:
-                return None, result
-            auth_params = {"wx_code": code2, "nickname": NICKNAME, "avatar": "", "come_from": ""}
-            auth = api_request(USER_AUTH_URL, "POST", "", proxies, auth_params, server)
-            if int(auth.get("code", -1)) == SUCCESS_CODE:
-                token = extract_token(auth)
-                if token:
-                    print(f"✅ [登录] 授权注册成功: {mask(token)}")
-                    return token, auth
-            print(f"❌ [登录] 授权注册失败: {auth.get('msg') or json_preview(auth)}")
-            return None, auth
-
-        print(f"❌ [登录] code 登录失败: {msg or json_preview(result)}")
+        print(f"❌ [登录] code 换 token 失败: {json_preview(result)}")
         return None, result
     except Exception as exc:
         print(f"❌ [登录] 请求异常: {exc}")
         return None, None
-
 
 # ====================== Token缓存管理 ======================
 def load_token_cache() -> Dict[str, Any]:
@@ -547,13 +582,12 @@ def set_cached_token(server: str, token: str, expire_time: str) -> None:
 
 
 def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None]:
-    """优先使用缓存 token（签到列表接口验证），失效自动 code 刷新"""
+    """优先使用缓存 token（/anon/api/auth/checkAppToken 验证），失效自动 code 刷新"""
     cache_token = get_cached_token(server)
     if cache_token:
         print("🔍 [缓存] 验证 token")
         try:
-            state = api_get(server, SIGN_IN_LIST_URL, cache_token, proxies)
-            if int(state.get("code", -1)) == SUCCESS_CODE:
+            if hengan_check_token(cache_token, proxies, server):
                 print("✅ [缓存] token 有效")
                 return cache_token, None
         except Exception as exc:
@@ -572,7 +606,6 @@ def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str |
     set_cached_token(server, token, expire_time)
     return token, raw_login
 
-
 def get_user_nickname(raw_login: Dict[str, Any] | None) -> str:
     """从登录响应 member_info 中取昵称"""
     if isinstance(raw_login, dict):
@@ -582,6 +615,102 @@ def get_user_nickname(raw_login: Dict[str, Any] | None) -> str:
             if isinstance(member, dict):
                 return member.get("nickname") or member.get("nick_name") or ""
     return ""
+
+
+# ====================== HAR 后端（mshopapi.hengan.cn） ======================
+def hengan_headers(token: str = "") -> Dict[str, str]:
+    h = {
+        "User-Agent": USER_AGENT,
+        "appVersion": HENGAN_APP_VERSION,
+        "envVersion": "release",
+        "Content-Type": "application/json",
+        "Accept": "*/*",
+        "xweb_xhr": "1",
+        "Referer": f"https://servicewechat.com/{HENGAN_APPID}/340/page-frame.html",
+    }
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
+
+
+def hengan_get(path: str, token: str = "", proxies: Dict[str, str] | None = None,
+               server: str = "", params: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    response = request_with_proxy(
+        "GET", f"{HENGAN_BASE}{path}",
+        headers=hengan_headers(token), params=params,
+        proxies=proxies, server=server,
+    )
+    try:
+        return response.json()
+    except Exception:
+        return {"status": -1, "msg": f"JSON解析失败: {response.text[:200]}"}
+
+
+def hengan_post(path: str, token: str, body: Any, proxies: Dict[str, str] | None = None,
+                server: str = "") -> Dict[str, Any]:
+    response = request_with_proxy(
+        "POST", f"{HENGAN_BASE}{path}",
+        headers=hengan_headers(token), json=body,
+        proxies=proxies, server=server,
+    )
+    try:
+        return response.json()
+    except Exception:
+        return {"status": -1, "msg": f"JSON解析失败: {response.text[:200]}"}
+
+
+def hengan_check_token(token: str, proxies: Dict[str, str] | None, server: str) -> bool:
+    """校验 Bearer token 是否有效（HAR 坐实的 anon 校验端点）"""
+    try:
+        data = hengan_get(HENGAN_CHECK_TOKEN, token, proxies, server, {"token": token})
+        return bool(data.get("data")) and data.get("success") is True
+    except Exception:
+        return False
+
+
+def hengan_run(server: str, token: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
+    """走 HAR 坐实的 hengan 后端：读用户 → 签到 → 领积分 → 查日历"""
+    out: Dict[str, Any] = {"userMsg": "-", "signMsg": "-", "pointsMsg": "-", "success": False}
+
+    info = hengan_get(HENGAN_USERINFO, token, proxies, server)
+    d = info.get("data") or {}
+    if info.get("success") is not True:
+        out["error"] = f"读取用户失败: {json_preview(info, 200)}"
+        return out
+    out["userMsg"] = f"{d.get('nickname') or '微信用户'} ({d.get('phone') or '-'})"
+    print(f"👤 [用户] {out['userMsg']}")
+
+    # 签到
+    sign = hengan_post(HENGAN_SIGN, token, {"sign": 1, "integral": 1, "all": 1}, proxies, server)
+    sd = sign.get("data") or {}
+    if sign.get("success") is True:
+        if sd.get("isDaySign") is True:
+            out["signMsg"] = f"今日已签到（连续 {sd.get('sumSignDay', '?')} 天）"
+        else:
+            out["signMsg"] = f"签到成功（连续 {sd.get('sumSignDay', '?')} 天）"
+        print(f"✅ [签到] {out['signMsg']}")
+    else:
+        out["signMsg"] = sign.get("msg") or json_preview(sign, 150)
+        print(f"⚠️ [签到] {out['signMsg']}")
+
+    # 领积分（HAR：签到获得5积分）
+    pts = hengan_post(HENGAN_SIGN_INTEGRAL, token, {}, proxies, server)
+    if pts.get("success") is True:
+        gained = (pts.get("data") or {}).get("integral")
+        out["pointsMsg"] = f"+{gained} 积分" if gained is not None else (pts.get("msg") or "已领取")
+        print(f"🎁 [积分] {out['pointsMsg']}")
+    else:
+        out["pointsMsg"] = pts.get("msg") or "-"
+        print(f"⚠️ [积分] {out['pointsMsg']}")
+
+    # 日历（可选）
+    cal = hengan_get(HENGAN_SIGN_CALENDAR, token, proxies, server)
+    if cal.get("success") is True and isinstance(cal.get("data"), list):
+        signed = sum(1 for x in cal["data"] if isinstance(x, dict) and x.get("signed"))
+        print(f"📅 [日历] 本月已签 {signed} 天")
+
+    out["success"] = True
+    return out
 
 
 def do_sign_in(server: str, token: str, proxies: Dict[str, str] | None) -> Tuple[str, bool]:
@@ -627,14 +756,39 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
     print(f"⏳ [延迟] 启动延迟 {delay}s")
     sleep(delay)
 
+    # ① 抓包 token（可选，HENGAN_TOKEN 环境变量）
+    if HENGAN_TOKEN:
+        print("🔍 [heng] 校验抓包 Bearer token")
+        if hengan_check_token(HENGAN_TOKEN, proxies, server):
+            print("✅ [heng] 抓包 token 有效")
+            hres = hengan_run(server, HENGAN_TOKEN, proxies)
+            result["token"] = mask(HENGAN_TOKEN)
+            result["userMsg"] = hres.get("userMsg", "-")
+            result["signMsg"] = hres.get("signMsg", "-")
+            result["pointsMsg"] = hres.get("pointsMsg", "-")
+            result["success"] = bool(hres.get("success"))
+            if not hres.get("success"):
+                result["error"] = hres.get("error") or "heng 后端执行失败"
+            return result
+        print("⚠️ [heng] 抓包 token 无效或已过期，回退 code 登录")
+
+    # ② code 登录 -> 真实 hengan 后端签到（全自动，无需抓包凭证）
     token, raw_login = login_with_cache(server, proxies)
     if not token:
         result["error"] = f"登录失败: {json_preview(raw_login)}"
         return result
 
     result["token"] = mask(token)
-    nickname = get_user_nickname(raw_login)
-    result["userMsg"] = nickname or "微信用户"
+    hres = hengan_run(server, token, proxies)
+    result["userMsg"] = hres.get("userMsg", "-")
+    result["signMsg"] = hres.get("signMsg", "-")
+    result["pointsMsg"] = hres.get("pointsMsg", "-")
+    result["success"] = bool(hres.get("success"))
+    if not hres.get("success"):
+        result["error"] = hres.get("error") or "签到失败"
+    return result
+
+    # ---- 以下为旧 91dh 后端流程（已停用，保留作参考） ----
 
     try:
         state = api_get(server, SIGN_IN_LIST_URL, token, proxies)
@@ -768,170 +922,9 @@ def main() -> None:
     send_pushplus("🧻 芯享会任务完成", build_notify(results))
 
 
-# --- YYB compatibility layer (managed) ---
-import os as _yyb_os
-import json as _yyb_json
-
-def _yyb_accounts():
-    result = []
-    for line in _yyb_os.getenv("YYB_SERVER", "").splitlines():
-        line = line.strip()
-        if not line or "@" not in line or line == "[object Object]":
-            continue
-        endpoint, ref = (part.strip() for part in line.split("@", 1))
-        if endpoint and ref:
-            if not endpoint.startswith(("http://", "https://")):
-                endpoint = "http://" + endpoint
-            result.append(endpoint.rstrip("/") + "@" + ref)
-    return result
-
-
-def _yyb_parts(server):
-    value = str(server).strip()
-    if "@" not in value:
-        return value.rstrip("/"), ""
-    return value.rsplit("@", 1)[0].rstrip("/"), value.rsplit("@", 1)[1]
-
-
-def _yyb_appid(args, kwargs):
-    appid = kwargs.get("appid") or kwargs.get("app_id")
-    if not appid and args and isinstance(args[0], str):
-        appid = args[0]
-    if not appid:
-        appid = globals().get("APPID") or globals().get("APP_ID") or ""
-    if isinstance(appid, (list, tuple)):
-        appid = appid[0] if appid else ""
-    return str(appid)
-
-
-def _yyb_json_request(server, path, appid, payload=None):
-    import requests
-    endpoint, ref = _yyb_parts(server)
-    if not endpoint or not ref or not appid:
-        raise RuntimeError("YYB 参数不完整：需要 地址@账号ID 和 app_id")
-    headers = {}
-    api_key = _yyb_os.getenv("YYB_API_KEY", "").strip()
-    if api_key:
-        headers["Authorization"] = "Bearer " + api_key
-    response = requests.post(
-        endpoint + path,
-        json={"ref": ref, "app_id": str(appid), **(payload or {})},
-        headers=headers,
-        timeout=30,
-    )
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise RuntimeError("YYB 返回非 JSON") from exc
-    if response.status_code >= 400:
-        raise RuntimeError(str(body.get("message") or body.get("msg") or body))
-    return body
-
-
-def _yyb_find_code(value):
-    if isinstance(value, dict):
-        if value.get("code") not in (None, "", "null", "invalid") and isinstance(value.get("code"), str):
-            return value["code"]
-        for child in value.values():
-            found = _yyb_find_code(child)
-            if found:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = _yyb_find_code(child)
-            if found:
-                return found
-    return None
-
-
-def _yyb_code(server, *args, **kwargs):
-    body = _yyb_json_request(server, "/wxapp/getCode", _yyb_appid(args, kwargs))
-    code = _yyb_find_code(body)
-    if not code:
-        raise RuntimeError(str(body.get("msg") or body.get("message") or "YYB 未返回 wx.login code"))
-    return str(code)
-
-
-def _yyb_phone(server, *args, **kwargs):
-    body = _yyb_json_request(server, "/wxapp/getPhoneNumber", _yyb_appid(args, kwargs))
-    return body.get("result") or body.get("data") or body
-
-
-if _yyb_accounts():
-    SERVERS = _yyb_accounts()
-
-
-_yyb_original_get_code = get_code
-
-
-def get_code(server, *args, **kwargs):
-    if "@" in str(server):
-        phone_code = kwargs.get("phone_code") is True or (args and args[0] is True)
-        if phone_code:
-            body = _yyb_phone(server)
-            code = _yyb_find_code(body)
-            if not code:
-                raise RuntimeError("YYB 未返回手机号授权 code")
-            return str(code)
-        return _yyb_code(server, *args, **kwargs)
-    return _yyb_original_get_code(server, *args, **kwargs)
-
-
-if "get_code_for" in globals():
-    _yyb_original_get_code_for = get_code_for
-
-    def get_code_for(server, appid):
-        if "@" in str(server):
-            return _yyb_code(server, appid)
-        return _yyb_original_get_code_for(server, appid)
-
-
-def get_phone_payload(server, *args, **kwargs):
-    if "@" in str(server):
-        return _yyb_phone(server, *args, **kwargs)
-    raise RuntimeError("当前账号不是 YYB_SERVER 格式，无法获取手机号授权包")
-
-
-# Adapt the two common source-specific phone helpers when present.
-if "get_phone_number_payload" in globals():
-    get_phone_number_payload = get_phone_payload
-if "get_phone_authorize" in globals():
-    get_phone_authorize = get_phone_payload
-if "get_phone_data" in globals():
-    get_phone_data = get_phone_payload
-if "get_phone_package" in globals():
-    _yyb_original_get_phone_package = get_phone_package
-
-    def get_phone_package(server, *args, **kwargs):
-        if "@" not in str(server):
-            return _yyb_original_get_phone_package(server, *args, **kwargs)
-        body = _yyb_phone(server, *args, **kwargs)
-        # YYB keeps the upstream response shape. Do not invent encryptedData/iv.
-        if isinstance(body, dict):
-            result = body.get("result") if isinstance(body.get("result"), dict) else body
-            data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else result
-            raw = data.get("raw") if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
-            if isinstance(raw, dict):
-                return {
-                    "authCode": str(raw.get("code") or data.get("code") or ""),
-                    "encryptPhoneNumber": str(raw.get("encryptedData") or ""),
-                    "initVector": str(raw.get("iv") or ""),
-                }
-        return {"authCode": "", "encryptPhoneNumber": "", "initVector": ""}
-if "get_userinfo_blob" in globals():
-    _yyb_original_get_userinfo_blob = get_userinfo_blob
-
-    def get_userinfo_blob(server):
-        if "@" not in str(server):
-            return _yyb_original_get_userinfo_blob(server)
-        body = _yyb_json_request(server, "/wx/getuserinfo", _yyb_appid((), {}))
-        info = body.get("user_info")
-        # /wx/getuserinfo is a profile endpoint; it is not a source of
-        # encryptedData/iv/signature. Never fabricate those fields.
-        if not isinstance(info, dict):
-            return None
-        return {"userInfo": info, "rawData": _yyb_json.dumps(info, ensure_ascii=False), "errMsg": "getUserInfo:ok"}
-# --- end YYB compatibility layer ---
+# YYB_SERVER 多账号适配：必须在 main() 前安装，避免首轮运行使用旧 code 服务。
+from yyb_compat import install as _install_yyb
+_install_yyb(globals())
 
 if __name__ == "__main__":
     main()
