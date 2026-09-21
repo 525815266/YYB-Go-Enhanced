@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>用户管理 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/auth.css">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260824-push1">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260921-ui">
   <style>
     .users-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .users-toolbar .input { width:min(320px,100%); }
@@ -118,6 +118,6 @@
     $("searchUsers").oninput = renderUsers;
     load().catch(error => toast(error.message, true));
   </script>
-  <script src="/static/js/platform.js?v=20260824-push1"></script>
+  <script src="/static/js/platform.js?v=20260921-ui"></script>
 </body>
 </html>

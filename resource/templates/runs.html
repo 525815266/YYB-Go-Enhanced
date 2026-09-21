@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>运行管理 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260824-push1">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260921-ui">
   <style>
     :root {
       color-scheme: light;
@@ -190,6 +190,6 @@
     $("runSearchInput").addEventListener("input", renderRuns); $("clearRunSearchBtn").addEventListener("click", () => { $("runSearchInput").value = ""; $("runSearchInput").focus(); renderRuns(); }); $("refreshRunsBtn").addEventListener("click", async () => { await loadRuns(); await refreshOpenLog(); }); $("backToTasksBtn").addEventListener("click", () => setMode("tasks"));
     (async function init() { setPushOpen(state.pushOpen); try { await Promise.all([loadConnection(), loadAccounts()]); await loadSelected(); setMode(state.mode); if (initialView === "push") requestAnimationFrame(() => $("pushSettings").scrollIntoView({ block: "start" })); } catch (error) { showToast(error.message, true); } state.timer = setInterval(async () => { await loadJobsOnly(); if (state.mode === "runs") { await loadRuns(true); await refreshOpenLog(true); } }, 3000); })();
   </script>
-  <script src="/static/js/platform.js?v=20260824-push1"></script>
+  <script src="/static/js/platform.js?v=20260921-ui"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>工作台 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260824-push1">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260921-ui">
   <style>
     :root {
       color-scheme: light;
@@ -819,6 +819,45 @@
     .link-dialog-existing-row .inline-actions { margin:0; }
     .link-dialog-existing-row .btn { padding:6px 8px; font-size:12px; }
     @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } .link-dialog-existing-row { align-items:flex-start; flex-direction:column; } }
+
+    /* A little elevation and motion makes the account queue feel interactive
+       without turning a dense operations screen into a marketing surface. */
+    .account-band,
+    .panel,
+    .summary,
+    .quick-actions {
+      box-shadow: 0 12px 30px oklch(0.18 0.025 252 / 0.07);
+    }
+
+    .account-strip {
+      padding: 16px;
+      gap: 12px;
+    }
+
+    .account-card {
+      min-height: 156px;
+      padding: 13px;
+      border-radius: 11px;
+      box-shadow: 0 5px 14px oklch(0.18 0.025 252 / 0.045);
+      transition: background 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1), transform 180ms cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    .account-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 22px oklch(0.18 0.025 252 / 0.1);
+    }
+
+    .account-card.selected {
+      box-shadow: 0 0 0 2px var(--accent), 0 10px 24px oklch(0.44 0.112 190 / 0.14);
+    }
+
+    .avatar {
+      box-shadow: 0 0 0 4px oklch(1 0 0 / 0.68);
+    }
+
+    .stat-chip {
+      box-shadow: 0 2px 8px oklch(0.18 0.025 252 / 0.04);
+    }
 
     @media (max-width: 1360px) {
       .overview,
@@ -2038,6 +2077,6 @@
     loadQingLongConfig();
     setInterval(loadHealth, 15000);
   </script>
-  <script src="/static/js/platform.js?v=20260824-push1"></script>
+  <script src="/static/js/platform.js?v=20260921-ui"></script>
 </body>
 </html>

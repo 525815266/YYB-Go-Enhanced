@@ -10,6 +10,8 @@
   --platform-sidebar-bg: oklch(0.185 0.024 252);
   --platform-sidebar-ink: oklch(0.93 0.008 250);
   --platform-sidebar-muted: oklch(0.72 0.018 250);
+  --platform-shadow: 0 14px 34px oklch(0.18 0.025 252 / .08);
+  --platform-shadow-soft: 0 5px 16px oklch(0.18 0.025 252 / .06);
 }
 
 body.platform-ready { background: var(--platform-bg); }
@@ -18,19 +20,20 @@ body.platform-ready > main { display: none !important; }
 body.platform-ready > .app { display: none !important; }
 
 .platform-shell { min-height: 100vh; display: grid; grid-template-columns: var(--platform-sidebar) minmax(0, 1fr); }
-.platform-sidebar { position: fixed; inset: 0 auto 0 0; width: var(--platform-sidebar) !important; min-width: var(--platform-sidebar); display: flex; flex-direction: column; background: var(--platform-sidebar-bg); color: var(--platform-sidebar-ink); z-index: 40; }
+.platform-sidebar { position: fixed; inset: 0 auto 0 0; width: var(--platform-sidebar) !important; min-width: var(--platform-sidebar); display: flex; flex-direction: column; background: var(--platform-sidebar-bg); color: var(--platform-sidebar-ink); box-shadow: 10px 0 30px oklch(0.12 0.02 252 / .12); z-index: 40; }
 .platform-brand { height: var(--platform-header); display: flex; align-items: center; justify-content: flex-start; gap: 11px; padding: 0 18px; border-bottom: 1px solid oklch(0.3 0.02 252); color: inherit; text-decoration: none; }
-.platform-brand-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 7px; background: var(--platform-accent); color: white; font-weight: 800; }
+.platform-brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid oklch(0.82 0.11 3 / .34); border-radius: 10px; background: var(--platform-accent); color: white; font-weight: 800; box-shadow: 0 0 0 5px oklch(0.54 0.205 3 / .12), 0 5px 14px oklch(0.08 0.02 252 / .24); }
 .platform-brand-copy { display: block; min-width: 0; }
 .platform-brand-copy strong { display: block; font-size: 15px; line-height: 1.2; }
 .platform-brand-copy span { display: block; margin-top: 2px; color: var(--platform-sidebar-muted); font-size: 11px; }
-.platform-nav { flex: 1; overflow-y: auto; padding: 16px 10px; }
+.platform-nav { flex: 1; overflow-y: auto; padding: 18px 10px; }
 .platform-nav-section + .platform-nav-section { margin-top: 18px; }
 .platform-nav-group { margin: 0 8px 7px; color: var(--platform-sidebar-muted); text-align: left; font-size: 11px; font-weight: 700; }
-.platform-nav a { position: relative; min-height: 46px; display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin: 3px 0; padding: 8px 11px; border-radius: 8px; color: var(--platform-sidebar-muted); text-decoration: none; transition: background 150ms ease, color 150ms ease; }
+.platform-nav a { position: relative; min-height: 44px; display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin: 3px 0; padding: 8px 11px; border: 1px solid transparent; border-radius: 10px; color: var(--platform-sidebar-muted); text-decoration: none; transition: background 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease; }
 .platform-nav a[hidden], .platform-sidebar-foot[hidden] { display: none; }
-.platform-nav a:hover { color: var(--platform-sidebar-ink); background: oklch(0.25 0.025 252); }
-.platform-nav a[aria-current="page"] { color: white; background: oklch(0.29 0.035 252); font-weight: 680; }
+.platform-nav a:hover { color: var(--platform-sidebar-ink); background: oklch(0.25 0.025 252); border-color: oklch(0.36 0.03 252); transform: translateX(2px); }
+.platform-nav a[aria-current="page"] { color: white; background: oklch(0.29 0.035 252); border-color: oklch(0.4 0.045 252); font-weight: 680; box-shadow: 0 6px 16px oklch(0.08 0.02 252 / .2); }
+.platform-nav a[aria-current="page"] .platform-nav-icon { color: oklch(0.83 0.12 3); }
 .platform-nav-icon { width: 22px; height: 22px; display: grid; place-items: center; flex: 0 0 auto; color: currentColor; }
 .platform-nav-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .platform-nav-label { display: inline !important; visibility: visible !important; opacity: 1 !important; font-size: 13px; line-height: 1.25; white-space: nowrap; }
@@ -38,7 +41,7 @@ body.platform-ready > .app { display: none !important; }
 .platform-sidebar-foot button { position: relative; width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 8px 11px; border: 0; border-radius: 8px; background: transparent; color: var(--platform-sidebar-muted); text-align: left; cursor: pointer; }
 .platform-sidebar-foot button:hover { color: white; background: oklch(0.25 0.025 252); }
 .platform-stage { grid-column: 2; min-width: 0; }
-.platform-topbar { height: var(--platform-header); position: sticky; top: 0; z-index: 35; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 24px; background: oklch(1 0 0 / .96); border-bottom: 1px solid var(--platform-line); }
+.platform-topbar { height: var(--platform-header); position: sticky; top: 0; z-index: 35; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 28px; background: oklch(1 0 0 / .9); border-bottom: 1px solid var(--platform-line); box-shadow: 0 4px 18px oklch(0.18 0.025 252 / .04); backdrop-filter: blur(14px); }
 .platform-page-context { min-width: 0; }
 .platform-breadcrumb { color: var(--platform-muted); font-size: 11px; }
 .platform-page-title { margin-top: 2px; color: var(--platform-ink); font-size: 15px; font-weight: 730; }
@@ -53,7 +56,7 @@ body.platform-ready > .app { display: none !important; }
 .platform-avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: oklch(0.93 0.03 3); color: var(--platform-accent); font-weight: 800; }
 .platform-menu { display: none; width: 36px; height: 36px; border: 1px solid var(--platform-line); border-radius: 6px; background: white; color: var(--platform-ink); font-size: 19px; cursor: pointer; }
 .platform-main { min-width: 0; }
-.platform-main > main { width: min(1480px, 100%) !important; margin: 0 auto !important; padding: 22px 24px 38px !important; }
+.platform-main > main { width: min(1480px, 100%) !important; margin: 0 auto !important; padding: 28px 30px 46px !important; }
 .platform-overlay { display: none; }
 
 dialog.platform-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--platform-line); border-radius: 8px; background: white; color: var(--platform-ink); box-shadow: 0 24px 70px oklch(0.15 0.03 250 / .28); }
@@ -76,6 +79,33 @@ dialog.platform-dialog::backdrop { background: oklch(0.12 0.02 252 / .54); }
 .platform-log-content { margin: 0; padding: 18px 20px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .platform-log-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid oklch(0.28 0.02 252); color: oklch(0.72 0.018 250); font-size: 12px; }
 .platform-log-foot button { min-height: 34px; border: 1px solid oklch(0.36 0.02 252); border-radius: 6px; padding: 7px 10px; background: oklch(0.22 0.024 252); color: white; cursor: pointer; }
+
+/* Shared surface treatment keeps the platform cohesive across pages. */
+.platform-main .panel,
+.platform-main .account-band,
+.platform-main .summary,
+.platform-main .quick-actions,
+.platform-main .links-panel,
+.platform-main .link-stat,
+.platform-main .table-wrap,
+.platform-main .card {
+  box-shadow: var(--platform-shadow-soft);
+}
+.platform-main .panel,
+.platform-main .account-band,
+.platform-main .summary,
+.platform-main .links-panel,
+.platform-main .table-wrap,
+.platform-main .card {
+  border-color: oklch(0.87 0.014 250);
+}
+.platform-main .section-head,
+.platform-main .link-toolbar {
+  background: oklch(0.995 0.003 250);
+}
+.platform-main .btn { transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease; }
+.platform-main .btn:not(:disabled):hover { box-shadow: 0 5px 12px oklch(0.18 0.025 252 / .08); transform: translateY(-1px); }
+.platform-main .btn.primary:not(:disabled):hover { box-shadow: 0 7px 16px oklch(0.54 0.205 3 / .24); }
 
 @media (max-width: 860px) {
   :root { --platform-sidebar: 244px; }

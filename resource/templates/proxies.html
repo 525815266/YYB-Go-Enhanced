@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>代理设置 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/auth.css">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260824-push1">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260921-ui">
   <style>
     .proxy-page { max-width:1240px; }
     .proxy-page .page-title { align-items:center; }
@@ -176,6 +176,6 @@
     $("proxyForm").addEventListener("submit",async event=>{event.preventDefault();const account=currentAccount();if(!account)return;if(!state.editorReady||state.editorAccountID!==state.selectedID){setFeedback("账号配置仍在读取，未执行保存。","error");return}const previous=state.configs.get(state.selectedID),next=proxyPayload();if(previous?.configured&&next.mode==="direct"&&!confirm(`账号 ${account.id} 当前使用代理，确定切换为直连吗？`))return;const button=$("saveProxy");button.disabled=true;setFeedback("正在保存代理配置。");try{const savedID=state.selectedID,config=await api("/accounts/proxy",{method:"PUT",body:JSON.stringify(next)});state.configs.set(savedID,config);renderAccountList();if(state.selectedID===savedID)await fillEditor(account,config);setFeedback(config.configured?"代理已保存，会话缓存已重建。":"已切换为直连，会话缓存已重建。","ok")}catch(error){setFeedback(`保存失败：${error.message}`,"error")}finally{button.disabled=false}});
     $("reloadProxyPage").addEventListener("click",()=>loadPage().catch(error=>{$("proxyAccountList").innerHTML=`<div class="proxy-list-empty">加载失败：${escapeHTML(error.message)}</div>`}));loadPage().catch(error=>{$("proxyAccountCount").textContent="加载失败";$("proxyAccountList").innerHTML=`<div class="proxy-list-empty">${escapeHTML(error.message)}</div>`});
   </script>
-  <script src="/static/js/platform.js?v=20260824-push1"></script>
+  <script src="/static/js/platform.js?v=20260921-ui"></script>
 </body>
 </html>
