@@ -29,6 +29,21 @@
   <script>
     const $=id=>document.getElementById(id); const state={links:[],pending:null};
     const escapeHTML=v=>{const n=document.createElement('span');n.textContent=v??'';return n.innerHTML};
+    async function copyText(value,fallbackInput=null){
+      const text=String(value??'');
+      if(!text) throw new Error('empty text');
+      if(window.isSecureContext&&navigator.clipboard?.writeText){
+        try{await navigator.clipboard.writeText(text);return true}catch{}
+      }
+      let input=fallbackInput,temporary=false;
+      if(!input){input=document.createElement('textarea');temporary=true;input.setAttribute('readonly','');input.style.position='fixed';input.style.left='-9999px';input.style.top='0';input.style.opacity='0';input.value=text;document.body.appendChild(input)}else if('value' in input){input.value=text}
+      input.focus();input.select();input.setSelectionRange(0,text.length);
+      let copied=false;try{copied=document.execCommand('copy')}catch{}
+      if(temporary&&copied)input.remove();
+      if(temporary&&!copied)setTimeout(()=>input.remove(),15000);
+      if(!copied)throw new Error('clipboard unavailable');
+      return true;
+    }
     async function api(path,options={}){const r=await fetch(path,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const t=await r.text();let p;try{p=t?JSON.parse(t):null}catch{throw new Error(`服务返回非 JSON（HTTP ${r.status}）`)}if(!r.ok||!p||p.code!==0)throw new Error(p?.msg||`请求失败（HTTP ${r.status}）`);return p.data}
     function toast(msg,error=false){const e=$('toast');e.textContent=msg;e.classList.toggle('error',error);e.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>e.hidden=true,3200)}
     function fmt(ts){return ts?new Date(ts*1000).toLocaleString('zh-CN',{hour12:false}):'—'}
@@ -37,7 +52,7 @@
     async function load(){try{const data=await api('/api/account-links');state.links=data.links||[];const counts=data.counts||{};$('countAll').textContent=state.links.length;$('countActive').textContent=counts.active||0;$('countUsed').textContent=counts.used||0;$('countInactive').textContent=(counts.expired||0)+(counts.revoked||0);render()}catch(e){toast(e.message,true)}}
     function ask(action,item){state.pending={action,item};$('confirmTitle').textContent=action==='delete'?'删除链接':'作废链接';$('confirmText').textContent=action==='delete'?'删除后将不再保留这条历史记录，确定继续吗？':'作废后链接立即无法扫码使用，但历史记录仍会保留。';$('confirmAction').textContent=action==='delete'?'删除链接':'作废链接';$('confirmDialog').showModal()}
     $('confirmDialog').addEventListener('close',async()=>{if($('confirmDialog').returnValue!=='default'||!state.pending)return;const {action,item}=state.pending;state.pending=null;try{await api(`/api/account-links/${item.id}/${action==='revoke'?'revoke':''}`,{method:action==='delete'?'DELETE':'POST'});toast(action==='delete'?'链接已删除':'链接已作废');await load()}catch(e){toast(e.message,true)}})
-    $('linkList').onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const item=state.links.find(x=>String(x.id)===b.dataset.id);if(!item)return;if(b.dataset.action==='copy'){try{await navigator.clipboard.writeText(item.url);toast('链接已复制')}catch{toast('复制失败，请手动选择链接',true)}}else ask(b.dataset.action,item)};
+    $('linkList').onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const item=state.links.find(x=>String(x.id)===b.dataset.id);if(!item)return;if(b.dataset.action==='copy'){try{await copyText(item.url);toast('链接已复制')}catch{toast('链接已选中，请按 Ctrl+C 完成复制',true)}}else ask(b.dataset.action,item)};
     $('statusFilter').onchange=render;$('kindFilter').onchange=render;$('refreshLinks').onclick=load;load();
   </script><script src="/static/js/platform.js?v=20260824-push1"></script>
 </body>

@@ -1197,6 +1197,47 @@
         .replaceAll("'", "&#039;");
     }
 
+    async function copyText(value, fallbackInput = null) {
+      const text = String(value ?? "");
+      if (!text) throw new Error("empty text");
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          // Continue with the legacy browser fallback below.
+        }
+      }
+      let input = fallbackInput;
+      let temporary = false;
+      if (!input) {
+        input = document.createElement("textarea");
+        temporary = true;
+        input.setAttribute("readonly", "");
+        input.style.position = "fixed";
+        input.style.left = "-9999px";
+        input.style.top = "0";
+        input.style.opacity = "0";
+        input.value = text;
+        document.body.appendChild(input);
+      } else if ("value" in input) {
+        input.value = text;
+      }
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, text.length);
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+      if (temporary && copied) input.remove();
+      if (temporary && !copied) setTimeout(() => input.remove(), 15000);
+      if (!copied) throw new Error("clipboard unavailable");
+      return true;
+    }
+
     async function api(method, url, body) {
       const options = { method, headers: { "Content-Type": "application/json" } };
       if (body !== undefined) options.body = JSON.stringify(body);
@@ -1721,9 +1762,10 @@
       button.textContent = "正在生成";
       try {
         const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60 });
-        try { await navigator.clipboard.writeText(result.url); } catch { /* 手动复制兜底 */ }
+        let copied = true;
+        try { await copyText(result.url, $("accountLinkURL")); } catch { copied = false; }
         const label = kind === "update" ? "更新链接" : "新增链接";
-        setActivity(`${label}已生成 · ${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟有效`);
+        setActivity(`${label}已生成 · ${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟有效${copied ? "，已复制" : "，链接已选中，请按 Ctrl+C"}`);
         $("accountLinkDialogTitle").textContent = `${label}已生成`;
         $("accountLinkDialogDescription").textContent = "链接已复制到剪贴板，也可以在下方再次复制或打开。";
         $("accountLinkConfigPane").hidden = true;
@@ -1760,7 +1802,7 @@
         ? `已拦截：该账号已有 ${items.length} 条未消费链接。使用现有链接，或作废后再生成。`
         : `该账号已有 ${items.length} 条未消费链接。`;
       $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
-      $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await navigator.clipboard.writeText(item.url); button.textContent = "已复制"; } catch { setActivity("复制失败，请手动选择链接"); } });
+      $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await copyText(item.url); button.textContent = "已复制"; setTimeout(() => { button.textContent = "复制"; }, 1600); } catch { setActivity("链接已选中，请按 Ctrl+C 完成复制"); } });
       $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => {
         try {
           await api("POST", `/api/account-links/${button.dataset.existingRevoke}/revoke`);
@@ -1967,7 +2009,7 @@
     $("accountLinkDialogClose").addEventListener("click", closeAccountLinkDialog);
     $("accountLinkCancelBtn").addEventListener("click", closeAccountLinkDialog);
     $("accountLinkDoneBtn").addEventListener("click", closeAccountLinkDialog);
-    $("accountLinkCopyBtn").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("accountLinkURL").value); setActivity("授权链接已复制"); $("accountLinkCopyBtn").textContent = "已复制"; setTimeout(() => $("accountLinkCopyBtn").textContent = "复制链接", 1600); } catch { setActivity("复制失败，请手动选择链接"); } });
+    $("accountLinkCopyBtn").addEventListener("click", async () => { try { await copyText($("accountLinkURL").value, $("accountLinkURL")); setActivity("授权链接已复制"); $("accountLinkCopyBtn").textContent = "已复制"; setTimeout(() => $("accountLinkCopyBtn").textContent = "复制链接", 1600); } catch { $("accountLinkURL").focus(); $("accountLinkURL").select(); setActivity("链接已选中，请按 Ctrl+C 完成复制"); } });
     $("accountLinkDialog").addEventListener("cancel", event => { event.preventDefault(); closeAccountLinkDialog(); });
     $("deleteAccountBtn").addEventListener("click", deleteAccount);
     $("saveQingLongBtn").addEventListener("click", saveQingLongConfig);
@@ -1977,10 +2019,10 @@
     $("clearResultBtn").addEventListener("click", () => setResult("结果已清空。", "等待调用", false));
     $("copyResultBtn").addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(state.lastResult || $("resultBox").textContent);
+        await copyText(state.lastResult || $("resultBox").textContent);
         setActivity("结果已复制");
       } catch {
-        setActivity("复制失败，请手动选择结果内容");
+        setActivity("结果已选中，请按 Ctrl+C 完成复制");
       }
     });
 
