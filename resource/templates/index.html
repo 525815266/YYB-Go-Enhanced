@@ -1185,8 +1185,8 @@
       </section>
       <section id="accountLinkResultPane" hidden>
         <div class="link-dialog-url">
-          <input class="input" id="accountLinkURL" type="url" readonly aria-label="一次性授权链接">
-          <button class="btn secondary" id="accountLinkCopyBtn" type="button">复制链接</button>
+          <input class="input" id="accountLinkURL" type="text" readonly aria-label="授权链接分享内容">
+          <button class="btn secondary" id="accountLinkCopyBtn" type="button">复制分享内容</button>
         </div>
         <div class="link-dialog-meta" id="accountLinkExpiry"></div>
         <div class="inline-actions" style="margin-top:16px">
@@ -1234,6 +1234,14 @@
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+    }
+
+    function accountLinkShareText(kind, account, url) {
+      if (kind !== "update") return `新增账号：${url}`;
+      const name = typeof account === "string"
+        ? account
+        : account?.remark || account?.nickname || account?.alias || `账号 ${account?.id || ""}`;
+      return `更新：${name || "指定账号"}：${url}`;
     }
 
     async function copyText(value, fallbackInput = null) {
@@ -1767,7 +1775,9 @@
       const defaultMinutes = kind === "update" ? 10 : 30;
       pendingAccountLinkKind = kind;
       $("accountLinkDialogTitle").textContent = kind === "update" ? "生成更新链接" : "生成新增链接";
-      $("accountLinkDialogDescription").textContent = kind === "update" ? `仅限 ${account.remark || account.nickname || `账号 ${account.id}`} 扫码更新` : "可扫码添加任意未录入的 YYB 账号";
+      $("accountLinkDialogDescription").textContent = kind === "update"
+        ? `仅限 ${account.remark || account.nickname || `账号 ${account.id}`} 扫码更新，复制时自动加更新提示`
+        : "可扫码添加任意未录入的 YYB 账号，复制时自动加新增提示";
       $("accountLinkTTL").value = String(defaultMinutes);
       $("accountLinkConfigPane").hidden = false;
       $("accountLinkExistingPane").hidden = true;
@@ -1801,15 +1811,18 @@
       button.textContent = "正在生成";
       try {
         const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60 });
+        const shareText = accountLinkShareText(kind, account, result.url);
         let copied = true;
-        try { await copyText(result.url, $("accountLinkURL")); } catch { copied = false; }
+        try { await copyText(shareText, $("accountLinkURL")); } catch { copied = false; }
         const label = kind === "update" ? "更新链接" : "新增链接";
         setActivity(`${label}已生成 · ${Math.ceil((result.expires_at - Math.floor(Date.now() / 1000)) / 60)} 分钟有效${copied ? "，已复制" : "，链接已选中，请按 Ctrl+C"}`);
         $("accountLinkDialogTitle").textContent = `${label}已生成`;
-        $("accountLinkDialogDescription").textContent = "链接已复制到剪贴板，也可以在下方再次复制或打开。";
+        $("accountLinkDialogDescription").textContent = kind === "update"
+          ? "复制内容已带更新提示，也可以单独打开原链接。"
+          : "复制内容已带新增账号提示，也可以单独打开原链接。";
         $("accountLinkConfigPane").hidden = true;
         $("accountLinkResultPane").hidden = false;
-        $("accountLinkURL").value = result.url;
+        $("accountLinkURL").value = shareText;
         $("accountLinkOpenBtn").href = result.url;
         $("accountLinkExpiry").textContent = `有效期至 ${new Date(result.expires_at * 1000).toLocaleString()}。成功授权后链接立即失效。`;
         renderExistingAccountLinks(result.existing || []);
@@ -1841,7 +1854,8 @@
         ? `已拦截：该账号已有 ${items.length} 条未消费链接。使用现有链接，或作废后再生成。`
         : `该账号已有 ${items.length} 条未消费链接。`;
       $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
-      $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await copyText(item.url); button.textContent = "已复制"; setTimeout(() => { button.textContent = "复制"; }, 1600); } catch { setActivity("链接已选中，请按 Ctrl+C 完成复制"); } });
+      const account = getSelectedAccount();
+      $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await copyText(accountLinkShareText(item.kind || pendingAccountLinkKind, account, item.url)); button.textContent = "已复制"; setTimeout(() => { button.textContent = "复制"; }, 1600); } catch { setActivity("分享内容已选中，请按 Ctrl+C"); } });
       $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => {
         try {
           await api("POST", `/api/account-links/${button.dataset.existingRevoke}/revoke`);
@@ -2048,7 +2062,7 @@
     $("accountLinkDialogClose").addEventListener("click", closeAccountLinkDialog);
     $("accountLinkCancelBtn").addEventListener("click", closeAccountLinkDialog);
     $("accountLinkDoneBtn").addEventListener("click", closeAccountLinkDialog);
-    $("accountLinkCopyBtn").addEventListener("click", async () => { try { await copyText($("accountLinkURL").value, $("accountLinkURL")); setActivity("授权链接已复制"); $("accountLinkCopyBtn").textContent = "已复制"; setTimeout(() => $("accountLinkCopyBtn").textContent = "复制链接", 1600); } catch { $("accountLinkURL").focus(); $("accountLinkURL").select(); setActivity("链接已选中，请按 Ctrl+C 完成复制"); } });
+    $("accountLinkCopyBtn").addEventListener("click", async () => { try { await copyText($("accountLinkURL").value, $("accountLinkURL")); setActivity("分享内容已复制"); $("accountLinkCopyBtn").textContent = "已复制"; setTimeout(() => $("accountLinkCopyBtn").textContent = "复制分享内容", 1600); } catch { $("accountLinkURL").focus(); $("accountLinkURL").select(); setActivity("分享内容已选中，请按 Ctrl+C"); } });
     $("accountLinkDialog").addEventListener("cancel", event => { event.preventDefault(); closeAccountLinkDialog(); });
     $("deleteAccountBtn").addEventListener("click", deleteAccount);
     $("saveQingLongBtn").addEventListener("click", saveQingLongConfig);
