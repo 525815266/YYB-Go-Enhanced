@@ -51,6 +51,15 @@
 
 ## YYB 活动脚本
 
+- `laichong_points.py`：莱充积分任务 YYB 版。默认使用 HAR 确认的 AppID
+  `wxa68db1dabe823e7e`，自动签到，查询每日视频和每周分享进度，并领取服务端已经
+  标记完成但尚未领取的奖励。分享/视频完成后会二次刷新任务列表，避免接口延迟导致漏领。
+  登录后如果账号尚未绑定莱充手机号，会通过 YYB `/wxapp/getPhoneNumber` 获取真实的一次性
+  手机号授权包，并调用莱充手机号绑定接口；授权包缺失或服务端未确认绑定时会明确跳过该账号。
+  每个账号输出积分前后差值；不会伪造视频播放或分享回调。
+  任务默认按 7 小时调度，`LAICHONG_TRY_VIDEO=1` / `LAICHONG_TRY_SHARE=1` 仅供
+  已在客户端真实完成任务后的接口兼容调试。
+
 - `asdcb_auto_sign.py`：阿水大杯茶 YYB 版每日签到。每周二先按活动本期券模板 ID 查询个人券包，准确区分未使用/已使用/已过期；未领券时按小程序源码生成 `MD5` 签名和 AES-CBC/PKCS7 `data`。微信的 `getLatestUserKey` 属于小程序运行时本地能力，当前 YYB iLink 转发若返回 `invalid api_name (-12003)`，脚本会明确显示“未提交”，不会将顶层 `success` 或静态 `receiveStatus` 误报为领取结果。可用真实动态参数通过 `ASDCB_MEMBER_CLAIM_PAYLOAD` 覆盖。7.9 折券兑换通过 `ASDCB_ENABLE_79_COUPON=1` 显式开启，默认关闭。`--dry-run` 会在券包核验后直接跳过签到、领券和兑换，并在启动行明确标记查询模式。
 
   ```bash
@@ -127,3 +136,30 @@ FINDSTARS_TOKENS=备注#FS-Token
 ```
 
 多个账号按行填写。该令牌属于寻星网页登录态，不是 YYB 的小程序 OpenID；YYB 无法凭公众号 OpenID 直接生成它。令牌失效后脚本会提示重新网页登录授权，不会伪造积分或授权结果。
+
+# 百花约跑团线上投票
+
+`baihua_vote.py` 关联 `YYB_SERVER` 中的账号与微信公众号网页活动登录态，自动检查
+JWT 有效期及活动验证码，再按账号向指定选手提交一次投票。脚本尊重活动每日额度，
+不会绕过验证码或重复刷同一账号。
+
+该活动使用公众号 `snsapi_base` OAuth，不是小程序 `wx.login`。当前 YYB Go 的 iLink
+会话无法直接生成公众号 OAuth code；首次需由账号本人打开活动链接授权，再从本人抓包
+导入 `app_access_token`：
+
+```bash
+python3 baihua_vote.py --import-har /path/to/authorized.har --ref 1
+```
+
+也可在青龙设置 `BAIHUA_VOTE_TOKENS`，每行使用 `YYB账号ID#活动JWT`。JWT 默认持久化
+到 `/ql/data/config/baihua_vote_tokens.json`，有效期内后续运行无需再次授权。
+
+脚本内置按账号协议探测，可动态发现活动当前 OAuth URL，再调用 YYB 的公众号兼容入口：
+
+```bash
+python3 baihua_vote.py --probe-yyb-oauth --ref 2
+```
+
+截至当前 YYB iLink 服务端对此返回 `invalid api_name`，说明应用宝小程序会话不具备完整
+微信客户端的 `/cgi-bin/micromsg-bin/mp-geta8key` 能力。探测失败不会提交投票，也不会
+覆盖已有 token；若后续协议端补齐并返回 OAuth code，脚本会自动走活动回调并缓存 JWT。
