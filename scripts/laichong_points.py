@@ -221,7 +221,7 @@ class Client:
         phone_payload = self.get_phone_payload()
         phone_code = str(phone_payload.get("code") or "").strip()
         if not phone_code:
-            raise ScriptError("该账号未返回手机号授权 code，无法完成莱充手机号授权")
+            raise ScriptError("请先在微信小程序内完成手机号授权，YYB 未返回可用授权 code")
         payload = self.post(
             "/api/app/auth/v1/getPhoneNumber",
             {"auth_code": phone_code, "source": 4},
