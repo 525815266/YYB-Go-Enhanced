@@ -531,6 +531,10 @@ func parseScriptKeyFromCron(cron qingLongCron, repos []string) (string, string, 
 			cmd = strings.TrimSpace(strings.TrimPrefix(cmd, p))
 		}
 	}
+	// Daidai and Windows-based QingLong clients may return task commands with
+	// backslashes. Normalize before matching configured repository roots so the
+	// same task is visible regardless of the panel's path separator.
+	cmd = strings.ReplaceAll(cmd, "\\", "/")
 	for _, repo := range repos {
 		cleanRepo := strings.Trim(strings.TrimSpace(repo), "/")
 		prefix := cleanRepo + "/"

@@ -266,6 +266,21 @@ func TestQingLongRepoRoots(t *testing.T) {
 	}
 }
 
+func TestParseScriptKeyFromCronNormalizesWindowsSeparators(t *testing.T) {
+	repos := []string{"525815266_YYB-Go-Enhanced/scripts"}
+	cron := qingLongCron{
+		Name:    "京东签到",
+		Command: `task \525815266_YYB-Go-Enhanced\scripts\weile_coin.py`,
+	}
+	key, repo, ok := parseScriptKeyFromCron(cron, repos)
+	if !ok {
+		t.Fatal("Windows-style task command was not recognized")
+	}
+	if key != "weile_coin.py" || repo != repos[0] {
+		t.Fatalf("parsed task = %q in repo %q, want weile_coin.py in %q", key, repo, repos[0])
+	}
+}
+
 func apiRequest(t *testing.T, handler http.Handler, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var raw []byte
