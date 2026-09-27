@@ -30,6 +30,8 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
   QYWX_TOKEN        企业微信机器人 Webhook key，可选（机器人地址 ?key= 后面的值）
   PROXY_API         品赞代理提取 API，可选
   PROXY_TYPE        http / socks5，默认 http
+  QMSD_PROXY_REQUEST_RETRIES  请求失败后换代理的次数，默认 3（0–5）
+  QMSD_DIRECT_FALLBACK  换代理失败是否允许直连，默认 1，设 0 禁止
   CODE_SERVER       本地 code 服务地址，默认 127.0.0.1:8088
   QMSD_SIGN_ID      新版签到接口 signId 回退默认值，默认 QD26060001
   qmzmh_prize_id    种树成长目标奖品 id，默认 1046（加厚棉柔巾 6片/包*1包）
@@ -72,7 +74,11 @@ PROXY_TYPE = os.getenv("PROXY_TYPE", "http").lower()
 PROXY_RETRY_TIMES = 3
 PROXY_VALIDATE_URL = "http://httpbin.org/ip"
 PROXY_FETCH_INTERVAL = 3
-ENABLE_DIRECT_FALLBACK = True
+ENABLE_DIRECT_FALLBACK = os.getenv("QMSD_DIRECT_FALLBACK", "1").lower() in ("1", "true", "yes")
+try:
+    PROXY_REQUEST_RETRIES = min(5, max(0, int(os.getenv("QMSD_PROXY_REQUEST_RETRIES", "3"))))
+except ValueError:
+    PROXY_REQUEST_RETRIES = 3
 REQUEST_TIMEOUT = 30
 
 NMP_BASE_URL = "https://nmp.pureh2b.com"
@@ -307,14 +313,14 @@ def validate_proxy(proxies: Dict[str, str] | None) -> Tuple[bool, str]:
     return False, ""
 
 
-def get_valid_proxy(account_name: str) -> Tuple[Dict[str, str] | None, str]:
+def get_valid_proxy(account_name: str, attempts: int = PROXY_RETRY_TIMES) -> Tuple[Dict[str, str] | None, str]:
     if not PROXY_API:
         print(f"⚠️ [代理] {account_name} 未配置 PROXY_API，使用直连")
         return None, ""
 
     print(f"🌐 [代理] {account_name} 正在获取品赞代理...")
 
-    for index in range(1, PROXY_RETRY_TIMES + 1):
+    for index in range(1, attempts + 1):
         try:
             response = direct_session().get(PROXY_API, timeout=15)
             proxy_info = parse_proxy_response(response.text)
@@ -334,10 +340,12 @@ def get_valid_proxy(account_name: str) -> Tuple[Dict[str, str] | None, str]:
         except Exception as exc:
             print(f"⚠️ [代理] 第 {index} 次获取代理异常: {exc}")
 
-        if index < PROXY_RETRY_TIMES:
+        if index < attempts:
             sleep(2)
 
-    print("⚠️ [代理] 获取失败，使用直连")
+    if not ENABLE_DIRECT_FALLBACK:
+        raise requests.exceptions.ProxyError("代理提取失败，已禁止直连兜底")
+    print("⚠️ [代理] 本次未取得可用代理")
     return None, ""
 
 
@@ -352,16 +360,63 @@ def request_with_proxy(
     kwargs.setdefault("timeout", REQUEST_TIMEOUT)
 
     if proxies:
+        last_error = None
         try:
-            return requests.request(method, url, proxies=proxies, **kwargs)
-        except Exception as exc:
-            print(f"⚠️ [代理] {server} 代理请求失败: {exc}")
-            if not ENABLE_DIRECT_FALLBACK:
+            with direct_session() as session:
+                return session.request(method, url, proxies=proxies, **kwargs)
+        except requests.exceptions.RequestException as exc:
+            if not proxy_retry_safe(method, exc):
+                print("⚠️ [代理] 请求可能已送达，停止重放；下轮先核对任务状态")
                 raise
-            print("🔁 [兜底] 切换直连重试")
+            last_error = exc
+        for attempt in range(1, PROXY_REQUEST_RETRIES + 1):
+            print(f"🔁 [代理] 获取新代理后重试 {attempt}/{PROXY_REQUEST_RETRIES}")
+            sleep(PROXY_FETCH_INTERVAL)
+            try:
+                fresh, _ = get_valid_proxy(server, attempts=1)
+            except requests.exceptions.RequestException:
+                continue
+            if not fresh:
+                continue
+            try:
+                # All subsequent requests for this account reuse the fresh lease.
+                proxies.clear()
+                proxies.update(fresh)
+                with direct_session() as session:
+                    return session.request(method, url, proxies=proxies, **kwargs)
+            except requests.exceptions.RequestException as exc:
+                last_error = exc
+                if not proxy_retry_safe(method, exc):
+                    raise
+        if not ENABLE_DIRECT_FALLBACK:
+            raise last_error
+        print("🔁 [兜底] 换代理重试耗尽，按 QMSD_DIRECT_FALLBACK=1 切换直连")
 
-    session = direct_session()
-    return session.request(method, url, **kwargs)
+    with direct_session() as session:
+        return session.request(method, url, **kwargs)
+
+
+def proxy_retry_safe(method, error):
+    """Do not double-submit watering/rewards after ambiguous read failures."""
+    if not isinstance(error, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+        return False
+    if str(method).upper() in ("GET", "HEAD", "OPTIONS"):
+        return True
+    if isinstance(error, requests.exceptions.ConnectTimeout):
+        return True
+    from urllib3.exceptions import NewConnectionError, ConnectTimeoutError
+    pending, seen = [error], set()
+    while pending and len(seen) < 20:
+        item = pending.pop()
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, (NewConnectionError, ConnectTimeoutError)):
+            return True
+        if isinstance(item, BaseException):
+            pending.extend(item.args)
+            pending.extend((getattr(item, "reason", None), item.__cause__))
+    return False
 
 
 def send_qywx(title, content):

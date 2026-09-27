@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <title>系统维护 - YYB Go</title>
+ <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
+ <link rel="stylesheet" href="/static/css/platform.css?v=20260921-ui">
+ <style>
+  .maintenance-actions{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.maintenance-actions .btn{width:auto}
+  .maintenance-meta{display:flex;flex-wrap:wrap;gap:24px;margin:20px 0}.maintenance-meta dt{color:var(--muted);margin-bottom:6px}.maintenance-meta dd{margin:0;font-size:18px;font-weight:650}
+  #jobStatus{white-space:pre-wrap;overflow-wrap:anywhere}#confirmArea{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+ </style>
+</head>
+<body><header class="shell-header"></header><main class="page">
+ <div class="page-title"><div><h1>系统维护</h1><p>检查版本、更新服务或重启，仅管理员可操作。</p></div></div>
+ <section class="card" aria-labelledby="versionTitle">
+  <h2 id="versionTitle">版本与服务</h2>
+  <dl class="maintenance-meta"><div><dt>当前版本</dt><dd id="currentVersion">读取中</dd></div><div><dt>主分支版本</dt><dd id="latestVersion">尚未检查</dd></div></dl>
+  <p class="description" id="capability">正在连接维护服务…</p>
+  <div class="maintenance-actions">
+   <button class="btn secondary" id="checkUpdate" type="button">检查更新</button>
+   <button class="btn primary" id="updateService" type="button" disabled>更新服务</button>
+   <button class="btn danger" id="restartService" type="button" disabled>重启服务</button>
+   <a class="btn secondary" href="https://github.com/525815266/YYB-Go-Enhanced/blob/main/docs/maintenance.md" target="_blank" rel="noreferrer">配置说明</a>
+  </div>
+  <p class="description">更新会拉取官方镜像并重建 YYB 容器；重启不更新版本。期间接口短暂不可用，请避开脚本运行时间。操作前请备份数据库。</p>
+  <div id="confirmArea" hidden><strong id="confirmTitle"></strong><p>保留现有配置与数据卷，不操作其他容器。是否继续？</p><div class="maintenance-actions"><button id="confirmAction" class="btn danger" type="button">确认执行</button><button id="cancelAction" class="btn secondary" type="button">取消</button></div></div>
+  <div class="notice" id="jobStatus" role="status" aria-live="polite">尚未执行维护操作。</div>
+ </section>
+</main><script src="/static/js/platform.js?v=20260927-maintenance"></script><script src="/static/js/maintenance.js?v=20260927"></script></body></html>

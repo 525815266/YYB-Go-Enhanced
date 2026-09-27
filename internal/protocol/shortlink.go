@@ -7,14 +7,16 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 )
 
 var (
-	type8Prefix = []byte{0x00, 0x00, 0x00, 0x10, 0x08, 0x00, 0x00, 0x00, 0x0b, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x12}
-	earlyAlert  = []byte{0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x01}
+	ErrShortlinkPayload = errors.New("AppData decrypt/parse failed")
+	type8Prefix         = []byte{0x00, 0x00, 0x00, 0x10, 0x08, 0x00, 0x00, 0x00, 0x0b, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x12}
+	earlyAlert          = []byte{0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x01}
 )
 
 func build0RTTRequest(entry pskEntry, envelope []byte) ([]byte, []byte, []byte, []byte, error) {
@@ -74,6 +76,9 @@ func httpPost(path, host string, body []byte) []byte {
 func send0RTT(ctx context.Context, targets []Target, entry pskEntry, recvKey, envelope []byte, timeout time.Duration, tcpProxy string, fallbackDirect bool) ([]byte, []byte, error) {
 	var last error
 	for _, t := range targets {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		code, resp, err := send0RTTRaw(ctx, t, entry, recvKey, envelope, timeout, tcpProxy, fallbackDirect)
 		if err == nil && (len(code) > 0 || len(resp) > 0) {
 			return code, resp, nil
@@ -161,5 +166,5 @@ func parse0RTTResponse(rbody, psk, pskCH, type8, recvKey []byte) ([]byte, []byte
 			}
 		}
 	}
-	return nil, nil, fmt.Errorf("AppData decrypt/parse failed")
+	return nil, nil, ErrShortlinkPayload
 }

@@ -352,9 +352,12 @@ func (a *App) accountRunHistory(ctx context.Context, accountID int64) ([]account
 	if err != nil {
 		return nil, err
 	}
-	logs, err := a.qinglong.listLogs(ctx)
-	if err != nil {
-		return nil, err
+	var logs []qingLongLogEntry
+	if a.qinglong.getPanelType() != PanelTypeDaidai {
+		logs, err = a.qinglong.listLogs(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	sourceByKey := make(map[string]string)
 	if repos, repoErr := qingLongRepoRoots(a.cfg.QingLongRepo); repoErr == nil {
@@ -375,6 +378,18 @@ func (a *App) accountRunHistory(ctx context.Context, accountID int64) ([]account
 	for _, job := range jobs {
 		cron, exists := cronsByID[job.QLCronID]
 		if !exists {
+			continue
+		}
+		// Daidai exposes latest-log by task ID, not QingLong's directory tree.
+		// Keep ownership tied to our account_script_jobs mapping.
+		if a.qinglong.getPanelType() == PanelTypeDaidai {
+			status := "最近日志"
+			if cron.running() {
+				status = "运行中"
+			}
+			out = append(out, accountRunPublic{AccountID: accountID, ScriptKey: job.ScriptKey,
+				Name: job.ScriptKey, QLCronID: cron.ID, LogKey: fmt.Sprintf("daidai/%d", cron.ID),
+				StartedAt: cron.getLastExecutionAt(), Running: cron.running(), TaskStatus: status})
 			continue
 		}
 		rootKey := strings.Trim(cron.LogName, "/")

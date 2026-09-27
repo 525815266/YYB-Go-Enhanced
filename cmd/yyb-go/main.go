@@ -88,6 +88,7 @@ func main() {
 	}
 
 	cfg := httpapi.Config{
+		MaintenanceSocket: strings.TrimSpace(os.Getenv("YYB_MAINTENANCE_SOCKET")),
 		ResourceRoot:      *resourceRoot,
 		DBFilename:        *dbFilename,
 		TCPProxy:          *tcpProxy,

@@ -27,6 +27,7 @@ import (
 )
 
 type Config struct {
+	MaintenanceSocket string
 	ResourceRoot      string
 	DBFilename        string
 	TCPProxy          string
@@ -50,15 +51,16 @@ type Config struct {
 	IntegrationToken  string
 	// ProtocolToken protects the legacy /wx* and /wxapp/* automation routes
 	// when the service is reachable outside a trusted private network.
-	ProtocolToken     string
-	AdminUser         string
-	AdminPassword     string
-	CookieSecure      bool
-	EnablePCLogin     bool
-	SessionDuration   time.Duration
+	ProtocolToken   string
+	AdminUser       string
+	AdminPassword   string
+	CookieSecure    bool
+	EnablePCLogin   bool
+	SessionDuration time.Duration
 }
 
 type App struct {
+	updates            *updateChecker
 	cfg                Config
 	resources          resources
 	db                 *store.DB
@@ -169,6 +171,7 @@ func NewApp(cfg Config) (*App, error) {
 	pool := protocol.NewPool(poolCfg, db)
 	qrClient := qr.NewClient(cfg.RequestTimeout)
 	app := &App{
+		updates:            &updateChecker{client: &http.Client{Timeout: 10 * time.Second}, url: maintenanceVersionURL},
 		cfg:                cfg,
 		resources:          res,
 		db:                 db,
@@ -294,6 +297,9 @@ func (a *App) Handler() http.Handler {
 	router.Any("/users", gin.WrapF(a.handleUsersPage))
 	router.Any("/api/auth/me", gin.WrapF(a.handleAuthMe))
 	router.GET("/api/version", gin.WrapF(a.handleVersion))
+	router.GET("/maintenance", gin.WrapF(a.handleMaintenancePage))
+	router.GET("/api/maintenance", gin.WrapF(a.handleMaintenance))
+	router.POST("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.Any("/api/auth/profile", gin.WrapF(a.handleProfile))
 	router.Any("/api/auth/password", gin.WrapF(a.handlePassword))
 	router.Any("/api/auth/sessions", gin.WrapF(a.handleSessions))
