@@ -123,6 +123,24 @@ Android ARM64 设备可从 [Releases](https://github.com/525815266/YYB-Go-Enhanc
 
 Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行前端资源或 Magisk 打包文件变更时会编译并校验 ARM64 安装包；推送 `magisk-v0.2.0` 这类标签时，会自动创建对应 Release 并上传 ZIP。也可在 Actions 页面手动填写版本并选择是否发布 Release。Docker 与 Magisk 为两条独立任务，一方失败不会阻塞另一方。
 
+### GitHub Actions 多架构 Go 原生二进制 Release 发布
+
+项目提供多架构原生 Go 二进制 Release 构建与发布工作流 (`.github/workflows/release.yml`)，支持跨平台编译并打包发布到 **GitHub Releases**：
+
+- **支持平台与架构**：
+  - **Linux**: `amd64`, `arm64`, `armv7`
+  - **Windows**: `amd64`, `arm64` (`.exe`)
+  - **macOS (Darwin)**: `amd64`, `arm64`
+- **Release 资产形态**：
+  - **独立单二进制文件**（如 `yyb-go-linux-amd64`、`yyb-go-windows-amd64.exe` 等）：免解压直接运行，特别适配容器挂载、自动化脚本或无完整环境依赖的极速部署场景；
+  - **完整打包归档**（如 `yyb-go-v0.2.14-linux-amd64.tar.gz`、`yyb-go-v0.2.14-windows-amd64.zip`）：内含独立二进制文件、`resource/` 静态网页与模板资源、配置示例及说明文档；
+  - **校验文件**：随版本附带 `checksums.txt`（包含所有二进制与压缩包的 SHA256 校验和）。
+- **触发机制**：
+  - **自动发布**：推送版本 Tag（如 `v0.2.14`）时自动全量构建并发布/更新到对应 GitHub Release；
+  - **手动构建**：可在 GitHub Actions 页面进入 **Build and Release Binaries** 手动触发，指定版本号及是否推送到 Release；
+  - **持续集成验证**：主分支（`main`）代码提交时自动执行全平台交叉编译验证，保障代码库在多架构下的健康状态；
+  - **本地构建**：本地环境支持通过 `bash ./scripts/build-release.sh [target]` 一键构建单个或全量架构目标。
+
 Docker 镜像只在服务端代码、运行资源、Go 依赖、Docker 构建文件或对应 workflow 变更时构建；`scripts/**`、README 和普通文档更新不会再触发镜像更新提示。Magisk 只在服务端代码、运行前端资源、打包文件、Go 依赖或对应 workflow 变更时构建。这样脚本发布不会伪装成 Docker/Magisk 版本更新，但核心服务提交仍会自动验证和构建。
 
 同一 YYB 账号的 `wx.login` 取码请求会按账号串行化，避免两个青龙任务同时刷新/消费同一账号的短期 code；不同账号仍可并发执行。`wx.login` code 本身仍是一次性短期凭据，不能在脚本之间复用。
