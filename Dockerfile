@@ -15,6 +15,7 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
+COPY resource ./resource
 RUN go test ./...
 RUN test -n "$TARGETARCH" \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w -X yyb_go/internal/version.Version=${VERSION} -X yyb_go/internal/version.Commit=${COMMIT} -X yyb_go/internal/version.BuildDate=${BUILD_DATE}" -o /out/yyb-go ./cmd/yyb-go
