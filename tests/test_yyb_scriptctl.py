@@ -160,6 +160,7 @@ class ScriptControlTests(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual([method for method, _ in FakeQingLongHandler.api_writes], ["POST", "PUT"])
         self.assertEqual(len(FakeQingLongHandler.crons), 1)
+        self.assertIsNone(FakeQingLongHandler.api_writes[0][1]["sub_id"])
         self.assertEqual(FakeQingLongHandler.crons[0]["name"], "new-task")
         self.assertEqual(FakeQingLongHandler.crons[0]["command"], "task repo/scripts/test.py")
 

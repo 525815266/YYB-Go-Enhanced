@@ -186,11 +186,11 @@ for item in data if isinstance(data, list) else []:
   else
     method='POST'
     payload="$("$python_bin" -c \
-      'import json,sys; print(json.dumps({"name":sys.argv[1],"command":sys.argv[2],"schedule":sys.argv[3]}))' \
+      'import json,sys; print(json.dumps({"name":sys.argv[1],"command":sys.argv[2],"schedule":sys.argv[3],"sub_id":None}))' \
       "$task_name" "$command" "$schedule")"
   fi
 
-  result="$(curl -fsS --noproxy '*' -X "$method" \
+  result="$(curl -sS --noproxy '*' -X "$method" \
     "http://localhost:${ql_port}/open/crons?t=$(date +%s)" \
     -H "Authorization: Bearer ${__ql_token__}" \
     -H 'Content-Type: application/json;charset=UTF-8' \
