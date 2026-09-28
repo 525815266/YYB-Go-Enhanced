@@ -134,6 +134,7 @@ func (a *App) handleQingLongJobs(w http.ResponseWriter, r *http.Request) {
 		if job, exists := jobsByKey[source.Key]; exists {
 			if cron, found := cronsByID[job.QLCronID]; found {
 				item.Provisioned = true
+				item.Schedule = cron.getSchedule()
 				item.Enabled = cron.enabled()
 				item.Running = cron.running()
 				item.QLCronID = cron.ID

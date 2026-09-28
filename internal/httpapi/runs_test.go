@@ -342,6 +342,31 @@ func TestAccountJobsAreIsolatedDisabledByDefaultAndRunExplicitly(t *testing.T) {
 	}
 }
 
+func TestAccountJobsShowCurrentPanelSchedule(t *testing.T) {
+	fake, server := newFakeQingLong(t)
+	_, handler, ref := newRunsTestApp(t, server.URL)
+
+	enable := apiRequest(t, handler, http.MethodPut, "/api/qinglong/jobs/enable", map[string]any{
+		"ref": ref, "script_key": "MDHY.js", "enabled": true,
+	})
+	if enable.Code != http.StatusOK {
+		t.Fatalf("enable response = %d %s", enable.Code, enable.Body.String())
+	}
+
+	fake.mu.Lock()
+	for i := range fake.crons {
+		if strings.HasPrefix(fake.crons[i].Name, "[YYB:") {
+			fake.crons[i].Schedule = "17 6 * * *"
+		}
+	}
+	fake.mu.Unlock()
+
+	list := apiRequest(t, handler, http.MethodGet, "/api/qinglong/jobs?ref="+url.QueryEscape(ref), nil)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"schedule":"17 6 * * *"`) {
+		t.Fatalf("jobs did not expose current panel schedule: %d %s", list.Code, list.Body.String())
+	}
+}
+
 func TestAccountJobReclaimsQingLongCronAfterLocalMappingLoss(t *testing.T) {
 	fake, server := newFakeQingLong(t)
 	fake.mu.Lock()
