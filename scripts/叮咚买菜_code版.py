@@ -1,5 +1,6 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: 叮咚买菜
 
 """
 叮咚买菜动态 code 版

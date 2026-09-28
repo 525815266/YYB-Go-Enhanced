@@ -371,6 +371,10 @@ YYB_QINGLONG_REPO=SuperNaiBA_YYB-GO-Script,525815266_YYB-Go-Enhanced/scripts
 
 `YYB_QINGLONG_REPO` 填面板定时任务命令中的仓库目录，多个目录用英文逗号分隔。青龙通常使用 `task 仓库/脚本`，Arcadia 使用 `arcadia run 仓库/脚本`。通过本仓库订阅脚本时通常为 `525815266_YYB-Go-Enhanced/scripts`；通过上游脚本仓库订阅时为 `SuperNaiBA_YYB-GO-Script`。
 
+需要在青龙中拉取脚本时，推荐使用 [脚本拉取工具](scripts/README.md#青龙脚本拉取工具)：
+`sync` 拉整个 `scripts/` 目录但不创建任务，`pull` 只拉单个脚本，`install` 才会拉取并创建或更新任务。
+仓库脚本已补齐锚定的名称元数据，避免青龙把 Python 类型标注中的 `name:` 误识别为任务名。
+
 管理页发现上述仓库目录中的 `.js` 和 `.py` 任务。每个“账号 + 脚本”会创建一个独立面板任务，新任务默认关闭；手动点击“运行一次”才会立即执行。账号变量会在任务执行前注入，运行日志按“账号 + 脚本”写入独立目录，管理页只读取当前账号的目录。
 
 账号独立推送可从左侧“独立推送”直接进入，也可在 `/runs` 顶部当前账号区域下方配置。先选择账号，再为该账号单独选择 Server酱、PushPlus 或企业微信机器人；切换账号时页面会回读对应配置。推送 Token 不写入任务命令和 YYB 数据库，接口也不会返回明文。

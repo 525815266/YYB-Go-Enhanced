@@ -1,5 +1,6 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: 无忧计划
 
 """
 无忧计划 - 自动任务脚本（基于抓包 + APK 逆向重写）
