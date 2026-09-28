@@ -46,10 +46,12 @@ body.platform-ready > .app { display: none !important; }
 .platform-breadcrumb { color: var(--platform-muted); font-size: 11px; }
 .platform-page-title { margin-top: 2px; color: var(--platform-ink); font-size: 15px; font-weight: 730; }
 .platform-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.platform-build { min-width: 92px; display: grid; justify-items: end; padding-right: 12px; border-right: 1px solid var(--platform-line); color: var(--platform-muted); line-height: 1.25; text-decoration: none; }
+.platform-build { min-width: 92px; display: grid; justify-items: end; padding: 4px 12px 4px 8px; border: 0; border-right: 1px solid var(--platform-line); border-radius: 6px 0 0 6px; background: transparent; color: var(--platform-muted); line-height: 1.25; text-decoration: none; cursor: pointer; transition: background 160ms ease, color 160ms ease; }
 .platform-build span { font-size: 10px; }
 .platform-build strong { max-width: 150px; overflow: hidden; color: var(--platform-ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.platform-build:hover { background: var(--platform-bg); }
 .platform-build:hover strong { color: var(--platform-accent); }
+.platform-build:focus-visible { outline: 2px solid var(--platform-accent); outline-offset: 2px; }
 .platform-user-copy { display: grid; text-align: right; line-height: 1.25; }
 .platform-user-copy strong { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .platform-user-copy span { color: var(--platform-muted); font-size: 11px; }
@@ -68,6 +70,19 @@ dialog.platform-dialog::backdrop { background: oklch(0.12 0.02 252 / .54); }
 .platform-dialog-close:hover { background: var(--platform-bg); color: var(--platform-ink); }
 .platform-dialog-body { display: grid; gap: 14px; padding: 18px 20px; }
 .platform-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--platform-line); background: var(--platform-bg); }
+.platform-update-dialog { width: min(500px, calc(100vw - 28px)); }
+.platform-version-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; border: 1px solid var(--platform-line); border-radius: 7px; overflow: hidden; }
+.platform-version-list > div { padding: 14px 16px; }
+.platform-version-list > div + div { border-left: 1px solid var(--platform-line); }
+.platform-version-list dt { color: var(--platform-muted); font-size: 11px; }
+.platform-version-list dd { margin: 5px 0 0; color: var(--platform-ink); font-size: 18px; font-weight: 720; }
+.platform-update-status { min-height: 46px; padding: 12px 14px; border: 1px solid var(--platform-line); border-radius: 7px; background: var(--platform-bg); color: var(--platform-muted); line-height: 1.5; }
+.platform-update-status[data-state="working"] { border-color: oklch(0.77 0.08 245); background: oklch(0.97 0.025 245); color: oklch(0.39 0.1 245); }
+.platform-update-status[data-state="update"] { border-color: oklch(0.76 0.1 84); background: oklch(0.97 0.035 84); color: oklch(0.39 0.09 70); }
+.platform-update-status[data-state="ok"] { border-color: oklch(0.77 0.08 155); background: oklch(0.97 0.025 155); color: oklch(0.37 0.09 155); }
+.platform-update-status[data-state="warning"], .platform-update-status[data-state="error"] { border-color: oklch(0.8 0.08 25); background: oklch(0.97 0.025 25); color: oklch(0.4 0.12 25); }
+.platform-update-docs { width: fit-content; color: var(--platform-accent); font-size: 12px; font-weight: 650; text-decoration: none; }
+.platform-update-docs:hover { text-decoration: underline; }
 
 .platform-log-drawer { width: min(760px, 92vw); max-width: none; height: 100vh; max-height: none; margin: 0 0 0 auto; padding: 0; border: 0; border-left: 1px solid var(--platform-line); background: oklch(0.155 0.022 252); color: oklch(0.95 0.008 250); }
 .platform-log-drawer::backdrop { background: oklch(0.12 0.02 252 / .42); }
@@ -123,8 +138,12 @@ dialog.platform-dialog::backdrop { background: oklch(0.12 0.02 252 / .54); }
   .platform-build { min-width: 0; padding-right: 9px; }
   .platform-build span { display: none; }
   .platform-build strong { max-width: 94px; font-size: 11px; }
+  .platform-version-list { grid-template-columns: 1fr; }
+  .platform-version-list > div + div { border-left: 0; border-top: 1px solid var(--platform-line); }
+  .platform-dialog-actions { flex-wrap: wrap; }
+  .platform-dialog-actions .btn { flex: 1 1 150px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .platform-sidebar, .platform-overlay { transition-duration: .01ms !important; }
+  .platform-sidebar, .platform-overlay, .platform-build { transition-duration: .01ms !important; }
 }

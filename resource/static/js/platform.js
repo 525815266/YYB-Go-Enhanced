@@ -68,10 +68,22 @@
     <section class="platform-stage">
       <header class="platform-topbar">
         <div style="display:flex;align-items:center;gap:12px;min-width:0"><button class="platform-menu" id="platformMenu" type="button" aria-label="打开导航">☰</button><div class="platform-page-context"><div class="platform-breadcrumb">YYB Go / ${current[1]}</div><div class="platform-page-title">${current[0]}</div></div></div>
-        <div class="platform-user"><a class="platform-build" id="platformBuild" href="https://github.com/525815266/YYB-Go-Enhanced/releases" target="_blank" rel="noreferrer" title="正在读取版本信息"><span>当前版本</span><strong>读取中</strong></a><div class="platform-user-copy"><strong id="platformUserName">正在读取</strong><span id="platformUserRole">当前用户</span></div><span class="platform-avatar" id="platformAvatar">Y</span></div>
+        <div class="platform-user"><button class="platform-build" id="platformBuild" type="button" aria-label="当前版本读取中，点击检查更新" aria-haspopup="dialog" aria-controls="platformUpdateDialog" title="检查版本与更新"><span>当前版本</span><strong>读取中</strong></button><div class="platform-user-copy"><strong id="platformUserName">正在读取</strong><span id="platformUserRole">当前用户</span></div><span class="platform-avatar" id="platformAvatar">Y</span></div>
       </header>
       <div class="platform-main"></div>
-    </section>`;
+    </section>
+    <dialog class="platform-dialog platform-update-dialog" id="platformUpdateDialog" aria-labelledby="platformUpdateTitle">
+      <div class="platform-dialog-head"><div><h2 id="platformUpdateTitle">版本与更新</h2><p>检查新版本，拉取官方镜像并重启 YYB 服务。</p></div><button class="platform-dialog-close" id="platformUpdateClose" type="button" aria-label="关闭">&times;</button></div>
+      <div class="platform-dialog-body">
+        <dl class="platform-version-list">
+          <div><dt>当前版本</dt><dd id="platformCurrentVersion">读取中</dd></div>
+          <div><dt>最新版本</dt><dd id="platformLatestVersion">尚未检查</dd></div>
+        </dl>
+        <div class="platform-update-status" id="platformUpdateStatus" role="status" aria-live="polite">点击版本号后自动检查更新。</div>
+        <a class="platform-update-docs" href="/maintenance">打开系统维护</a>
+      </div>
+      <div class="platform-dialog-actions"><button class="btn secondary" id="platformUpdateCheck" type="button">重新检查</button><button class="btn primary" id="platformUpdateApply" type="button" disabled>更新并重启</button></div>
+    </dialog>`;
   document.body.insertBefore(shell, document.body.firstChild);
   shell.querySelector(".platform-main").appendChild(main);
   document.body.classList.add("platform-ready");
@@ -82,6 +94,106 @@
   shell.querySelectorAll(".platform-nav a").forEach(link => link.addEventListener("click", closeNav));
   document.getElementById("platformLogout").onclick = async () => { await fetch("/logout", { method: "POST" }); location.href = "/login"; };
 
+  let currentVersion = "", updateTarget = "", maintenanceAllowed = false, updatePolling = false, updateStopped = false;
+  const updateDialog = document.getElementById("platformUpdateDialog");
+  const updateStatus = document.getElementById("platformUpdateStatus");
+  const updateCheck = document.getElementById("platformUpdateCheck");
+  const updateApply = document.getElementById("platformUpdateApply");
+  const setUpdateStatus = (text, state = "") => {
+    updateStatus.textContent = text;
+    updateStatus.dataset.state = state;
+  };
+  const maintenanceApi = async (options = {}, check = false) => {
+    const response = await fetch(`/api/maintenance${check ? "?check=1" : ""}`, {
+      ...options,
+      signal: AbortSignal.timeout(15000),
+      headers: { "Content-Type": "application/json", "X-YYB-Maintenance": "1" }
+    });
+    const body = await response.json();
+    if (!response.ok || body.code !== 0) throw new Error(body.msg || "维护请求失败");
+    return body.data || {};
+  };
+  const renderMaintenance = data => {
+    currentVersion = data.version || currentVersion;
+    updateTarget = data.latest_version || updateTarget;
+    document.getElementById("platformCurrentVersion").textContent = currentVersion ? `v${currentVersion}` : "未知";
+    document.getElementById("platformLatestVersion").textContent = updateTarget ? `v${updateTarget}` : "检查失败";
+    const running = Boolean(data.agent?.job?.running);
+    updateCheck.disabled = running;
+    updateApply.disabled = running || !data.available || data.has_update !== true;
+    updateApply.textContent = data.has_update === true && updateTarget ? `更新到 v${updateTarget} 并重启` : "已是最新版本";
+    if (data.check_error) setUpdateStatus(data.check_error, "error");
+    else if (running && data.agent?.job?.message) setUpdateStatus(data.agent.job.message, "working");
+    else if (!data.available) setUpdateStatus(data.message || "当前部署未启用在线更新。", "warning");
+    else if (data.has_update === true) setUpdateStatus(`发现新版本 v${updateTarget}，更新会保留现有配置和账号数据。`, "update");
+    else if (data.agent?.job?.message) setUpdateStatus(data.agent.job.message, "ok");
+    else setUpdateStatus("当前已经是最新版本。", "ok");
+    return running;
+  };
+  const checkMaintenance = async () => {
+    updateCheck.disabled = true;
+    updateApply.disabled = true;
+    document.getElementById("platformLatestVersion").textContent = "检查中";
+    setUpdateStatus("正在检查最新版本…", "working");
+    try { return renderMaintenance(await maintenanceApi({}, true)); }
+    catch (error) { setUpdateStatus(error.message, "error"); updateCheck.disabled = false; return false; }
+  };
+  const pollMaintenance = async () => {
+    if (updatePolling) return;
+    updatePolling = true;
+    const deadline = Date.now() + 12 * 60 * 1000;
+    try {
+      while (!updateStopped && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        try {
+          const data = await maintenanceApi();
+          const running = renderMaintenance(data);
+          if (running) continue;
+          const versionResponse = await fetch("/api/version", { signal: AbortSignal.timeout(10000) });
+          const versionBody = await versionResponse.json();
+          const installed = versionBody?.data?.version || data.version;
+          if (updateTarget && installed === updateTarget) {
+            setUpdateStatus(`v${installed} 更新完成，正在加载新版本…`, "ok");
+            setTimeout(() => location.reload(), 900);
+          }
+          return;
+        } catch { setUpdateStatus("服务正在更新并重启，等待重新连接…", "working"); }
+      }
+      if (!updateStopped) setUpdateStatus("等待更新超时，请刷新页面核对服务状态。", "error");
+    } finally { updatePolling = false; }
+  };
+  document.getElementById("platformBuild").onclick = () => {
+    updateDialog.showModal();
+    if (!maintenanceAllowed) {
+      setUpdateStatus("仅管理员可以检查并执行在线更新。", "warning");
+      updateCheck.disabled = true;
+      updateApply.disabled = true;
+      return;
+    }
+    void checkMaintenance().then(running => { if (running) void pollMaintenance(); });
+  };
+  document.getElementById("platformUpdateClose").onclick = () => updateDialog.close();
+  updateDialog.addEventListener("click", event => { if (event.target === updateDialog) updateDialog.close(); });
+  updateCheck.onclick = () => { if (maintenanceAllowed) void checkMaintenance(); };
+  updateApply.onclick = async () => {
+    if (updateApply.disabled || !updateTarget) return;
+    updateApply.disabled = true;
+    updateCheck.disabled = true;
+    setUpdateStatus(`正在提交 v${updateTarget} 更新任务…`, "working");
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const requestID = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+    try {
+      await maintenanceApi({ method: "POST", body: JSON.stringify({ action: "update", confirm: true, request_id: requestID }) });
+      setUpdateStatus("更新任务已提交，正在拉取镜像。当前服务会在镜像就绪后重启。", "working");
+      void pollMaintenance();
+    } catch (error) {
+      setUpdateStatus(error.message, "error");
+      updateCheck.disabled = false;
+      updateApply.disabled = false;
+    }
+  };
+  window.addEventListener("pagehide", () => { updateStopped = true; });
+
   fetch("/api/version").then(async response => {
     const body = await response.json();
     if (!response.ok || body.code !== 0) throw new Error(body.msg || "读取版本失败");
@@ -90,13 +202,16 @@
     const build = document.getElementById("platformBuild");
     build.querySelector("strong").textContent = `v${version}`;
     build.querySelector("span").textContent = "当前版本";
-    build.href = info.update_url || build.href;
-    build.title = `当前版本 v${version}`;
+    currentVersion = version;
+    document.getElementById("platformCurrentVersion").textContent = `v${version}`;
+    build.title = `当前版本 v${version}，点击检查更新`;
+    build.setAttribute("aria-label", `当前版本 v${version}，点击检查更新`);
   }).catch(() => {
     const build = document.getElementById("platformBuild");
     build.querySelector("strong").textContent = "未知";
     build.querySelector("span").textContent = "当前版本";
     build.title = "无法读取版本信息";
+    build.setAttribute("aria-label", "当前版本未知，点击重新检查");
   });
 
   fetch("/api/auth/me").then(async response => {
@@ -112,6 +227,8 @@
     document.getElementById("platformUserName").textContent = name;
     document.getElementById("platformUserRole").textContent = authEnabled ? (user.role === "admin" ? "管理员" : "普通用户") : "本机模式";
     const roleLabel = authEnabled ? (user.role === "admin" ? "管理员" : "普通用户") : "本机模式";
+    maintenanceAllowed = authEnabled && user.role === "admin";
+    if (updateDialog.open && maintenanceAllowed) void checkMaintenance().then(running => { if (running) void pollMaintenance(); });
     const roleStat = document.getElementById("currentRoleText");
     const quotaStat = document.getElementById("currentQuotaText");
     if (roleStat) roleStat.textContent = roleLabel;

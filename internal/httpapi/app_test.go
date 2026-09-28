@@ -36,6 +36,11 @@ func TestRunsPageExposesAccountPushSettings(t *testing.T) {
 	if nav.Code != http.StatusOK || !strings.Contains(nav.Body.String(), `["/runs?view=push", "push", "独立推送"`) {
 		t.Fatalf("platform navigation does not expose independent push settings: %d %s", nav.Code, nav.Body.String())
 	}
+	for _, marker := range []string{"platformUpdateDialog", "更新到 v${updateTarget} 并重启", `/api/maintenance${check ? "?check=1" : ""}`} {
+		if !strings.Contains(nav.Body.String(), marker) {
+			t.Fatalf("platform update marker %q missing", marker)
+		}
+	}
 }
 
 func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
