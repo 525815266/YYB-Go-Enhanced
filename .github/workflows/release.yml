@@ -1,0 +1,136 @@
+name: 多架构二进制 Release 构建与发布
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号 (例如 0.2.14，留空则读取 VERSION 文件)'
+        required: false
+        type: string
+      publish_release:
+        description: '创建或更新对应的 GitHub Release'
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'VERSION'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'resource/static/**'
+      - 'resource/templates/**'
+      - 'scripts/build-release.sh'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 带重试机制检出代码仓库
+        run: |
+          set -Eeuo pipefail
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          for attempt in 1 2 3; do
+            if git fetch --depth=1 origin "$GITHUB_SHA" && git checkout --force --detach FETCH_HEAD; then
+              exit 0
+            fi
+            [[ "$attempt" == 3 ]] && exit 1
+            sleep $((attempt * 10))
+          done
+
+      - name: 配置 Go 语言开发环境
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: 解析待发布的版本号与标签
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
+        run: |
+          set -Eeuo pipefail
+          publish=false
+
+          # 场景 1: 通过推送版本 Tag (如 v0.2.14) 触发
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            tag="$GITHUB_REF_NAME"
+            publish=true
+          # 场景 2: 手动 workflow_dispatch 指定了自定义版本号
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && -n "${INPUT_VERSION:-}" ]]; then
+            version="$INPUT_VERSION"
+            tag="v$version"
+            publish="${INPUT_PUBLISH_RELEASE:-true}"
+          # 场景 3: 手动 workflow_dispatch 未指定版本号，从 VERSION 文件提取
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$(tr -d '[:space:]' < VERSION)"
+            tag="v$version"
+            publish="${INPUT_PUBLISH_RELEASE:-true}"
+          # 场景 4: main 分支代码变动触发 CI 构建健康检查，不推送到 Release
+          else
+            version="$(tr -d '[:space:]' < VERSION)"
+            tag=""
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 执行多架构交叉编译与资源打包
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp || '' }}
+        run: |
+          set -Eeuo pipefail
+          go version
+          sudo apt-get update -y && sudo apt-get install -y zip
+          bash ./scripts/build-release.sh
+
+      - name: 发布产物至 GitHub Release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+
+          # 判断目标 Release 是否已存在：若存在则覆盖更新，若不存在则创建新 Release
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo ">> Release $RELEASE_TAG 已存在，正在增量更新/覆盖产物..."
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            echo ">> 创建全新 Release: $RELEASE_TAG..."
+            gh release create "$RELEASE_TAG" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "v$RELEASE_VERSION" \
+              --generate-notes
+          fi
+
+      - name: 上传构建产物归档 (CI 持续集成模式)
+        if: steps.version.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: yyb-go-binaries-${{ github.sha }}
+          path: dist/
+          retention-days: 7
