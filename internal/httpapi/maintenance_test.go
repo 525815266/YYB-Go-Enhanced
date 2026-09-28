@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,5 +61,35 @@ func TestVersionCheckCachesAndValidates(t *testing.T) {
 			t.Fatal("cache missed")
 		}
 		srv.Close()
+	}
+}
+
+func TestVersionCheckFallsBackToGitHubContents(t *testing.T) {
+	failedCalls, fallbackCalls := 0, 0
+	primarySeen := make(chan struct{})
+	failed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		failedCalls++
+		close(primarySeen)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+	}))
+	defer failed.Close()
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-primarySeen
+		fallbackCalls++
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"content":  base64.StdEncoding.EncodeToString([]byte("0.2.13\n")),
+			"encoding": "base64",
+		})
+	}))
+	defer fallback.Close()
+
+	checker := &updateChecker{client: &http.Client{Timeout: time.Second}, url: failed.URL, fallbackURL: fallback.URL}
+	latest, err := checker.check(context.Background())
+	if err != nil || latest != "0.2.13" {
+		t.Fatalf("fallback failed: latest=%q err=%v", latest, err)
+	}
+	_, _ = checker.check(context.Background())
+	if failedCalls != 1 || fallbackCalls != 1 {
+		t.Fatalf("version result was not cached: primary=%d fallback=%d", failedCalls, fallbackCalls)
 	}
 }

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,17 +19,21 @@ import (
 	"yyb_go/internal/version"
 )
 
-const maintenanceVersionURL = "https://raw.githubusercontent.com/525815266/YYB-Go-Enhanced/main/VERSION"
+const (
+	maintenanceVersionURL    = "https://raw.githubusercontent.com/525815266/YYB-Go-Enhanced/main/VERSION"
+	maintenanceVersionAPIURL = "https://api.github.com/repos/525815266/YYB-Go-Enhanced/contents/VERSION?ref=main"
+)
 
 var maintenanceSemver = regexp.MustCompile(`^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$`)
 
 type updateChecker struct {
-	mu      sync.Mutex
-	checked time.Time
-	latest  string
-	err     error
-	client  *http.Client
-	url     string
+	mu          sync.Mutex
+	checked     time.Time
+	latest      string
+	err         error
+	client      *http.Client
+	url         string
+	fallbackURL string
 }
 
 func newerMaintenanceVersion(current, latest string) bool {
@@ -46,34 +51,82 @@ func newerMaintenanceVersion(current, latest string) bool {
 	return false
 }
 
+func (c *updateChecker) fetch(ctx context.Context, source string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "YYB-Go-Enhanced-update-checker")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	latest := strings.TrimSpace(string(body))
+	if maintenanceSemver.MatchString(latest) {
+		return latest, nil
+	}
+	var githubFile struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	if json.Unmarshal(body, &githubFile) == nil && githubFile.Encoding == "base64" {
+		decoded, decodeErr := base64.StdEncoding.DecodeString(strings.ReplaceAll(githubFile.Content, "\n", ""))
+		if decodeErr == nil {
+			latest = strings.TrimSpace(string(decoded))
+			if maintenanceSemver.MatchString(latest) {
+				return latest, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("版本源格式不正确")
+}
+
 func (c *updateChecker) check(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.checked.IsZero() && time.Since(c.checked) < 5*time.Minute {
 		return c.latest, c.err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
-	if err != nil {
-		return "", err
+	sources := []string{c.url}
+	if c.fallbackURL != "" && c.fallbackURL != c.url {
+		sources = append(sources, c.fallbackURL)
 	}
-	resp, err := c.client.Do(req)
+	type result struct {
+		version string
+		err     error
+	}
+	requestCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan result, len(sources))
+	for _, source := range sources {
+		go func(source string) {
+			latest, err := c.fetch(requestCtx, source)
+			results <- result{version: latest, err: err}
+		}(source)
+	}
+	var failures []string
+	for range sources {
+		outcome := <-results
+		if outcome.err == nil {
+			cancel()
+			c.checked = time.Now()
+			c.latest = outcome.version
+			c.err = nil
+			return c.latest, nil
+		}
+		failures = append(failures, outcome.err.Error())
+	}
 	c.checked = time.Now()
-	if err == nil {
-		defer resp.Body.Close()
-		var body []byte
-		body, err = io.ReadAll(io.LimitReader(resp.Body, 129))
-		if err == nil && resp.StatusCode != http.StatusOK {
-			err = fmt.Errorf("版本源 HTTP %d", resp.StatusCode)
-		}
-		latest := strings.TrimSpace(string(body))
-		if err == nil && !maintenanceSemver.MatchString(latest) {
-			err = fmt.Errorf("版本源格式不正确")
-		}
-		if err == nil {
-			c.latest = latest
-		}
-	}
-	c.err = err
+	c.err = fmt.Errorf("所有版本源均不可用：%s", strings.Join(failures, "；"))
 	return c.latest, c.err
 }
 
