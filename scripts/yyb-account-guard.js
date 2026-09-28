@@ -1,3 +1,4 @@
+// name: YYB账号公共状态缓存（工具模块）
 "use strict";
 
 // Node 版公共缓存；业务脚本在遍历 YYB_SERVER 前调用 filterAccounts。

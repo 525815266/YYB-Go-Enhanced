@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: asdcb_auto_sign
 """
 阿水大杯茶签到。
 

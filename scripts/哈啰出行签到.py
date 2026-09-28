@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: 哈啰出行签到
 
 """
 哈啰出行签到小程序 YYB Go 动态 code 版

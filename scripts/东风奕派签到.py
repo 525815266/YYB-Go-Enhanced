@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: 东风奕派签到
 
 """
 东风奕派小程序动态 code 版

@@ -1,3 +1,4 @@
+# name: yyb_compat
 """Shared YYB_SERVER adapter for standalone Python business scripts.
 
 The adapter only supplies wx.login code (and, when explicitly requested, the

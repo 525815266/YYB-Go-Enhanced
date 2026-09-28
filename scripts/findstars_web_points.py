@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: findstars_web_points
 """寻星电玩网页积分任务。
 
 网页授权完成后，网站会给浏览器一个 FS-Token。该令牌不是 YYB 小程序

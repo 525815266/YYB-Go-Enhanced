@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: jmychongdian
 """金茂悦积分兑换 + 余额充电守护（青龙/YYB 多账号版）。
 
 配置优先使用 ``JMY_ACCOUNTS_JSON``，每个账号可分别绑定 YYB 标识、积分

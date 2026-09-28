@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: baihua_vote
 """百花约跑团线上投票（YYB 账号关联版）。
 
 活动使用微信公众号 ``snsapi_base`` 网页 OAuth。YYB Go 的 iLink 凭据只能调用

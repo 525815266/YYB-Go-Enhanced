@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# name: yyb_account_guard
 """YYB 多账号公共状态缓存。
 
 业务脚本只需要在遍历 YYB_SERVER 前调用 ``filter_accounts``，在捕获业务
