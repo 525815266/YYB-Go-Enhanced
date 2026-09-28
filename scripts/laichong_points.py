@@ -3,7 +3,8 @@
 """莱充积分任务，YYB 多账号版。
 
 根据 HAR 使用 AppID wxa68db1dabe823e7e。
-脚本自动登录，并领取服务端已经确认完成的任务奖励，不伪造视频播放或分享回调。
+脚本自动登录，按 HAR 中的任务接口提交进度，并领取服务端确认的奖励。
+接口提交不等于实际播放微信广告或分享卡片。
 
 Environment variables:
   YYB_SERVER：每行一个 YYB_URL@账号标识
@@ -11,7 +12,8 @@ Environment variables:
   LAICHONG_AUTO_SIGN: default 1
   LAICHONG_AUTO_BIND_PHONE：默认 1，使用 YYB 手机号授权包自动绑定
   LAICHONG_CLAIM_READY: default 1
-  LAICHONG_TRY_VIDEO/LAICHONG_TRY_SHARE：显式调试开关，默认 0
+  LAICHONG_TRY_VIDEO/LAICHONG_TRY_SHARE：提交对应任务接口，默认 1
+  LAICHONG_TASK_DELAY：每次提交间隔秒数，默认 6
   LAICHONG_DRY_RUN：默认 0
 """
 
@@ -48,8 +50,9 @@ TIMEOUT = max(5, int(os.getenv("LAICHONG_TIMEOUT", "30")))
 AUTO_SIGN = os.getenv("LAICHONG_AUTO_SIGN", "1").strip().lower() not in {"0", "false", "no", "off"}
 AUTO_BIND_PHONE = os.getenv("LAICHONG_AUTO_BIND_PHONE", "1").strip().lower() not in {"0", "false", "no", "off"}
 CLAIM_READY = os.getenv("LAICHONG_CLAIM_READY", "1").strip().lower() not in {"0", "false", "no", "off"}
-TRY_VIDEO = os.getenv("LAICHONG_TRY_VIDEO", "0").strip().lower() in {"1", "true", "yes", "on"}
-TRY_SHARE = os.getenv("LAICHONG_TRY_SHARE", "0").strip().lower() in {"1", "true", "yes", "on"}
+TRY_VIDEO = os.getenv("LAICHONG_TRY_VIDEO", "1").strip().lower() in {"1", "true", "yes", "on"}
+TRY_SHARE = os.getenv("LAICHONG_TRY_SHARE", "1").strip().lower() in {"1", "true", "yes", "on"}
+TASK_DELAY = max(0.0, float(os.getenv("LAICHONG_TASK_DELAY", "6")))
 DRY_RUN = os.getenv("LAICHONG_DRY_RUN", "0").strip().lower() in {"1", "true", "yes", "on"}
 USER_AGENT = os.getenv(
     "LAICHONG_USER_AGENT",
@@ -60,6 +63,10 @@ USER_AGENT = os.getenv(
 
 class ScriptError(RuntimeError):
     pass
+
+
+def log(message: str) -> None:
+    print(message, flush=True)
 
 
 @dataclass
@@ -311,8 +318,41 @@ def claim_pending(client: Client, items: list[dict[str, Any]], claimed: list[str
         name = task_name(item)
         client.claim(period_id)
         claimed.append(f"{name}+{pending}")
+        log(f"{name}：领取待领积分 +{pending}")
         count += 1
     return count
+
+
+def submit_task_progress(client: Client, item: dict[str, Any], claimed: list[str], actions: list[str]) -> None:
+    """只按服务端返回的进度继续提交，达到本期上限即停止。"""
+    period_id = item.get("id")
+    if not period_id:
+        return
+    name = task_name(item)
+    progress = int(item.get("current_progress") or 0)
+    target = int(item.get("target_progress") or 0)
+    submitted = 0
+    while progress < target:
+        if submitted:
+            time.sleep(TASK_DELAY)
+        result = client.complete(period_id)
+        next_progress = int(result.get("current_progress") or 0)
+        if next_progress <= progress:
+            actions.append(f"{name}服务端进度未增加({progress}/{target})，停止提交")
+            log(f"{name}：服务端进度仍为 {progress}/{target}，停止提交")
+            break
+        progress = next_progress
+        item["current_progress"] = progress
+        submitted += 1
+        log(f"{name}：服务端确认进度 {progress}/{target}")
+        pending = int(result.get("unclaimed_points") or 0)
+        if pending > 0 and CLAIM_READY:
+            client.claim(period_id)
+            claimed.append(f"{name}+{pending}")
+            item["unclaimed_points"] = 0
+            log(f"{name}：领取积分 +{pending}")
+    if submitted:
+        actions.append(f"{name}接口提交{submitted}次，进度{progress}/{target}")
 
 
 def run_account(account: Account) -> dict[str, Any]:
@@ -321,44 +361,41 @@ def run_account(account: Account) -> dict[str, Any]:
     claimed: list[str] = []
     actions: list[str] = []
     try:
+        log(f"{account.label}：开始处理")
         client.login(client.get_wx_code())
         before = client.points()
+        log(f"{account.label}：登录成功，当前积分 {before}")
         sign = client.sign_info()
-        progress = int(sign.get("current_progress") or 0)
-        target = int(sign.get("target_progress") or 1)
-        if AUTO_SIGN and not DRY_RUN and progress == 0 and sign.get("id"):
-            client.complete(sign["id"])
-            actions.append("签到完成")
-        elif progress > 0:
+        signed = sign.get("is_signed")
+        if signed is None:
+            actions.append("签到状态缺失，未提交")
+            log(f"{account.label}：签到状态缺失，跳过签到")
+        elif flag(signed):
             actions.append("今日已签到")
+        elif AUTO_SIGN and not DRY_RUN and sign.get("id"):
+            client.complete(sign["id"])
+            verified = client.sign_info()
+            if flag(verified.get("is_signed")):
+                actions.append("签到完成")
+                log(f"{account.label}：服务端确认今日签到完成")
+            else:
+                actions.append("签到提交后未确认")
+                log(f"{account.label}：签到请求已提交，但服务端仍显示未签到")
+        else:
+            actions.append("今日未签到，自动签到未执行")
 
         items = client.tasks()
         claim_pending(client, items, claimed)
         for item in items:
-            period_id = item.get("id")
-            if not period_id:
-                continue
-            current = int(item.get("current_progress") or 0)
-            target_count = int(item.get("target_progress") or 0)
-            pending = int(item.get("unclaimed_points") or 0)
             kind = task_type(item)
-            name = task_name(item)
+            if not DRY_RUN and ((kind == 5 and TRY_VIDEO) or (kind == 8 and TRY_SHARE)):
+                try:
+                    submit_task_progress(client, item, claimed, actions)
+                except (requests.RequestException, ScriptError, ValueError) as exc:
+                    actions.append(f"{task_name(item)}接口失败：{safe_text(exc)}")
+                    log(f"{account.label}：{task_name(item)}接口失败：{safe_text(exc)}")
 
-            # 服务端已确认完成时领取奖励。
-            if pending > 0:
-                continue
-
-            # 只有显式开启调试开关时才提交完成请求；任务必须先由客户端真实完成。
-            if not DRY_RUN and current < target_count and ((kind == 5 and TRY_VIDEO) or (kind == 8 and TRY_SHARE)):
-                result = client.complete(period_id)
-                pending_after = int(result.get("unclaimed_points") or 0)
-                if pending_after > 0 and CLAIM_READY:
-                    client.claim(period_id)
-                    claimed.append(f"{name}+{pending_after}")
-                else:
-                    actions.append(f"{name}已提交完成")
-
-        # 分享/视频回调可能晚于 complete 返回，补刷一次避免本轮漏领。
+        # 服务端积分和任务列表可能略有延迟，补刷一次避免本轮漏领。
         if CLAIM_READY and not DRY_RUN:
             time.sleep(0.3)
             refreshed = client.tasks()
@@ -389,19 +426,23 @@ def notify(title: str, content: str) -> None:
 def main() -> None:
     accounts = parse_accounts()
     load_remarks(accounts)
-    accounts = filter_accounts(accounts, lambda item: item.ref, app_id=APP_ID, log=print)
-    print(f"莱充积分任务：共 {len(accounts)} 个 YYB 账号，AppID={APP_ID}")
-    results = [run_account(account) for account in accounts]
+    accounts = filter_accounts(accounts, lambda item: item.ref, app_id=APP_ID, log=log)
+    log(f"莱充积分任务：共 {len(accounts)} 个 YYB 账号，AppID={APP_ID}")
     lines = ["莱充积分任务结果"]
-    for result in results:
+    successes = 0
+    for account in accounts:
+        result = run_account(account)
         if result.get("success"):
+            successes += 1
             delta = result.get("delta")
             delta_text = "未知" if delta is None else (f"+{delta}" if delta >= 0 else str(delta))
-            lines.append(f"{result['label']}：积分 {result.get('before')} -> {result.get('after')}（{delta_text}）；操作={','.join(result.get('actions') or []) or '无'}；已领取={','.join(result.get('claimed') or []) or '无'}；视频={result.get('video')}；分享={result.get('share')}")
+            line = f"{result['label']}：积分 {result.get('before')} -> {result.get('after')}（{delta_text}）；操作={','.join(result.get('actions') or []) or '无'}；已领取={','.join(result.get('claimed') or []) or '无'}；视频={result.get('video')}；分享={result.get('share')}"
         else:
-            lines.append(f"{result['label']}：失败，{result.get('error')}")
+            line = f"{result['label']}：失败，{result.get('error')}"
+        log(line)
+        lines.append(line)
     text = "\n".join(lines)
-    print(text)
+    log(f"运行完成：成功 {successes}/{len(accounts)} 个账号")
     if flag(os.getenv("LAICHONG_NOTIFY", "1")):
         notify("莱充积分任务", text)
 
