@@ -27,6 +27,17 @@ on:
       - 'resource/templates/**'
       - 'scripts/build-release.sh'
       - '.github/workflows/release.yml'
+  pull_request:
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'VERSION'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'resource/static/**'
+      - 'resource/templates/**'
+      - 'scripts/build-release.sh'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: write
@@ -52,12 +63,6 @@ jobs:
             [[ "$attempt" == 3 ]] && exit 1
             sleep $((attempt * 10))
           done
-
-      - name: 配置 Go 语言开发环境
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'go.mod'
-          cache: true
 
       - name: 解析待发布的版本号与标签
         id: version
@@ -89,13 +94,18 @@ jobs:
             tag=""
           fi
 
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "版本号必须是 SemVer 格式（例如 0.2.15 或 0.2.15-rc.1）：$version" >&2
+            exit 2
+          }
+
           {
             echo "version=$version"
             echo "tag=$tag"
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
-      - name: 执行多架构交叉编译与资源打包
+      - name: 测试并执行多架构交叉编译与资源打包
         env:
           VERSION: ${{ steps.version.outputs.version }}
           COMMIT: ${{ github.sha }}
@@ -103,7 +113,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           go version
-          sudo apt-get update -y && sudo apt-get install -y zip
+          command -v zip
+          command -v sha256sum
+          go test ./...
           bash ./scripts/build-release.sh
 
       - name: 发布产物至 GitHub Release
@@ -127,10 +139,9 @@ jobs:
               --generate-notes
           fi
 
-      - name: 上传构建产物归档 (CI 持续集成模式)
+      - name: 汇总持续集成构建结果
         if: steps.version.outputs.publish != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: yyb-go-binaries-${{ github.sha }}
-          path: dist/
-          retention-days: 7
+        run: |
+          set -Eeuo pipefail
+          echo "多架构构建与校验完成；持续集成不上传临时产物。"
+          cat dist/checksums.txt

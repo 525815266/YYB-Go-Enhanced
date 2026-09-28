@@ -27,6 +27,8 @@ fi
 
 # 确保产物输出目录存在
 mkdir -p "$OUT_DIR"
+OUT_DIR=$(cd "$OUT_DIR" && pwd -P)
+rm -f "$OUT_DIR"/yyb-go-* "$OUT_DIR/checksums.txt"
 
 # 跨平台构建目标矩阵清单 (操作系统 架构 标签标识 额外参数/后缀)
 targets=(
@@ -84,7 +86,7 @@ for target in "${targets[@]}"; do
     cd "$ROOT"
     env "${env_args[@]}" "$GO_CMD" build -trimpath \
       -ldflags="-s -w -X yyb_go/internal/version.Version=$VERSION -X yyb_go/internal/version.Commit=$COMMIT -X yyb_go/internal/version.BuildDate=$BUILD_DATE" \
-      -o "dist/$standalone_name" \
+      -o "$standalone_path" \
       ./cmd/yyb-go
   )
 
@@ -140,6 +142,9 @@ echo "==> 正在计算并生成 SHA256 校验和文件 (checksums.txt)..."
     sha256sum -- * > checksums.txt
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 -- * > checksums.txt
+  else
+    echo ">> [错误] 未检测到 SHA256 校验工具" >&2
+    exit 1
   fi
 )
 

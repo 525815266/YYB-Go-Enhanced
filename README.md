@@ -137,9 +137,11 @@ Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行
   - **校验文件**：随版本附带 `checksums.txt`（包含所有二进制与压缩包的 SHA256 校验和）。
 - **触发机制**：
   - **自动发布**：推送版本 Tag（如 `v0.2.14`）时自动全量构建并发布/更新到对应 GitHub Release；
-  - **手动构建**：可在 GitHub Actions 页面进入 **Build and Release Binaries** 手动触发，指定版本号及是否推送到 Release；
-  - **持续集成验证**：主分支（`main`）代码提交时自动执行全平台交叉编译验证，保障代码库在多架构下的健康状态；
+  - **手动构建**：可在 GitHub Actions 页面进入 **多架构二进制 Release 构建与发布** 手动触发，指定版本号及是否推送到 Release；
+  - **持续集成验证**：相关 Pull Request 与主分支（`main`）代码提交会先运行完整 Go 测试，再执行全平台交叉编译验证；CI 只验证、不保存临时产物；
   - **本地构建**：本地环境支持通过 `bash ./scripts/build-release.sh [target]` 一键构建单个或全量架构目标。
+
+该工作流不使用需要在作业启动前从 `codeload.github.com` 下载的第三方 Action，代码检出自带重试，降低 GitHub 429/502 导致构建尚未开始便失败的概率。手动填写的版本号必须符合 SemVer，例如 `0.2.15` 或 `0.2.15-rc.1`。
 
 Docker 镜像只在服务端代码、运行资源、Go 依赖、Docker 构建文件或对应 workflow 变更时构建；`scripts/**`、README 和普通文档更新不会再触发镜像更新提示。Magisk 只在服务端代码、运行前端资源、打包文件、Go 依赖或对应 workflow 变更时构建。这样脚本发布不会伪装成 Docker/Magisk 版本更新，但核心服务提交仍会自动验证和构建。
 
