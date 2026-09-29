@@ -16,3 +16,5 @@ nginx.htpasswd
 *.sqlite
 *.sqlite3
 *.log
+frontend/node_modules
+resource/static/console

@@ -23,6 +23,7 @@ done
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
+bash "$ROOT/scripts/build-console.sh"
 
 cp -R "$ROOT/packaging/magisk/." "$STAGE/"
 mkdir -p \

@@ -26,6 +26,7 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - 'resource/**'
+      - 'frontend/**'
       - 'docker-entrypoint.d/**'
       - '.github/workflows/docker-publish.yml'
 

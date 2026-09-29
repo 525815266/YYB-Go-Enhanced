@@ -26,6 +26,7 @@ if ! command -v "$GO_CMD" >/dev/null 2>&1; then
 fi
 
 # 确保产物输出目录存在
+bash "$ROOT/scripts/build-console.sh"
 mkdir -p "$OUT_DIR"
 OUT_DIR=$(cd "$OUT_DIR" && pwd -P)
 rm -f "$OUT_DIR"/yyb-go-* "$OUT_DIR/checksums.txt"

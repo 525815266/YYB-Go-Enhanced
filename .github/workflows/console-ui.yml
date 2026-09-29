@@ -1,0 +1,57 @@
+name: Experimental Console
+on:
+  push:
+    branches: [ui/vben-console]
+  pull_request:
+    paths: ['frontend/**', 'tests/vben-console.cjs', 'internal/httpapi/**', 'Dockerfile', 'scripts/build-console.sh', '.github/workflows/console-ui.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Build and test console
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          npm test
+          npm run build
+      - name: Go regression
+        run: |
+          go test ./...
+          go vet ./...
+          go build -o /tmp/yyb-ui ./cmd/yyb-go
+      - name: Isolated browser regression
+        env:
+          YYB_AUTH_DRIVER: sqlite
+          YYB_ADMIN_USER: uiadmin
+          YYB_ADMIN_PASSWORD: ui-test-password
+          YYB_ENABLE_PC_LOGIN: 'false'
+          YYB_PLAYWRIGHT: /tmp/yyb-playwright/node_modules/playwright
+          YYB_BROWSER_PATH: /tmp/yyb-playwright-browser
+        run: |
+          npm install --prefix /tmp/yyb-playwright playwright@1.58.2 --no-fund --no-audit
+          /tmp/yyb-playwright/node_modules/.bin/playwright install --with-deps chromium
+          node -e "require('fs').symlinkSync(require('/tmp/yyb-playwright/node_modules/playwright').chromium.executablePath(), '/tmp/yyb-playwright-browser')"
+          stage=$(mktemp -d)
+          mkdir -p "$stage/resource"
+          cp -R resource/static resource/templates "$stage/resource/"
+          export YYB_AUTH_DSN="$stage/auth.db"
+          /tmp/yyb-ui -host 127.0.0.1 -port 18018 -resource-root "$stage/resource" -keepalive-interval 0 >"$stage/server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18018/health >/dev/null; then break; fi
+            sleep 1
+          done
+          node tests/vben-console.cjs

@@ -255,6 +255,8 @@ func (a *App) Handler() http.Handler {
 	router.Any("/login", gin.WrapF(a.handleLogin))
 	router.Any("/register", gin.WrapF(a.handleRegister))
 	router.Any("/logout", gin.WrapF(a.handleLogout))
+	router.GET("/console", gin.WrapF(a.handleConsole))
+	router.GET("/console/*path", gin.WrapF(a.handleConsole))
 	router.Any("/health", func(c *gin.Context) {
 		writeJSON(c.Writer, http.StatusOK, gin.H{"ok": true})
 	})

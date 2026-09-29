@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/vbenjs/vue-vben-admin",
+  "revision": "50f4ede309d4450c7dd417399cb8d5c02346d2d2",
+  "packages": {
+    "layout": "packages/@core/ui-kit/layout-ui",
+    "menu": "packages/@core/ui-kit/menu-ui",
+    "shadcn": "packages/@core/ui-kit/shadcn-ui",
+    "composables": "packages/@core/composables",
+    "shared": "packages/@core/base/shared",
+    "icons": "packages/@core/base/icons",
+    "typings": "packages/@core/base/typings",
+    "design": "packages/@core/base/design"
+  },
+  "license": "MIT",
+  "sourceVersion": "5.7.0"
+}

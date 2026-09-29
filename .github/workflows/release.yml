@@ -28,6 +28,8 @@ on:
       - 'packaging/magisk/**'
       - 'scripts/build-magisk.sh'
       - 'scripts/build-release.sh'
+      - 'scripts/build-console.sh'
+      - 'frontend/**'
       - 'tools/release_notes.py'
       - 'tests/test_release_notes.py'
       - 'CHANGELOG.md'
@@ -44,6 +46,8 @@ on:
       - 'packaging/magisk/**'
       - 'scripts/build-magisk.sh'
       - 'scripts/build-release.sh'
+      - 'scripts/build-console.sh'
+      - 'frontend/**'
       - 'tools/release_notes.py'
       - 'tests/test_release_notes.py'
       - 'CHANGELOG.md'
@@ -130,6 +134,12 @@ jobs:
             --output "$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: 测试并构建原生二进制、资源包与 Magisk 模块
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -142,6 +152,8 @@ jobs:
           command -v unzip
           command -v sha256sum
           python3 -m unittest tests.test_release_notes -v
+          bash ./scripts/build-console.sh
+          export YYB_FRONTEND_PREBUILT=1
           go test ./...
           bash ./scripts/build-release.sh
 

@@ -1,0 +1,58 @@
+{
+  "name": "yyb-vben-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "@ctrl/tinycolor": "^4.2.0",
+    "@iconify/vue": "^5.0.0",
+    "@lucide/vue": "^1.0.0",
+    "@tanstack/vue-store": "^0.11.0",
+    "@vue/shared": "^3.5.0",
+    "@vueuse/core": "^14.0.0",
+    "ant-design-vue": "4.2.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.0",
+    "defu": "^6.1.4",
+    "es-toolkit": "^1.40.0",
+    "lodash.clonedeep": "^4.5.0",
+    "nprogress": "^0.2.0",
+    "pinia": "^3.0.0",
+    "qs": "^6.14.0",
+    "reka-ui": "^2.5.0",
+    "sortablejs": "^1.15.6",
+    "tailwind-merge": "^3.0.0",
+    "theme-colors": "^0.1.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@iconify-json/ep": "^1.2.0",
+    "@iconify/tailwind4": "^1.0.0",
+    "@tailwindcss/typography": "^0.5.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/lodash.clonedeep": "^4.5.9",
+    "@types/node": "^24.0.0",
+    "@types/nprogress": "^0.2.3",
+    "@types/qs": "^6.14.0",
+    "@types/sortablejs": "^1.15.8",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "sass": "^1.89.0",
+    "tailwindcss": "^4.1.0",
+    "tw-animate-css": "^1.3.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0",
+    "vue-tsc": "^3.0.0"
+  }
+}

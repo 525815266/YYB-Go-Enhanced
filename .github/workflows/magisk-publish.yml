@@ -31,6 +31,8 @@ on:
       - 'resource/templates/**'
       - 'packaging/magisk/**'
       - 'scripts/build-magisk.sh'
+      - 'scripts/build-console.sh'
+      - 'frontend/**'
       - 'tools/release_notes.py'
       - 'tests/test_release_notes.py'
       - 'CHANGELOG.md'
@@ -117,6 +119,12 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --output "$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Build and Validate ARM64 Module
         env:

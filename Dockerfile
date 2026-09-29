@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM node:24-alpine AS console
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-fund --no-audit
+COPY frontend ./
+RUN npm run build
+
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
 
 ARG VERSION=0.2.14
@@ -16,6 +23,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY resource ./resource
+COPY --from=console /src/resource/static/console ./resource/static/console
 RUN go test ./...
 RUN test -n "$TARGETARCH" \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w -X yyb_go/internal/version.Version=${VERSION} -X yyb_go/internal/version.Commit=${COMMIT} -X yyb_go/internal/version.BuildDate=${BUILD_DATE}" -o /out/yyb-go ./cmd/yyb-go
@@ -31,7 +39,7 @@ RUN apk add --no-cache ca-certificates tzdata wget \
 WORKDIR /app
 ENV TZ=Asia/Shanghai
 COPY --from=build /out/yyb-go /app/yyb-go
-COPY resource /tmp/resource-src
+COPY --from=build /src/resource /tmp/resource-src
 
 RUN mkdir -p /app/resource \
     && cp -R /tmp/resource-src/. /app/resource/ \

@@ -12,3 +12,5 @@ __pycache__/
 *.py[cod]
 /yyb-go
 /dist/
+frontend/node_modules/
+resource/static/console/
