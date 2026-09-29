@@ -29,6 +29,7 @@ import (
 type Config struct {
 	MaintenanceSocket string
 	ResourceRoot      string
+	EmbeddedWebAssets bool
 	DBFilename        string
 	TCPProxy          string
 	SessionTTL        time.Duration
@@ -132,7 +133,7 @@ func NewApp(cfg Config) (*App, error) {
 	if cfg.SessionDuration <= 0 {
 		cfg.SessionDuration = 7 * 24 * time.Hour
 	}
-	res, err := ensureResources(cfg.ResourceRoot)
+	res, err := ensureResources(cfg.ResourceRoot, cfg.EmbeddedWebAssets)
 	if err != nil {
 		return nil, err
 	}

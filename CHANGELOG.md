@@ -2,6 +2,14 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.17 - 2026-09-29
+
+- 收敛跨平台更新入口：后端明确返回 Docker、Windows、Linux、macOS、Magisk 的运行方式、架构、受控更新能力和匹配的 Release 资产，不再把 Windows 独立客户端误报为“未配置 Docker 执行器”。
+- Windows/Linux/macOS 裸机发现新版本后直接显示对应架构的二进制下载按钮；Magisk 显示模块 ZIP；Docker 仅在维护执行器实际连接后提供面板更新与重启。
+- 顶栏版本弹窗和「系统维护」页共用同一套能力字段、平台说明和下载地址，并覆盖 Windows x64/ARM64、Linux ARMv7、macOS ARM64、Magisk、Docker 与未知架构测试。
+- 裸机默认将内嵌控制台恢复到按版本隔离的 `resource/.web-assets/v<版本>`，替换 EXE 后不会继续加载上个版本遗留的模板和脚本；数据库、二维码、头像及显式指定的外置资源目录不受影响。
+
+
 ## v0.2.16 - 2026-09-29
 
 - 修复 Windows/Linux/macOS 独立二进制缺少 Web 控制台资源的问题：将 `resource/static` 与 `resource/templates` 嵌入程序，首次启动时自动恢复缺失文件；已有外部资源仍优先且不会被覆盖。

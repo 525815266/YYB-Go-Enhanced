@@ -2,7 +2,7 @@
 
 主要功能变化请查看 [更新日志](CHANGELOG.md)。
 
-登录后的控制台顶栏会显示正式语义版本号，例如 `v0.2.14`。管理员点击版本号即可检查最新版，并在弹层中拉取官方 Docker 镜像、重启服务；完整维护页仍位于「管理 → 系统维护」。版本检查会并发使用 GitHub Raw 与 Contents API，适配国内 NAS 网络。Docker 需要先配置宿主机维护执行器，详见 [系统维护配置](docs/maintenance.md)。未配置执行器时不会停止服务；Magisk 仍由模块管理器升级。项目版本统一记录在根目录 `VERSION`，Docker、Magisk 和源码构建共用同一个版本号。
+登录后的控制台顶栏会显示正式语义版本号。管理员点击版本号即可检查最新版，面板会识别当前运行环境：Windows、Linux、macOS 裸机提供匹配架构的 Release 下载，Magisk 提供模块 ZIP，Docker 在维护执行器连接后可拉取官方镜像并重启服务。完整维护页仍位于「管理 → 系统维护」。版本检查会并发使用 GitHub Raw 与 Contents API，适配国内 NAS 网络；项目版本统一记录在根目录 `VERSION`，所有构建共用同一个版本号。
 
 代理设置中的“静态代理预设”可保存长期使用的固定出口，之后在账号代理配置中直接选择，不必重复粘贴 `user:pass@host:port`。短效 API 代理仍明确标记为不可用于账号保活。
 
@@ -10,7 +10,7 @@
 
 ## 功能
 
-- 管理员系统维护入口：版本检查、Docker Compose 定向更新/重启、并发防重、结果回查和切换失败后的旧镜像恢复；Web 容器无需挂载 Docker socket
+- 管理员系统维护入口：自动识别 Docker、Windows、Linux、macOS 与 Magisk；裸机下载匹配架构产物，Docker Compose 支持定向更新/重启、并发防重、结果回查和切换失败后的旧镜像恢复；Web 容器无需挂载 Docker socket
 
 - 默认使用手机扫码添加账号，授权成功后显示账号 ID、OpenID 和存活状态；实验性本机微信快速授权默认关闭
 - 扫码成功后可填写账号备注，并一键合并到面板 `YYB_SERVER`，重复操作不会产生重复账号
@@ -132,7 +132,7 @@ Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行
   - **Windows**: `amd64`, `arm64` (`.exe`)
   - **macOS (Darwin)**: `amd64`, `arm64`
 - **Release 资产形态**：
-  - **独立单二进制文件**（如 `yyb-go-linux-amd64`、`yyb-go-windows-amd64.exe` 等）：已内嵌 Web 控制台资源，免解压直接运行；首次启动会在当前目录恢复缺失的 `resource/static` 与 `resource/templates`，已有外部资源不会被覆盖；
+  - **独立单二进制文件**（如 `yyb-go-linux-amd64`、`yyb-go-windows-amd64.exe` 等）：已内嵌 Web 控制台资源，免解压直接运行；默认在 `resource/.web-assets/v<版本>` 恢复当前版本页面，替换程序后不会继续使用旧页面。需要维护自定义 Web 文件时，显式传入 `-resource-root <目录>`；
   - **完整打包归档**（如 `yyb-go-v0.2.14-linux-amd64.tar.gz`、`yyb-go-v0.2.14-windows-amd64.zip`）：内含独立二进制文件、`resource/` 静态网页与模板资源、配置示例及说明文档；
   - **Magisk 模块**：`yyb-go-magisk-arm64-<版本>.zip`，可直接在 Magisk 管理器中安装；
   - **校验文件**：随版本附带 `checksums.txt`（包含所有二进制、完整归档包和 Magisk 模块的 SHA256 校验和）。

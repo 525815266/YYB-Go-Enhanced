@@ -25,6 +25,12 @@ func main() {
 	keepAliveInterval := flag.Duration("keepalive-interval", time.Minute, "account keepalive check interval; 0 disables")
 	keepAliveAhead := flag.Duration("keepalive-ahead", 45*time.Minute, "refresh credentials this long before expiry")
 	flag.Parse()
+	resourceRootExplicit := false
+	flag.Visit(func(current *flag.Flag) {
+		if current.Name == "resource-root" {
+			resourceRootExplicit = true
+		}
+	})
 	if dnsServers, err := configureDNS(os.Getenv("YYB_DNS_SERVERS")); err != nil {
 		log.Fatalf("configure DNS: %v", err)
 	} else if len(dnsServers) > 0 {
@@ -90,6 +96,7 @@ func main() {
 	cfg := httpapi.Config{
 		MaintenanceSocket: strings.TrimSpace(os.Getenv("YYB_MAINTENANCE_SOCKET")),
 		ResourceRoot:      *resourceRoot,
+		EmbeddedWebAssets: !resourceRootExplicit,
 		DBFilename:        *dbFilename,
 		TCPProxy:          *tcpProxy,
 		SessionTTL:        30 * time.Minute,

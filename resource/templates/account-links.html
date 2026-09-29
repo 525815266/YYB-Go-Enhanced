@@ -55,6 +55,6 @@
     $('confirmDialog').addEventListener('close',async()=>{if($('confirmDialog').returnValue!=='default'||!state.pending)return;const {action,item}=state.pending;state.pending=null;try{await api(`/api/account-links/${item.id}/${action==='revoke'?'revoke':''}`,{method:action==='delete'?'DELETE':'POST'});toast(action==='delete'?'链接已删除':'链接已作废');await load()}catch(e){toast(e.message,true)}})
     $('linkList').onclick=async e=>{const b=e.target.closest('[data-action]');if(!b)return;const item=state.links.find(x=>String(x.id)===b.dataset.id);if(!item)return;if(b.dataset.action==='copy'){const acc=item.account||{};const name=acc.remark||acc.nickname||acc.alias||`账号 ${item.account_id}`;try{await copyText(shareText(item,name))}catch{toast('分享内容已选中，请按 Ctrl+C',true)}}else ask(b.dataset.action,item)};
     $('statusFilter').onchange=render;$('kindFilter').onchange=render;$('refreshLinks').onclick=load;load();
-  </script><script src="/static/js/platform.js?v=20260928-update"></script>
+  </script><script src="/static/js/platform.js?v=20260929-runtime-update"></script>
 </body>
 </html>

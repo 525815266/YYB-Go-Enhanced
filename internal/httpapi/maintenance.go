@@ -9,8 +9,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 const (
 	maintenanceVersionURL    = "https://raw.githubusercontent.com/525815266/YYB-Go-Enhanced/main/VERSION"
 	maintenanceVersionAPIURL = "https://api.github.com/repos/525815266/YYB-Go-Enhanced/contents/VERSION?ref=main"
+	maintenanceReleaseBase   = "https://github.com/525815266/YYB-Go-Enhanced/releases"
 )
 
 var maintenanceSemver = regexp.MustCompile(`^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$`)
@@ -34,6 +37,118 @@ type updateChecker struct {
 	client      *http.Client
 	url         string
 	fallbackURL string
+}
+
+type maintenanceRuntime struct {
+	Kind              string `json:"kind"`
+	OS                string `json:"os"`
+	Arch              string `json:"arch"`
+	Label             string `json:"label"`
+	InstallMode       string `json:"install_mode"`
+	ManagedUpdate     bool   `json:"managed_update"`
+	DownloadAvailable bool   `json:"download_available"`
+	DownloadName      string `json:"download_name,omitempty"`
+	DownloadURL       string `json:"download_url,omitempty"`
+	ReleaseURL        string `json:"release_url"`
+	Instructions      string `json:"instructions"`
+}
+
+func releaseURL(version string) string {
+	if maintenanceSemver.MatchString(version) {
+		return maintenanceReleaseBase + "/tag/v" + version
+	}
+	return maintenanceReleaseBase + "/latest"
+}
+
+func releaseAssetURL(version, name string) string {
+	if name == "" {
+		return ""
+	}
+	if maintenanceSemver.MatchString(version) {
+		return maintenanceReleaseBase + "/download/v" + version + "/" + name
+	}
+	return maintenanceReleaseBase + "/latest/download/" + name
+}
+
+func runtimeDownload(goos, goarch, version string) (name, label string) {
+	suffix := ""
+	switch goos {
+	case "windows":
+		suffix = ".exe"
+	case "linux", "darwin":
+	default:
+		return "", ""
+	}
+	archLabel := map[string]string{"amd64": "x64", "arm64": "ARM64", "arm": "ARMv7"}[goarch]
+	if archLabel == "" || (goarch == "arm" && goos != "linux") {
+		return "", ""
+	}
+	tagArch := goarch
+	if goarch == "arm" {
+		tagArch = "armv7"
+	}
+	osLabel := map[string]string{"windows": "Windows", "linux": "Linux", "darwin": "macOS"}[goos]
+	return "yyb-go-" + goos + "-" + tagArch + suffix, osLabel + " " + archLabel
+}
+
+func describeMaintenanceRuntime(goos, goarch, version string, docker, managed bool) maintenanceRuntime {
+	info := maintenanceRuntime{
+		Kind: goos, OS: goos, Arch: goarch, InstallMode: "standalone",
+		ReleaseURL: releaseURL(version),
+	}
+	if docker {
+		info.Kind = "docker"
+		info.Label = "Docker"
+		info.InstallMode = "container"
+		info.ManagedUpdate = managed
+		if managed {
+			info.Instructions = "Docker 维护执行器已连接，可在面板更新或重启服务。"
+		} else {
+			info.Instructions = "Docker 可检查版本；仅在维护执行器连接成功后提供面板更新与重启。"
+		}
+		return info
+	}
+	if goos == "android" {
+		info.Kind = "magisk"
+		info.Label = "Magisk ARM64"
+		info.InstallMode = "magisk"
+		info.DownloadAvailable = goarch == "arm64" && maintenanceSemver.MatchString(version)
+		if info.DownloadAvailable {
+			info.DownloadName = "yyb-go-magisk-arm64-" + version + ".zip"
+			info.DownloadURL = releaseAssetURL(version, info.DownloadName)
+		}
+		info.Instructions = "下载模块 ZIP 后在 Magisk 管理器中安装更新，并按提示重启设备。"
+		return info
+	}
+	info.DownloadName, info.Label = runtimeDownload(goos, goarch, version)
+	info.DownloadAvailable = info.DownloadName != ""
+	info.DownloadURL = releaseAssetURL(version, info.DownloadName)
+	if info.DownloadAvailable {
+		if goos == "windows" {
+			info.Instructions = "下载新版程序，退出当前 YYB Go 后替换 EXE，再重新启动。账号和配置不会写入 EXE。"
+		} else {
+			info.Instructions = "下载新版程序，停止当前服务后替换可执行文件并重新启动。"
+		}
+	} else {
+		info.Label = goos + "/" + goarch
+		info.Instructions = "当前架构暂无预编译文件，请打开 Release 查看可用产物或从源码构建。"
+	}
+	return info
+}
+
+func runningInContainer() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	raw, err := os.ReadFile("/proc/1/cgroup")
+	if err != nil {
+		return false
+	}
+	text := string(raw)
+	return strings.Contains(text, "docker") || strings.Contains(text, "containerd") || strings.Contains(text, "kubepods")
 }
 
 func newerMaintenanceVersion(current, latest string) bool {
@@ -175,7 +290,13 @@ func (a *App) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 	}
 	current, _, _ := version.Info()
 	if r.Method == http.MethodGet {
-		result := map[string]any{"version": current, "available": false, "message": "未配置执行器。Docker 请按维护文档启用；Magisk 请在模块管理器更新或重启设备。"}
+		dockerRuntime := a.cfg.MaintenanceSocket != "" || runningInContainer()
+		platform := describeMaintenanceRuntime(runtime.GOOS, runtime.GOARCH, current, dockerRuntime, false)
+		result := map[string]any{
+			"version": current, "available": false, "managed_update": false,
+			"download_available": platform.DownloadAvailable, "runtime": platform,
+			"message": platform.Instructions,
+		}
 		if a.cfg.MaintenanceSocket != "" {
 			state, status, err := a.maintenanceRequest(r.Context(), http.MethodGet, "/status", nil)
 			if err != nil {
@@ -184,6 +305,10 @@ func (a *App) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 				result["message"] = "维护执行器暂不可用"
 			} else {
 				result["available"] = true
+				result["managed_update"] = true
+				platform.ManagedUpdate = true
+				platform.Instructions = "Docker 维护执行器已连接，可在面板更新或重启服务。"
+				result["runtime"] = platform
 				result["agent"] = state
 				result["message"] = "Docker 维护执行器已连接"
 			}
@@ -191,7 +316,17 @@ func (a *App) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("check") == "1" {
 			latest, err := a.updates.check(r.Context())
 			result["latest_version"] = latest
-			result["has_update"] = err == nil && newerMaintenanceVersion(current, latest)
+			hasUpdate := err == nil && newerMaintenanceVersion(current, latest)
+			result["has_update"] = hasUpdate
+			if err == nil {
+				assetVersion := current
+				if hasUpdate {
+					assetVersion = latest
+				}
+				platform = describeMaintenanceRuntime(runtime.GOOS, runtime.GOARCH, assetVersion, dockerRuntime, result["managed_update"] == true)
+				result["runtime"] = platform
+				result["download_available"] = platform.DownloadAvailable
+			}
 			if err != nil {
 				result["check_error"] = "检查版本失败，请稍后重试：" + err.Error()
 			}

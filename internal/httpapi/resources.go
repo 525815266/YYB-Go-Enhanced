@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"yyb_go/internal/version"
 	embeddedresource "yyb_go/resource"
 )
 
@@ -17,21 +18,33 @@ type resources struct {
 	Static    string
 }
 
-func ensureResources(root string) (resources, error) {
+func ensureResources(root string, preferEmbedded bool) (resources, error) {
+	buildVersion, _, _ := version.Info()
+	return ensureResourcesVersion(root, preferEmbedded, buildVersion)
+}
+
+func ensureResourcesVersion(root string, preferEmbedded bool, buildVersion string) (resources, error) {
+	webRoot := root
+	if preferEmbedded {
+		if !maintenanceSemver.MatchString(buildVersion) {
+			buildVersion = "dev"
+		}
+		webRoot = filepath.Join(root, ".web-assets", "v"+buildVersion)
+	}
 	res := resources{
 		Root:      root,
 		DB:        filepath.Join(root, "db"),
 		Avatars:   filepath.Join(root, "avatars"),
 		QR:        filepath.Join(root, "qr"),
-		Templates: filepath.Join(root, "templates"),
-		Static:    filepath.Join(root, "static"),
+		Templates: filepath.Join(webRoot, "templates"),
+		Static:    filepath.Join(webRoot, "static"),
 	}
 	for _, p := range []string{res.DB, res.Avatars, res.QR, res.Templates, filepath.Join(res.Static, "css"), filepath.Join(res.Static, "js")} {
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			return res, err
 		}
 	}
-	if err := restoreEmbeddedWebAssets(root); err != nil {
+	if err := restoreEmbeddedWebAssets(webRoot); err != nil {
 		return res, err
 	}
 	return res, nil

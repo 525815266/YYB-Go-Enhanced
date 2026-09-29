@@ -73,7 +73,7 @@
       <div class="platform-main"></div>
     </section>
     <dialog class="platform-dialog platform-update-dialog" id="platformUpdateDialog" aria-labelledby="platformUpdateTitle">
-      <div class="platform-dialog-head"><div><h2 id="platformUpdateTitle">版本与更新</h2><p>检查新版本，拉取官方镜像并重启 YYB 服务。</p></div><button class="platform-dialog-close" id="platformUpdateClose" type="button" aria-label="关闭">&times;</button></div>
+      <div class="platform-dialog-head"><div><h2 id="platformUpdateTitle">版本与更新</h2><p id="platformUpdateDescription">检查新版本，并按当前运行环境选择更新方式。</p></div><button class="platform-dialog-close" id="platformUpdateClose" type="button" aria-label="关闭">&times;</button></div>
       <div class="platform-dialog-body">
         <dl class="platform-version-list">
           <div><dt>当前版本</dt><dd id="platformCurrentVersion">读取中</dd></div>
@@ -94,7 +94,7 @@
   shell.querySelectorAll(".platform-nav a").forEach(link => link.addEventListener("click", closeNav));
   document.getElementById("platformLogout").onclick = async () => { await fetch("/logout", { method: "POST" }); location.href = "/login"; };
 
-  let currentVersion = "", updateTarget = "", maintenanceAllowed = false, updatePolling = false, updateStopped = false;
+  let currentVersion = "", updateTarget = "", maintenanceAllowed = false, updatePolling = false, updateStopped = false, runtimeInfo = {};
   const updateDialog = document.getElementById("platformUpdateDialog");
   const updateStatus = document.getElementById("platformUpdateStatus");
   const updateCheck = document.getElementById("platformUpdateCheck");
@@ -116,16 +116,24 @@
   const renderMaintenance = data => {
     currentVersion = data.version || currentVersion;
     updateTarget = data.latest_version || updateTarget;
+    runtimeInfo = data.runtime || {};
     document.getElementById("platformCurrentVersion").textContent = currentVersion ? `v${currentVersion}` : "未知";
     document.getElementById("platformLatestVersion").textContent = updateTarget ? `v${updateTarget}` : "检查失败";
+    document.getElementById("platformUpdateDescription").textContent = runtimeInfo.label ? `${runtimeInfo.label}，${runtimeInfo.instructions || "请选择适用的更新方式。"}` : "检查新版本，并按当前运行环境选择更新方式。";
     const running = Boolean(data.agent?.job?.running);
+    const managed = data.managed_update === true || runtimeInfo.managed_update === true;
+    const downloadable = runtimeInfo.download_available === true && Boolean(runtimeInfo.download_url);
     updateCheck.disabled = running;
-    updateApply.disabled = running || !data.available || data.has_update !== true;
-    updateApply.textContent = data.has_update === true && updateTarget ? `更新到 v${updateTarget} 并重启` : "已是最新版本";
+    updateApply.disabled = running || data.has_update !== true || (!managed && !downloadable);
+    updateApply.dataset.mode = managed ? "managed" : (downloadable ? "download" : "none");
+    if (data.has_update === true && updateTarget && managed) updateApply.textContent = `更新到 v${updateTarget} 并重启`;
+    else if (data.has_update === true && updateTarget && downloadable) updateApply.textContent = `下载 ${runtimeInfo.label || "当前平台"} v${updateTarget}`;
+    else updateApply.textContent = "已是最新版本";
     if (data.check_error) setUpdateStatus(data.check_error, "error");
     else if (running && data.agent?.job?.message) setUpdateStatus(data.agent.job.message, "working");
-    else if (!data.available) setUpdateStatus(data.message || "当前部署未启用在线更新。", "warning");
-    else if (data.has_update === true) setUpdateStatus(`发现新版本 v${updateTarget}，更新会保留现有配置和账号数据。`, "update");
+    else if (data.has_update === true && managed) setUpdateStatus(`发现新版本 v${updateTarget}，更新会保留现有配置和账号数据。`, "update");
+    else if (data.has_update === true && downloadable) setUpdateStatus(`发现新版本 v${updateTarget}。下载后请按上方说明替换当前程序。`, "update");
+    else if (!managed && !downloadable) setUpdateStatus(data.message || "当前平台没有可用的预编译更新包。", "warning");
     else if (data.agent?.job?.message) setUpdateStatus(data.agent.job.message, "ok");
     else setUpdateStatus("当前已经是最新版本。", "ok");
     return running;
@@ -177,6 +185,11 @@
   updateCheck.onclick = () => { if (maintenanceAllowed) void checkMaintenance(); };
   updateApply.onclick = async () => {
     if (updateApply.disabled || !updateTarget) return;
+    if (updateApply.dataset.mode === "download") {
+      location.assign(runtimeInfo.download_url);
+      return;
+    }
+    if (updateApply.dataset.mode !== "managed") return;
     updateApply.disabled = true;
     updateCheck.disabled = true;
     setUpdateStatus(`正在提交 v${updateTarget} 更新任务…`, "working");

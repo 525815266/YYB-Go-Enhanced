@@ -1,8 +1,14 @@
 (() => {
  const $ = id => document.getElementById(id);
- let pending = '', latest = '', hasUpdate = false, available = false, busy = false, polling = false, stopped = false;
+ let pending = '', latest = '', hasUpdate = false, available = false, downloadable = false, downloadURL = '', busy = false, polling = false, stopped = false;
  const tell = text => { $('jobStatus').textContent = text; };
- const controls = () => { $('updateService').disabled = busy || !available || !hasUpdate; $('restartService').disabled = busy || !available; $('checkUpdate').disabled = busy; };
+ const controls = () => {
+  $('updateService').disabled = busy || !available || !hasUpdate;
+  $('restartService').disabled = busy || !available;
+  $('checkUpdate').disabled = busy;
+  $('downloadPackage').hidden = !downloadable || !hasUpdate;
+  $('downloadPackage').setAttribute('aria-disabled', String(busy));
+ };
  async function api(options = {}, check = false) {
   const response = await fetch('/api/maintenance' + (check ? '?check=1' : ''), { ...options, signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json', 'X-YYB-Maintenance': '1' } });
   if (response.status === 401) { location.assign('/login?next=/maintenance'); throw new Error('登录已过期'); }
@@ -12,8 +18,14 @@
  }
  async function load(check = false) {
   const data = await api({}, check);
-  $('currentVersion').textContent = `v${data.version}`; available = data.available;
-  $('capability').textContent = data.message;
+  $('currentVersion').textContent = `v${data.version}`;
+  available = data.managed_update === true || data.runtime?.managed_update === true;
+  downloadable = data.runtime?.download_available === true && Boolean(data.runtime?.download_url);
+  downloadURL = data.runtime?.download_url || '';
+  $('downloadPackage').href = downloadURL || '#';
+  $('downloadPackage').textContent = data.runtime?.label ? `下载 ${data.runtime.label}` : '下载当前平台版本';
+  $('capability').textContent = available ? 'Docker 维护执行器已连接，可在面板更新或重启服务。' : (downloadable ? `${data.runtime.label} 独立客户端，可下载匹配当前架构的更新。` : data.message);
+  $('maintenanceHelp').textContent = data.runtime?.instructions || '请按当前部署方式完成更新；替换程序前先停止服务并备份数据库。';
   if (check) { latest = data.check_error ? '' : data.latest_version; $('latestVersion').textContent = latest ? `v${latest}` : '检查失败'; }
   const job = data.agent?.job; busy = Boolean(job?.running);
   if (check) hasUpdate = data.has_update === true;
@@ -41,6 +53,7 @@
   $(id).onclick = () => { pending = action; $('confirmTitle').textContent = label; $('confirmArea').hidden = false; $('confirmAction').focus(); };
  }
  $('cancelAction').onclick = () => { pending = ''; $('confirmArea').hidden = true; };
+ $('downloadPackage').onclick = event => { if (busy || !downloadURL) event.preventDefault(); };
  $('confirmAction').onclick = async () => {
   if (busy || !pending) return;
   busy = true; controls(); $('confirmArea').hidden = true;

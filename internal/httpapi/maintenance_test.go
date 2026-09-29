@@ -93,3 +93,33 @@ func TestVersionCheckFallsBackToGitHubContents(t *testing.T) {
 		t.Fatalf("version result was not cached: primary=%d fallback=%d", failedCalls, fallbackCalls)
 	}
 }
+
+func TestDescribeMaintenanceRuntime(t *testing.T) {
+	tests := []struct {
+		name            string
+		goos, goarch    string
+		docker, managed bool
+		kind, asset     string
+		downloadable    bool
+	}{
+		{name: "windows amd64", goos: "windows", goarch: "amd64", kind: "windows", asset: "yyb-go-windows-amd64.exe", downloadable: true},
+		{name: "windows arm64", goos: "windows", goarch: "arm64", kind: "windows", asset: "yyb-go-windows-arm64.exe", downloadable: true},
+		{name: "linux armv7", goos: "linux", goarch: "arm", kind: "linux", asset: "yyb-go-linux-armv7", downloadable: true},
+		{name: "darwin arm64", goos: "darwin", goarch: "arm64", kind: "darwin", asset: "yyb-go-darwin-arm64", downloadable: true},
+		{name: "magisk", goos: "android", goarch: "arm64", kind: "magisk", asset: "yyb-go-magisk-arm64-0.2.17.zip", downloadable: true},
+		{name: "docker executor", goos: "linux", goarch: "amd64", docker: true, managed: true, kind: "docker"},
+		{name: "docker without executor", goos: "linux", goarch: "amd64", docker: true, kind: "docker"},
+		{name: "unsupported", goos: "freebsd", goarch: "amd64", kind: "freebsd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := describeMaintenanceRuntime(tt.goos, tt.goarch, "0.2.17", tt.docker, tt.managed)
+			if got.Kind != tt.kind || got.ManagedUpdate != tt.managed || got.DownloadAvailable != tt.downloadable || got.DownloadName != tt.asset {
+				t.Fatalf("runtime = %#v", got)
+			}
+			if got.DownloadAvailable && (!strings.Contains(got.DownloadURL, "/v0.2.17/") || !strings.HasSuffix(got.DownloadURL, tt.asset)) {
+				t.Fatalf("download URL = %q", got.DownloadURL)
+			}
+		})
+	}
+}

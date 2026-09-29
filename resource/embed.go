@@ -1,6 +1,6 @@
 // Package resource contains the Web console assets embedded in standalone
-// binaries. Runtime copies under resource/ remain writable and may override
-// these defaults.
+// binaries. Standalone builds restore them under a versioned runtime directory;
+// deployments with an explicit resource root can still provide writable files.
 package resource
 
 import "embed"
