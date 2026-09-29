@@ -256,7 +256,7 @@
   $("#accountSearch").oninput = event => renderAccounts(event.target.value);
   $("#refreshAccounts").onclick = event => { const button = event.currentTarget; button.disabled = true; showToast("正在刷新 5 个演示账号"); window.setTimeout(() => { button.disabled = false; selectAccount(selectedAccountId); showToast("账号状态已刷新"); }, 700); };
   $("#copyOpenid").onclick = async () => { const value = getAccount(selectedAccountId).openid; try { await navigator.clipboard.writeText(value); showToast("OpenID 已复制"); } catch { showToast(`演示 OpenID：${value}`); } };
-  $("#versionButton").onclick = () => showToast("当前已是演示环境最新版本 v0.2.17");
+  $("#versionButton").onclick = () => showToast("当前已是演示环境最新版本 v0.2.18");
   $("#runAccount").onchange = event => { selectedAccountId = Number(event.target.value); renderJobs(); };
   $("#runStatus").onchange = renderJobs;
   $("#runSearch").oninput = renderJobs;
