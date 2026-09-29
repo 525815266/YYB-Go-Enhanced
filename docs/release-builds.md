@@ -1,6 +1,6 @@
 # 构建与发布
 
-仓库使用根目录 `VERSION` 作为 Docker、Magisk 和原生二进制的统一版本来源。正式发布前应先更新版本号和 `CHANGELOG.md`，再创建对应标签。
+仓库使用根目录 `VERSION` 作为 Docker、Magisk 和原生二进制的统一版本来源。正式发布前应先更新版本号和 `CHANGELOG.md`，再创建对应标签。Release 正文由 `tools/release_notes.py` 从当前版本章节生成，包含本次更新、下载选择、升级提示和相关文档，不再只显示 GitHub 自动生成的 `Full Changelog`。
 
 ## Docker 镜像
 
@@ -113,6 +113,30 @@ git push origin magisk-v0.2.17
 ```
 
 Docker 与 Magisk 是独立工作流，其中一条失败不会阻塞另一条。文档或脚本提交没有触发镜像构建时属于预期行为。
+
+### Release 更新说明格式
+
+普通版本发布前，`CHANGELOG.md` 必须存在对应章节：
+
+```markdown
+## v0.2.19 - 2026-09-30
+
+- 第一项用户可感知的变化。
+- 第二项修复或兼容性说明。
+```
+
+独立 Magisk 版本可使用 `## Magisk v0.1.5 - 2026-09-30`；若 Magisk 与主程序使用相同版本，也可复用 `## v0.2.19`。找不到对应章节或章节为空时，发布任务会直接失败并指出应补充的标题，避免生成没有内容的 Release。
+
+对已有标签重新运行发布工作流时，会同时更新 Release 标题、正文和附件。可在本地预览正文：
+
+```bash
+python3 tools/release_notes.py \
+  --version 0.2.18 \
+  --tag v0.2.18 \
+  --kind full \
+  --repository 525815266/YYB-Go-Enhanced \
+  --output /tmp/release-notes.md
+```
 
 ## 版本与回滚
 
