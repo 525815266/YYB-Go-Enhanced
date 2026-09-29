@@ -2,10 +2,10 @@
   "use strict";
 
   const accounts = [
-    { id: 1, name: "李娜", initial: "李", openid: "owNAX6hDDYXdEJl88N-swzzHImsI", masked: "owNAX6...HImsI", status: "ok", state: "凭据正常", refresh: "3 分钟前", proxy: "直连 · 山东济南", health: 82, healthText: "96 分钟", color: "coral" },
-    { id: 3, name: "崔静华", initial: "崔", openid: "owDemo3sA7hc3Tzqk82QL", masked: "owDemo3...k82QL", status: "ok", state: "凭据正常", refresh: "11 分钟前", proxy: "品赞 · 山东青岛", health: 71, healthText: "81 分钟", color: "blue" },
-    { id: 4, name: "曹剑飞", initial: "曹", openid: "owDemo4mP1vFbU0As91Jn", masked: "owDemo4...s91Jn", status: "warning", state: "建议重扫", refresh: "2 小时前", proxy: "静态代理 · 上海", health: 38, healthText: "43 分钟", color: "green" },
-    { id: 5, name: "邢丹丹", initial: "邢", openid: "owDemo5qH3nKyR9Wd62Pc", masked: "owDemo5...d62Pc", status: "ok", state: "凭据正常", refresh: "18 分钟前", proxy: "直连 · 山东济南", health: 66, healthText: "75 分钟", color: "amber" },
+    { id: 1, name: "张三", initial: "张", openid: "owDemo1nR4pLm7Qa81Fx", masked: "owDemo1...a81Fx", status: "ok", state: "凭据正常", refresh: "3 分钟前", proxy: "直连 · 山东济南", health: 82, healthText: "96 分钟", color: "coral" },
+    { id: 3, name: "李四", initial: "李", openid: "owDemo3sA7hc3Tzqk82QL", masked: "owDemo3...k82QL", status: "ok", state: "凭据正常", refresh: "11 分钟前", proxy: "品赞 · 山东青岛", health: 71, healthText: "81 分钟", color: "blue" },
+    { id: 4, name: "王五", initial: "王", openid: "owDemo4mP1vFbU0As91Jn", masked: "owDemo4...s91Jn", status: "warning", state: "建议重扫", refresh: "2 小时前", proxy: "静态代理 · 上海", health: 38, healthText: "43 分钟", color: "green" },
+    { id: 5, name: "赵六", initial: "赵", openid: "owDemo5qH3nKyR9Wd62Pc", masked: "owDemo5...d62Pc", status: "ok", state: "凭据正常", refresh: "18 分钟前", proxy: "直连 · 山东济南", health: 66, healthText: "75 分钟", color: "amber" },
     { id: 6, name: "微信账号 6", initial: "6", openid: "owDemo6uT8eLzA4Bx73Vf", masked: "owDemo6...x73Vf", status: "expired", state: "需要重扫", refresh: "3 天前", proxy: "直连", health: 4, healthText: "已过期", color: "blue" }
   ];
 
@@ -137,12 +137,12 @@
       return;
     }
     if (scanStep === 2) {
-      $("#scanPrimary").innerHTML = `<div class="scan-card"><span class="scan-success-icon"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg></span><h3>微信授权成功</h3><p>确认备注后保存账号。重复扫码同一 OpenID 会更新原账号。</p><div class="scan-account-card"><span class="detail-avatar blue">周</span><dl><div><dt>账号 ID</dt><dd>7</dd></div><div><dt>账号状态</dt><dd>凭据正常</dd></div><div><dt>OpenID</dt><dd class="mono">owDemo7...m92Fa</dd></div><div><dt>登录代理</dt><dd>${escapeHtml($("#scanProxy").value)}</dd></div></dl></div><label class="field scan-input"><span>账号备注</span><input id="newAccountRemark" value="周老师" maxlength="32"></label><div class="scan-finish-actions"><button class="button secondary" type="button" id="rescan">重新扫码</button><button class="button primary" type="button" id="saveScanned">保存账号${$("#autoSync").checked ? "并同步" : ""}</button></div></div>`;
+      $("#scanPrimary").innerHTML = `<div class="scan-card"><span class="scan-success-icon"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg></span><h3>微信授权成功</h3><p>确认备注后保存账号。重复扫码同一 OpenID 会更新原账号。</p><div class="scan-account-card"><span class="detail-avatar blue">孙</span><dl><div><dt>账号 ID</dt><dd>7</dd></div><div><dt>账号状态</dt><dd>凭据正常</dd></div><div><dt>OpenID</dt><dd class="mono">owDemo7...m92Fa</dd></div><div><dt>登录代理</dt><dd>${escapeHtml($("#scanProxy").value)}</dd></div></dl></div><label class="field scan-input"><span>账号备注</span><input id="newAccountRemark" value="孙七" maxlength="32"></label><div class="scan-finish-actions"><button class="button secondary" type="button" id="rescan">重新扫码</button><button class="button primary" type="button" id="saveScanned">保存账号${$("#autoSync").checked ? "并同步" : ""}</button></div></div>`;
       $("#rescan").onclick = () => { setScanStep(1); renderScan(); };
       $("#saveScanned").onclick = () => { setScanStep(3); renderScan(); };
       return;
     }
-    $("#scanPrimary").innerHTML = `<div class="scan-card"><span class="scan-success-icon"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg></span><h3>账号已保存</h3><p>${$("#autoSync").checked ? "账号 7 已合并到青龙环境变量 YYB_SERVER，未产生重复记录。" : "账号 7 已保存，暂未同步自动化面板。"}</p><div class="scan-account-card"><span class="detail-avatar blue">周</span><dl><div><dt>账号备注</dt><dd>周老师</dd></div><div><dt>同步结果</dt><dd>${$("#autoSync").checked ? "青龙 · 已完成" : "等待手动同步"}</dd></div><div><dt>账号引用</dt><dd>http://yyb-go:8000@7</dd></div><div><dt>凭据状态</dt><dd>可直接调用</dd></div></dl></div><div class="scan-finish-actions"><button class="button secondary" type="button" id="scanAnother">继续添加</button><button class="button primary" type="button" data-go="dashboard">查看账号</button></div></div>`;
+    $("#scanPrimary").innerHTML = `<div class="scan-card"><span class="scan-success-icon"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-9"/></svg></span><h3>账号已保存</h3><p>${$("#autoSync").checked ? "账号 7 已合并到青龙环境变量 YYB_SERVER，未产生重复记录。" : "账号 7 已保存，暂未同步自动化面板。"}</p><div class="scan-account-card"><span class="detail-avatar blue">孙</span><dl><div><dt>账号备注</dt><dd>孙七</dd></div><div><dt>同步结果</dt><dd>${$("#autoSync").checked ? "青龙 · 已完成" : "等待手动同步"}</dd></div><div><dt>账号引用</dt><dd>http://yyb-go:8000@7</dd></div><div><dt>凭据状态</dt><dd>可直接调用</dd></div></dl></div><div class="scan-finish-actions"><button class="button secondary" type="button" id="scanAnother">继续添加</button><button class="button primary" type="button" data-go="dashboard">查看账号</button></div></div>`;
     $("#scanAnother").onclick = () => { setScanStep(1); renderScan(); };
     $("#scanPrimary [data-go]").onclick = () => { setScanStep(1); navigate("dashboard"); showToast("演示账号已保存，刷新页面后恢复原始数据"); };
   }
