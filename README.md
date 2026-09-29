@@ -132,7 +132,7 @@ Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行
   - **Windows**: `amd64`, `arm64` (`.exe`)
   - **macOS (Darwin)**: `amd64`, `arm64`
 - **Release 资产形态**：
-  - **独立单二进制文件**（如 `yyb-go-linux-amd64`、`yyb-go-windows-amd64.exe` 等）：免解压直接运行，特别适配容器挂载、自动化脚本或无完整环境依赖的极速部署场景；
+  - **独立单二进制文件**（如 `yyb-go-linux-amd64`、`yyb-go-windows-amd64.exe` 等）：已内嵌 Web 控制台资源，免解压直接运行；首次启动会在当前目录恢复缺失的 `resource/static` 与 `resource/templates`，已有外部资源不会被覆盖；
   - **完整打包归档**（如 `yyb-go-v0.2.14-linux-amd64.tar.gz`、`yyb-go-v0.2.14-windows-amd64.zip`）：内含独立二进制文件、`resource/` 静态网页与模板资源、配置示例及说明文档；
   - **Magisk 模块**：`yyb-go-magisk-arm64-<版本>.zip`，可直接在 Magisk 管理器中安装；
   - **校验文件**：随版本附带 `checksums.txt`（包含所有二进制、完整归档包和 Magisk 模块的 SHA256 校验和）。

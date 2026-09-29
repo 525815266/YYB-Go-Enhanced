@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+
+	embeddedresource "yyb_go/resource"
 )
 
 type resources struct {
@@ -28,7 +31,40 @@ func ensureResources(root string) (resources, error) {
 			return res, err
 		}
 	}
+	if err := restoreEmbeddedWebAssets(root); err != nil {
+		return res, err
+	}
 	return res, nil
+}
+
+func restoreEmbeddedWebAssets(root string) error {
+	return fs.WalkDir(embeddedresource.WebAssets, ".", func(assetPath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if assetPath == "." {
+			return nil
+		}
+
+		target := filepath.Join(root, filepath.FromSlash(assetPath))
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if _, err := os.Stat(target); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+
+		content, err := fs.ReadFile(embeddedresource.WebAssets, assetPath)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, content, 0o644)
+	})
 }
 
 func (r resources) avatarPath(openid string) string {

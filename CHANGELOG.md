@@ -2,6 +2,11 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.16 - 2026-09-29
+
+- 修复 Windows/Linux/macOS 独立二进制缺少 Web 控制台资源的问题：将 `resource/static` 与 `resource/templates` 嵌入程序，首次启动时自动恢复缺失文件；已有外部资源仍优先且不会被覆盖。
+- 普通 `v*` Release 同步发布 Magisk ARM64 模块，固定提供 7 个独立二进制、7 个完整安装包、Magisk ZIP 和全量 SHA256 清单。
+
 ## v0.2.15 - 2026-09-28
 
 - 普通 `v*` Release 自动构建并附带 Magisk ARM64 安装包；全量 SHA256 清单同步覆盖 Magisk 资产。保留 `magisk-v*` 独立模块发布方式。
