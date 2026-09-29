@@ -4,6 +4,7 @@
 
 ## v0.2.15 - 2026-09-28
 
+- 普通 `v*` Release 自动构建并附带 Magisk ARM64 安装包；全量 SHA256 清单同步覆盖 Magisk 资产。保留 `magisk-v*` 独立模块发布方式。
 - 合并 PR #67：新增 Linux amd64/arm64/armv7、Windows amd64/arm64、macOS amd64/arm64 原生二进制及完整资源包构建，Release 附带 SHA256 校验文件。
 - Release 工作流覆盖 Pull Request、主分支、版本标签和手动发布；构建前运行完整 Go 测试，并校验手动版本号的 SemVer 格式。
 - 工作流移除 `setup-go`、`upload-artifact` 等启动前下载依赖，避免 codeload 429/502 使构建无法开始；普通 CI 不再上传临时产物。

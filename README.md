@@ -134,7 +134,8 @@ Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行
 - **Release 资产形态**：
   - **独立单二进制文件**（如 `yyb-go-linux-amd64`、`yyb-go-windows-amd64.exe` 等）：免解压直接运行，特别适配容器挂载、自动化脚本或无完整环境依赖的极速部署场景；
   - **完整打包归档**（如 `yyb-go-v0.2.14-linux-amd64.tar.gz`、`yyb-go-v0.2.14-windows-amd64.zip`）：内含独立二进制文件、`resource/` 静态网页与模板资源、配置示例及说明文档；
-  - **校验文件**：随版本附带 `checksums.txt`（包含所有二进制与压缩包的 SHA256 校验和）。
+  - **Magisk 模块**：`yyb-go-magisk-arm64-<版本>.zip`，可直接在 Magisk 管理器中安装；
+  - **校验文件**：随版本附带 `checksums.txt`（包含所有二进制、完整归档包和 Magisk 模块的 SHA256 校验和）。
 - **触发机制**：
   - **自动发布**：推送版本 Tag（如 `v0.2.14`）时自动全量构建并发布/更新到对应 GitHub Release；
   - **手动构建**：可在 GitHub Actions 页面进入 **多架构二进制 Release 构建与发布** 手动触发，指定版本号及是否推送到 Release；
@@ -142,6 +143,8 @@ Magisk 模块使用独立的 `Build Magisk Module` Workflow：服务端、运行
   - **本地构建**：本地环境支持通过 `bash ./scripts/build-release.sh [target]` 一键构建单个或全量架构目标。
 
 该工作流不使用需要在作业启动前从 `codeload.github.com` 下载的第三方 Action，代码检出自带重试，降低 GitHub 429/502 导致构建尚未开始便失败的概率。手动填写的版本号必须符合 SemVer，例如 `0.2.15` 或 `0.2.15-rc.1`。
+
+普通 `v*` 版本 Release 固定发布 7 个独立二进制、7 个完整安装归档包、1 个 Magisk ARM64 模块和 1 个 `checksums.txt`，共 16 个资产。原有 `magisk-v*` 标签仍可用于仅发布 Magisk 模块的独立 Release。
 
 Docker 镜像只在服务端代码、运行资源、Go 依赖、Docker 构建文件或对应 workflow 变更时构建；`scripts/**`、README 和普通文档更新不会再触发镜像更新提示。Magisk 只在服务端代码、运行前端资源、打包文件、Go 依赖或对应 workflow 变更时构建。这样脚本发布不会伪装成 Docker/Magisk 版本更新，但核心服务提交仍会自动验证和构建。
 
