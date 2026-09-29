@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>用户管理 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260928-update">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260929-admin">
   <style>
     .users-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .users-toolbar .input { width:min(320px,100%); }
@@ -30,6 +30,7 @@
     .inspected-account small { margin-top:5px; color:var(--muted); }
     @media(max-width:720px){.users-toolbar{align-items:stretch;flex-direction:column}.users-toolbar .input{width:100%}.users-table{border:0;background:transparent}.users-table table,.users-table tbody,.users-table tr,.users-table td{display:block;width:100%}.users-table thead{display:none}.users-table tr{margin-bottom:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#fff}.users-table td{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border:0}.users-table td::before{content:attr(data-label);color:var(--muted);font-size:12px}.users-table td:first-child{display:block}.users-table td:first-child::before{display:none}}
   </style>
+  <link rel="stylesheet" href="/static/css/console.css?v=20260929-admin">
 </head>
 <body>
   <header class="shell-header"></header>
@@ -53,10 +54,8 @@
       <div class="user-inspector-head"><div><h2 id="inspectTitle">用户账号</h2><p id="inspectSubtitle">只读查看该用户已绑定的 YYB 账号和当前状态。</p></div><button class="btn secondary" id="closeInspector" type="button">关闭查看</button></div>
       <div class="inspected-accounts" id="inspectedAccounts"></div>
     </section>
-  </main>
-
-  <dialog class="platform-dialog" id="createUserDialog">
-    <form id="createUserForm" method="dialog">
+  <section class="user-create-panel" id="createUserDialog" aria-label="新增用户" hidden>
+    <form id="createUserForm">
       <div class="platform-dialog-head"><div><h2>新增用户</h2><p>创建可登录 YYB Go 控制台的成员。</p></div><button class="platform-dialog-close" type="button" data-close-dialog aria-label="关闭">×</button></div>
       <div class="platform-dialog-body">
         <div class="field"><label for="newUsername">用户名</label><input class="input" id="newUsername" autocomplete="off" minlength="3" maxlength="64" required></div>
@@ -67,7 +66,8 @@
       </div>
       <div class="platform-dialog-actions"><button class="btn secondary" type="button" data-close-dialog>取消</button><button class="btn primary" id="createUserSubmit" type="submit">创建用户</button></div>
     </form>
-  </dialog>
+  </section>
+  </main>
 
   <dialog class="platform-dialog" id="resetPasswordDialog">
     <form id="resetPasswordForm" method="dialog">
@@ -108,9 +108,9 @@
     async function updateUser(id, role, enabled) { try { await api(`/api/auth/users/${id}/state`, { method: "PUT", body: JSON.stringify({ role, enabled }) }); toast("用户状态已更新"); await load(); } catch (error) { toast(error.message, true); } }
     function openReset(user) { state.resetUser = user; $("resetPasswordForm").reset(); $("resetFeedback").hidden = true; $("resetPasswordCaption").textContent = `为 ${user.display_name || user.username} 设置新密码，保存后该用户现有会话将被注销。`; $("resetPasswordDialog").showModal(); $("resetPassword").focus(); }
     async function inspectAccounts(user) { $("userInspector").hidden = false; $("inspectTitle").textContent = `${user.display_name || user.username} 的账号`; $("inspectSubtitle").textContent = "正在读取该用户已绑定的 YYB 账号。"; $("inspectedAccounts").innerHTML = ""; try { const result = await api(`/api/auth/users/${user.id}/accounts`); const accounts = result.accounts || []; $("inspectSubtitle").textContent = `共 ${accounts.length} 个账号，只读查看，不会切换当前管理员会话。`; $("inspectedAccounts").innerHTML = accounts.map(account => { const name = account.remark || account.nickname || account.alias || account.openid || "未命名账号"; const status = account.status === "alive" ? "可用" : account.status === "expired" ? "需重扫" : "待确认"; return `<article class="inspected-account"><strong>${escapeHTML(name)}</strong><small>ID ${account.id} · ${escapeHTML(status)}</small><small>${escapeHTML(account.openid || "")}</small></article>`; }).join("") || '<div class="empty-users">该用户还没有绑定 YYB 账号。</div>'; } catch (error) { $("inspectSubtitle").textContent = `读取失败：${error.message}`; } }
-    $("showCreateUser").onclick = () => { $("createUserForm").reset(); $("createFeedback").hidden = true; $("createUserDialog").showModal(); $("newUsername").focus(); };
-    document.querySelectorAll("[data-close-dialog]").forEach(button => button.onclick = () => button.closest("dialog").close());
-    $("createUserForm").onsubmit = async event => { event.preventDefault(); const button = $("createUserSubmit"); button.disabled = true; try { await api("/api/auth/users", { method: "POST", body: JSON.stringify({ username: $("newUsername").value.trim(), display_name: $("newDisplayName").value.trim(), password: $("newPassword").value, role: $("newRole").value }) }); $("createUserDialog").close(); toast("用户已创建"); await load(); } catch (error) { feedback("createFeedback", error.message); } finally { button.disabled = false; } };
+    $("showCreateUser").onclick = () => { $("createUserForm").reset(); $("createFeedback").hidden = true; $("createUserDialog").hidden = false; $("createUserDialog").scrollIntoView({ block: "start" }); $("newUsername").focus({ preventScroll: true }); };
+    document.querySelectorAll("[data-close-dialog]").forEach(button => button.onclick = () => { const dialog = button.closest("dialog"); if (dialog) dialog.close(); else { $("createUserDialog").hidden = true; $("showCreateUser").focus(); } });
+    $("createUserForm").onsubmit = async event => { event.preventDefault(); const button = $("createUserSubmit"); button.disabled = true; try { await api("/api/auth/users", { method: "POST", body: JSON.stringify({ username: $("newUsername").value.trim(), display_name: $("newDisplayName").value.trim(), password: $("newPassword").value, role: $("newRole").value }) }); $("createUserDialog").hidden = true; $("showCreateUser").focus(); toast("用户已创建"); await load(); } catch (error) { feedback("createFeedback", error.message); } finally { button.disabled = false; } };
     $("resetPasswordForm").onsubmit = async event => { event.preventDefault(); if ($("resetPassword").value !== $("resetPasswordConfirm").value) { feedback("resetFeedback", "两次输入的密码不一致"); return; } const button = $("resetPasswordSubmit"); button.disabled = true; try { await api(`/api/auth/users/${state.resetUser.id}/password`, { method: "PUT", body: JSON.stringify({ password: $("resetPassword").value }) }); $("resetPasswordDialog").close(); toast("密码已重置，该用户会话已注销"); } catch (error) { feedback("resetFeedback", error.message); } finally { button.disabled = false; } };
     $("usersBody").onclick = async event => { const button = event.target.closest("button[data-action]"); if (!button) return; const user = state.users.find(item => String(item.id) === button.dataset.id); if (!user) return; if (button.dataset.action === "accounts") await inspectAccounts(user); if (button.dataset.action === "role") await updateUser(user.id, user.role === "admin" ? "user" : "admin", user.enabled); if (button.dataset.action === "state") await updateUser(user.id, user.role, !user.enabled); if (button.dataset.action === "password") openReset(user); if (button.dataset.action === "delete" && confirm(`确定删除用户“${user.display_name || user.username}”吗？此操作无法撤销。`)) { try { await api(`/api/auth/users/${user.id}/delete`, { method: "DELETE" }); toast("用户已删除"); await load(); } catch (error) { toast(error.message, true); } } };
     $("closeInspector").onclick = () => { $("userInspector").hidden = true; };
@@ -118,6 +118,6 @@
     $("searchUsers").oninput = renderUsers;
     load().catch(error => toast(error.message, true));
   </script>
-  <script src="/static/js/platform.js?v=20260929-update-status"></script>
+  <script src="/static/js/platform.js?v=20260929-admin"></script>
 </body>
 </html>

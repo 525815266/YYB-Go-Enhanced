@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>工作台 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260928-update">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260929-admin">
   <style>
     :root {
       color-scheme: light;
@@ -953,6 +953,7 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="/static/css/console.css?v=20260929-admin">
 </head>
 <body>
   <div class="app">
@@ -978,8 +979,7 @@
     <main class="shell">
       <section class="overview" aria-label="控制台概览">
         <div class="summary">
-          <h2>选择账号，执行服务调用</h2>
-          <p class="summary-copy">首页现在聚焦运行工作流。接口详情保留在 Swagger，当前页面只放账号状态、调用配置和返回结果。</p>
+          <h2>工作台</h2>
           <div class="stat-row" aria-label="运行统计">
             <span class="stat-chip">账号 <strong id="accountCount">0</strong></span>
             <span class="stat-chip">可用 <strong id="aliveCount">0</strong></span>
@@ -990,7 +990,6 @@
           </div>
         </div>
         <aside class="quick-actions" aria-label="常用动作">
-          <p>常用入口放在这里，避免把接口文档铺满首页。</p>
           <div class="inline-actions">
             <button class="btn" id="refreshAllBtn" type="button">刷新存活</button>
             <button class="btn" id="resyncAllBtn" type="button">同步资料</button>
@@ -1002,8 +1001,7 @@
       <section class="account-band" id="accountWorkspace" aria-label="账号队列">
         <div class="section-head">
           <div class="section-title">
-            <h3>账号队列</h3>
-            <p>一键整理清理扫码残留；账号压缩会安全迁移现有账号到连续 ID</p>
+            <h3>微信账号</h3>
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
@@ -1012,9 +1010,15 @@
             <a class="btn primary" href="/scan">添加账号</a>
           </div>
         </div>
+        <div class="account-filterbar">
+          <input class="input" id="accountSearch" type="search" placeholder="搜索备注、昵称、账号 ID" aria-label="搜索微信账号">
+          <select class="input" id="accountStatusFilter" aria-label="筛选账号状态"><option value="">全部状态</option><option value="alive">可用</option><option value="warning">待确认或建议重扫</option><option value="expired">已失效</option></select>
+          <span class="account-filter-count" id="accountFilterCount" aria-live="polite">正在加载</span>
+        </div>
         <div class="account-strip" id="accountStrip">
           <div class="empty-state">账号加载中</div>
         </div>
+        <div class="empty-state" id="accountFilterEmpty" hidden>没有匹配的账号</div>
       </section>
 
       <section class="work-grid" id="callWorkspace" aria-label="调用工作区">
@@ -1432,7 +1436,7 @@
       document.querySelectorAll(".account-card").forEach(card => {
         const selected = card.dataset.openid === state.selectedOpenID;
         card.classList.toggle("selected", selected);
-        card.setAttribute("aria-pressed", String(selected));
+        card.querySelector(".account-select").setAttribute("aria-pressed", String(selected));
       });
     }
 
@@ -1448,6 +1452,7 @@
       if (!state.accounts.length) {
         strip.innerHTML = `<div class="empty-state">暂无账号，点击“添加账号”开始扫码。</div>`;
         state.selectedOpenID = "";
+        $("accountFilterCount").textContent = "0 个账号";
         renderStats();
         return;
       }
@@ -1465,12 +1470,13 @@
         const cls = isExpired ? "expired" : account.rescan_recommended ? "warning" : statusClass(account.status);
         const status = isExpired ? "已失效" : account.rescan_recommended ? "建议重扫" : statusText(account.status);
         const pendingConfirmation = account.status !== "alive" && account.status !== "expired";
-        const button = document.createElement("button");
-        button.type = "button";
+        const button = document.createElement("div");
+        button.setAttribute("role", "group");
         button.className = `account-card ${cls}${isExpired && playExpiredIntro ? " expired-alert" : ""}`;
         button.dataset.openid = account.openid;
+        button.dataset.search = [name, account.nickname, account.remark, account.alias, account.id, account.openid, account.uin].join(" ").toLowerCase();
+        button.dataset.status = cls === "alive" || cls === "expired" ? cls : "warning";
         if (isExpired) button.dataset.stateLabel = "已失效";
-        button.setAttribute("aria-pressed", "false");
         const number = accountNumber(account);
         button.setAttribute("aria-label", `选择账号 ${number}，${name}，状态：${status}`);
         button.innerHTML = `
@@ -1480,7 +1486,7 @@
           </span>
           <span class="account-main">
             <span class="account-header">
-              <span class="account-name">${escapeHTML(name)}</span>
+              <button type="button" class="account-name account-select" aria-pressed="false" aria-label="选择账号 ${escapeHTML(number)}，${escapeHTML(name)}">${escapeHTML(name)}</button>
               <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}${pendingConfirmation ? `<span class="account-confirm-actions"><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></span>` : ""}</span>
             </span>
 			<span class="account-meta" title="账号 ID ${escapeHTML(number)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ID ${escapeHTML(number)} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
@@ -1519,8 +1525,24 @@
       }
       state.expiredIntroPlayed = true;
       renderStats();
+      filterAccounts();
       loadAccountProxySummary();
     }
+
+    function filterAccounts() {
+      const query = $("accountSearch").value.trim().toLowerCase();
+      const status = $("accountStatusFilter").value;
+      const rows = [...$("accountStrip").querySelectorAll(".account-card")];
+      let visible = 0;
+      rows.forEach(row => {
+        row.hidden = Boolean((query && !row.dataset.search.includes(query)) || (status && row.dataset.status !== status));
+        if (!row.hidden) visible += 1;
+      });
+      $("accountFilterCount").textContent = `${visible} / ${rows.length} 个账号`;
+      $("accountFilterEmpty").hidden = rows.length === 0 || visible !== 0;
+    }
+    $("accountSearch").addEventListener("input", filterAccounts);
+    $("accountStatusFilter").addEventListener("change", filterAccounts);
 
     async function loadAccountProxySummary() {
       const account = getSelectedAccount();
@@ -2091,6 +2113,6 @@
     loadQingLongConfig();
     setInterval(loadHealth, 15000);
   </script>
-  <script src="/static/js/platform.js?v=20260929-update-status"></script>
+  <script src="/static/js/platform.js?v=20260929-admin"></script>
 </body>
 </html>

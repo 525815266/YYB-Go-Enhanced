@@ -1,16 +1,21 @@
 (() => {
   const pages = {
     "/maintenance": ["系统维护", "版本更新与重启"],
-    "/": ["我的控制台", "账号与能力调用"],
+    "/": ["工作台", "账号与能力调用"],
     "/scan": ["添加账号", "微信授权"],
     "/proxies": ["代理设置", "账号网络出口"],
-    "/runs": ["账号调度", "脚本任务与账号日志"],
+    "/runs": ["运行管理", "脚本任务与账号日志"],
     "/users": ["用户管理", "成员与访问权限"],
     "/account-links": ["已激活短链接", "一次性授权链接"],
     "/settings": ["个人设置", "资料与安全"]
   };
   const view = new URLSearchParams(location.search).get("view");
-  const current = location.pathname === "/runs" && view === "push" ? ["独立推送", "账号通知设置"] : (pages[location.pathname] || ["YYB Go", "管理控制台"]);
+  const focus = new URLSearchParams(location.search).get("focus");
+  const current = location.pathname === "/runs" && view === "push" ? ["独立推送", "账号通知设置"]
+    : location.pathname === "/runs" && view === "logs" ? ["运行日志", "脚本与账号日志"]
+    : location.pathname === "/" && focus === "accounts" ? ["微信账号", "账号管理"]
+    : location.pathname === "/" && focus === "test" ? ["接口测试", "协议能力调用"]
+    : (pages[location.pathname] || ["YYB Go", "管理控制台"]);
   const main = document.querySelector("main");
   if (!main) return;
 
@@ -30,22 +35,24 @@
     logout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M9 12h9"/></svg>'
   };
   const navGroups = [
-    { label: "主菜单", items: [
-      ["/", "dashboard", "我的控制台", true, false],
-      ["/?focus=accounts", "account", "我的微信账号", true, false],
+    { label: "工作空间", items: [
+      ["/", "dashboard", "工作台", true, false],
+      ["/?focus=accounts", "account", "微信账号", true, false],
       ["/scan", "scan", "添加账号", true, false],
-      ["/runs", "runs", "账号调度", true, false],
-      ["/runs?view=push", "push", "独立推送", true, false],
-      ["/runs?view=logs", "logs", "调用记录", true, false],
-      ["/?focus=test", "test", "接口测试", true, false],
-      ["/docs/index.html", "docs", "接口文档", true, false]
+      ["/?focus=test", "test", "接口测试", true, false]
     ]},
-    { label: "管理", items: [
+    { label: "任务与记录", items: [
+      ["/runs", "runs", "运行管理", true, false],
+      ["/runs?view=logs", "logs", "运行日志", true, false],
+      ["/runs?view=push", "push", "独立推送", true, false]
+    ]},
+    { label: "平台管理", items: [
       ["/proxies", "proxy", "代理设置", true, false],
       ["/account-links", "link", "已激活短链接", true, true],
       ["/users", "users", "用户管理", false, true],
       ["/maintenance", "settings", "系统维护", false, true],
-      ["/settings", "settings", "个人设置", true, true]
+      ["/settings", "settings", "个人设置", true, true],
+      ["/docs/index.html", "docs", "接口文档", true, false]
     ]}
   ];
   const isActive = href => {
@@ -60,16 +67,17 @@
   shell.className = "platform-shell";
   shell.innerHTML = `
     <aside class="platform-sidebar" aria-label="主导航">
-      <a class="platform-brand" href="/"><span class="platform-brand-mark">Y</span><span class="platform-brand-copy"><strong>YYB Go</strong><span>微信协议管理平台</span></span></a>
+      <a class="platform-brand" href="/" title="YYB Go 工作台"><span class="platform-brand-mark">Y</span><span class="platform-brand-copy"><strong>YYB Go</strong><span>管理控制台</span></span></a>
       <nav class="platform-nav">${navGroups.map(group => `<div class="platform-nav-section"><div class="platform-nav-group">${group.label}</div>${group.items.map(([href, icon, label, visible, authOnly]) => `<a href="${href}" data-label="${label}" data-admin-only="${!visible}" data-auth-only="${authOnly}" ${isActive(href) ? 'aria-current="page"' : ""}><span class="platform-nav-icon">${icons[icon]}</span><span class="platform-nav-label">${label}</span></a>`).join("")}</div>`).join("")}</nav>
-      <div class="platform-sidebar-foot"><button type="button" id="platformLogout" data-label="退出登录"><span class="platform-nav-icon">${icons.logout}</span><span class="platform-nav-label">退出登录</span></button></div>
+      <div class="platform-sidebar-foot"><button type="button" id="platformLogout" data-label="退出登录" title="退出登录"><span class="platform-nav-icon">${icons.logout}</span><span class="platform-nav-label">退出登录</span></button></div>
     </aside>
     <button class="platform-overlay" id="platformOverlay" type="button" aria-label="关闭导航"></button>
     <section class="platform-stage">
       <header class="platform-topbar">
-        <div style="display:flex;align-items:center;gap:12px;min-width:0"><button class="platform-menu" id="platformMenu" type="button" aria-label="打开导航">☰</button><div class="platform-page-context"><div class="platform-breadcrumb">YYB Go / ${current[1]}</div><div class="platform-page-title">${current[0]}</div></div></div>
+        <div class="platform-topbar-start"><button class="platform-menu" id="platformMenu" type="button" aria-label="折叠导航" aria-expanded="true" title="折叠导航"><span class="platform-menu-icon">${icons.dashboard}</span></button><div class="platform-page-context"><div class="platform-breadcrumb">YYB Go <span aria-hidden="true">/</span> ${current[1]}</div><div class="platform-page-title">${current[0]}</div></div></div>
         <div class="platform-user"><button class="platform-build" id="platformBuild" type="button" aria-label="当前版本读取中，点击检查更新" aria-haspopup="dialog" aria-controls="platformUpdateDialog" title="检查版本与更新"><span>当前版本</span><strong>读取中</strong></button><div class="platform-user-copy"><strong id="platformUserName">正在读取</strong><span id="platformUserRole">当前用户</span></div><span class="platform-avatar" id="platformAvatar">Y</span></div>
       </header>
+      <nav class="platform-tabs" aria-label="已打开的页面"><div class="platform-tabs-list" id="platformTabs"></div></nav>
       <div class="platform-main"></div>
     </section>
     <dialog class="platform-dialog platform-update-dialog" id="platformUpdateDialog" aria-labelledby="platformUpdateTitle">
@@ -88,11 +96,98 @@
   shell.querySelector(".platform-main").appendChild(main);
   document.body.classList.add("platform-ready");
 
-  const closeNav = () => document.body.classList.remove("platform-nav-open");
-  document.getElementById("platformMenu").onclick = () => document.body.classList.toggle("platform-nav-open");
+  shell.querySelectorAll(".platform-nav a").forEach(link => { link.title = link.dataset.label; });
+  const readPreference = (storage, key) => {
+    try { return storage.getItem(key); } catch { return null; }
+  };
+  const writePreference = (storage, key, value) => {
+    try { storage.setItem(key, value); } catch { /* Navigation still works when browser storage is unavailable. */ }
+  };
+  const menuButton = document.getElementById("platformMenu");
+  const sidebar = shell.querySelector(".platform-sidebar");
+  const mobileNav = matchMedia("(max-width: 860px)");
+  const closeNav = () => {
+    document.body.classList.remove("platform-nav-open");
+    sidebar.inert = mobileNav.matches;
+    sidebar.setAttribute("aria-hidden", String(mobileNav.matches));
+    menuButton.setAttribute("aria-expanded", String(!mobileNav.matches && !document.body.classList.contains("platform-collapsed")));
+    if (mobileNav.matches) { menuButton.setAttribute("aria-label", "打开导航"); menuButton.title = "打开导航"; }
+  };
+  const setCollapsed = collapsed => {
+    document.body.classList.toggle("platform-collapsed", collapsed);
+    menuButton.setAttribute("aria-expanded", String(!collapsed));
+    menuButton.setAttribute("aria-label", collapsed ? "展开导航" : "折叠导航");
+    menuButton.title = collapsed ? "展开导航" : "折叠导航";
+    writePreference(localStorage, "yyb-platform-collapsed", collapsed ? "1" : "0");
+  };
+  setCollapsed(readPreference(localStorage, "yyb-platform-collapsed") === "1");
+  closeNav();
+  menuButton.onclick = () => {
+    if (mobileNav.matches) {
+      document.body.classList.toggle("platform-nav-open");
+      const open = document.body.classList.contains("platform-nav-open");
+      sidebar.inert = !open;
+      sidebar.setAttribute("aria-hidden", String(!open));
+      menuButton.setAttribute("aria-expanded", String(open));
+      menuButton.setAttribute("aria-label", open ? "关闭导航" : "打开导航");
+      menuButton.title = open ? "关闭导航" : "打开导航";
+      if (open) sidebar.querySelector('.platform-nav a:not([hidden])')?.focus();
+    } else setCollapsed(!document.body.classList.contains("platform-collapsed"));
+  };
   document.getElementById("platformOverlay").onclick = closeNav;
+  document.addEventListener("keydown", event => {
+    if (!document.body.classList.contains("platform-nav-open")) return;
+    if (event.key === "Escape") { closeNav(); menuButton.focus(); }
+    if (event.key === "Tab") {
+      const controls = [...sidebar.querySelectorAll('a, button')].filter(element => element.getClientRects().length > 0);
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+  });
+  mobileNav.addEventListener("change", closeNav);
   shell.querySelectorAll(".platform-nav a").forEach(link => link.addEventListener("click", closeNav));
-  document.getElementById("platformLogout").onclick = async () => { await fetch("/logout", { method: "POST" }); location.href = "/login"; };
+  const tabsContainer = document.getElementById("platformTabs");
+  const pageHref = location.pathname + location.search;
+  let openTabs;
+  try { openTabs = JSON.parse(readPreference(sessionStorage, "yyb-platform-tabs") || "[]"); }
+  catch { openTabs = []; }
+  if (!Array.isArray(openTabs)) openTabs = [];
+  openTabs = openTabs.filter(tab => tab && typeof tab.href === "string" && typeof tab.title === "string" && tab.href.startsWith("/") && !tab.href.startsWith("//")).slice(-7);
+  if (!openTabs.some(tab => tab.href === pageHref)) openTabs.push({ href: pageHref, title: current[0] });
+  openTabs = openTabs.slice(-8);
+  const saveTabs = () => writePreference(sessionStorage, "yyb-platform-tabs", JSON.stringify(openTabs));
+  const renderTabs = () => {
+    tabsContainer.replaceChildren();
+    openTabs.forEach(tab => {
+      const item = document.createElement("span");
+      item.className = "platform-tab";
+      if (tab.href === pageHref) item.setAttribute("aria-current", "page");
+      const link = document.createElement("a");
+      link.href = tab.href;
+      link.textContent = tab.title;
+      item.appendChild(link);
+      if (openTabs.length > 1) {
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "platform-tab-close";
+        close.textContent = "×";
+        close.setAttribute("aria-label", `关闭${tab.title}页签`);
+        close.title = `关闭${tab.title}页签`;
+        close.onclick = () => {
+          openTabs = openTabs.filter(entry => entry.href !== tab.href);
+          saveTabs();
+          if (tab.href === pageHref) location.assign(openTabs.at(-1)?.href || "/");
+          else renderTabs();
+        };
+        item.appendChild(close);
+      }
+      tabsContainer.appendChild(item);
+    });
+  };
+  saveTabs();
+  renderTabs();
+  document.getElementById("platformLogout").onclick = async () => { await fetch("/logout", { method: "POST" }); writePreference(sessionStorage, "yyb-platform-tabs", "[]"); location.href = "/login"; };
 
   let currentVersion = "", updateTarget = "", maintenanceAllowed = false, updatePolling = false, updateStopped = false, runtimeInfo = {};
   const updateDialog = document.getElementById("platformUpdateDialog");
@@ -248,8 +343,10 @@
     if (roleStat) roleStat.textContent = roleLabel;
     if (quotaStat) quotaStat.textContent = "无限制";
     document.getElementById("platformAvatar").textContent = Array.from(name)[0]?.toUpperCase() || "Y";
-    shell.querySelectorAll('[data-admin-only="true"]').forEach(link => { link.hidden = user.role !== "admin"; });
-    shell.querySelectorAll('[data-auth-only="true"]').forEach(link => { link.hidden = !authEnabled; });
+    shell.querySelectorAll("[data-admin-only], [data-auth-only]").forEach(link => {
+      link.hidden = (link.dataset.adminOnly === "true" && user.role !== "admin") ||
+        (link.dataset.authOnly === "true" && !authEnabled);
+    });
     const repairAccountsButton = document.getElementById("repairAccountsBtn");
     if (repairAccountsButton) repairAccountsButton.hidden = authEnabled && user.role !== "admin";
     document.querySelector(".platform-sidebar-foot").hidden = !authEnabled;

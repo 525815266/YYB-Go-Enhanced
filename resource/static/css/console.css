@@ -1,0 +1,125 @@
+/* Shared component rules are loaded after each legacy page's local styles. */
+body.platform-ready {
+  --bg: oklch(1 0 0);
+  --bg-soft: var(--platform-bg);
+  --surface: oklch(0.985 0.002 250);
+  --surface-strong: oklch(0.945 0.005 250);
+  --ink: var(--platform-ink);
+  --muted: var(--platform-muted);
+  --faint: oklch(0.48 0.015 250);
+  --line: var(--platform-line);
+  --primary: var(--platform-accent);
+  --primary-hover: oklch(0.48 0.195 3);
+  --brand: var(--platform-accent);
+  --brand-dark: oklch(0.48 0.195 3);
+  --accent: var(--platform-accent);
+  --accent-soft: oklch(0.973 0.015 3);
+  --radius: 6px;
+}
+body.platform-ready [hidden] { display: none !important; }
+.platform-main :is(.page-head h2, .page-title h1) { font-size: 21px; font-weight: 650; letter-spacing: 0; }
+.platform-main :is(.section-title h3, .card h2, .profile-head h2) { font-size: 15px; font-weight: 650; }
+.platform-main :is(.panel, .account-band, .summary, .quick-actions, .card, .workspace, .profile-band, .proxy-workspace) {
+  border-radius: 6px;
+  border-color: var(--line);
+  box-shadow: none;
+}
+.platform-main :is(.section-head, .link-toolbar, .profile-head) { background: var(--bg); }
+.platform-main :is(.btn, .input, .field input, .field select, .field textarea, .toolbar input) { border-radius: 5px; }
+.platform-main .btn { min-height: 34px; height: auto; padding: 7px 12px; font-size: 13px; font-weight: 500; box-shadow: none; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+.platform-main .btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
+.platform-main .btn.primary:not(:disabled):hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.platform-main .btn:not(:disabled):hover { transform: none; box-shadow: none; }
+.platform-main :is(.input, .field input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), .field select, .toolbar input) { min-height: 36px; }
+.platform-main :is(th, td) { padding: 12px 16px; }
+.platform-main th { font-weight: 600; font-size: 12px; background: var(--surface); color: var(--muted); }
+.platform-main tr:hover td { background: var(--surface); }
+.platform-main tr.log-row:hover td { background: var(--code-bg); }
+.platform-main :is(.notice, .run-scope, .proxy-feedback, .profile-feedback) { border-radius: 5px; }
+.platform-main :is(.toast, .flash) { z-index: 80; }
+.platform-main .overview { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.platform-main .summary { background: transparent; padding: 0; border: 0; gap: 14px; }
+.platform-main .summary h2 { font-size: 21px; font-weight: 650; }
+.platform-main .summary-copy { display: none; }
+.platform-main .stat-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; padding: 14px 0; border-block: 1px solid var(--line); }
+.platform-main .stat-chip { display: grid; gap: 4px; min-height: 0; padding: 0 18px; border: 0; border-right: 1px solid var(--line); border-radius: 0; background: transparent; font-size: 12px; }
+.platform-main .stat-chip:first-child { padding-left: 0; }
+.platform-main .stat-chip:last-child { border: 0; }
+.platform-main .stat-chip strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; }
+.platform-main .quick-actions { display: flex; justify-content: flex-end; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); }
+.platform-main .quick-actions p { display: none; }
+.platform-main .quick-actions .btn { background: var(--bg); color: var(--ink); border-color: var(--line); }
+.platform-main .quick-actions .btn:hover { background: var(--surface); }
+.platform-main .account-band { border: 0; border-radius: 0; background: transparent; }
+.platform-main .account-band > .section-head { padding: 0 0 12px; border: 0; min-height: 44px; background: transparent; }
+.platform-main .account-band .section-title p { display: none; }
+.account-filterbar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; }
+.account-filterbar .input { width: min(320px, 100%); min-width: 0; }
+.account-filterbar select.input { width: 136px; flex: 0 0 136px; }
+.account-filter-count { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.platform-main .account-strip { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-height: 0; max-height: 420px; overflow: auto; padding: 0; border: 1px solid var(--line); border-radius: 0 0 6px 6px; background: var(--bg); }
+.platform-main .account-card { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: center; min-height: 86px; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--bg); box-shadow: none; animation: none; }
+.platform-main .account-card:last-child { border-bottom: 0; }
+.platform-main .account-card:hover { background: var(--surface); border-color: var(--line); transform: none; box-shadow: none; }
+.platform-main .account-card.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 1px oklch(0.85 0.04 3); border-color: var(--line); }
+.platform-main .account-card.expired { background: var(--bg); }
+.platform-main .account-card.expired.expired-alert { animation: none; box-shadow: none; }
+.platform-main .account-card.expired.expired-alert :is(.avatar, .account-main) { animation: none; }
+.platform-main .account-card.expired.selected { background: var(--accent-soft); }
+.platform-main .account-card.expired::after { display: none; }
+.platform-main .account-card.expired :is(.avatar, .account-main) { opacity: 1; filter: none; animation: none; }
+.platform-main .account-card .account-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 1fr); gap: 4px 24px; }
+.platform-main .account-header { grid-column: 1; }
+.platform-main .account-openid { grid-column: 1; grid-row: 2; font-size: 11px; }
+.platform-main .account-meta { grid-column: 2; grid-row: 1; align-self: center; font-size: 12px; color: var(--muted); }
+.platform-main .account-lifecycle { grid-column: 2; grid-row: 2; padding: 0; background: transparent; border: 0; }
+.platform-main .account-name { font-weight: 600; }
+.platform-main .account-select { max-width: 100%; padding: 0; background: transparent; border: 0; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.platform-main .account-select:hover { color: var(--primary); }
+.platform-main .account-status { font-weight: 500; }
+.platform-main .account-card[hidden] { display: none; }
+.platform-main .work-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.platform-main .work-grid > aside { grid-column: 1 / -1; border: 0; background: transparent; }
+.platform-main .work-grid > aside > .section-head { padding-inline: 0; background: transparent; border: 0; }
+.platform-main .work-grid > aside > .panel-body { padding-inline: 0; }
+.platform-main .quick-list { display: flex; flex-wrap: wrap; gap: 16px; }
+.platform-main .quick-link { flex: 1 1 180px; border: 0; border-radius: 0; padding: 0; background: transparent; }
+.platform-main .account-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.platform-main .account-tools .input { flex: 1 1 180px; }
+.platform-main .account-tools .btn { width: auto; flex: 0 1 auto; }
+.platform-main .section-title p { white-space: normal; }
+.platform-main .result-box { min-height: 240px; border-radius: 5px; }
+.platform-main .toggle input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 3px; }
+.user-create-panel { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--line); scroll-margin-top: 112px; }
+.user-create-panel .platform-dialog-head { padding-inline: 0; border: 0; }
+.user-create-panel .platform-dialog-body { max-width: 760px; padding: 12px 0 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+.user-create-panel .field { margin: 0; }
+.user-create-panel .notice { grid-column: 1 / -1; }
+.user-create-panel .platform-dialog-actions { padding-inline: 0; background: transparent; justify-content: flex-start; }
+@media (max-width: 1100px) {
+  .platform-main .stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 0; }
+  .platform-main .stat-chip:nth-child(3) { border-right: 0; }
+  .platform-main .stat-chip:nth-child(4) { padding-left: 0; }
+}
+@media (max-width: 700px) {
+  .user-create-panel .platform-dialog-body { grid-template-columns: minmax(0, 1fr); }
+  .platform-main .work-grid { grid-template-columns: minmax(0, 1fr); }
+  .platform-main .work-grid > aside { grid-column: auto; }
+  .platform-main .account-card .account-main { grid-template-columns: minmax(0, 1fr); }
+  .platform-main .account-header { flex-wrap: wrap; }
+  .platform-main .account-select { flex: 1 1 100px; }
+  .platform-main .account-meta { grid-column: 1; grid-row: 3; }
+  .platform-main .account-lifecycle { grid-column: 1; grid-row: 4; }
+  .account-filterbar { flex-wrap: wrap; padding: 10px; gap: 8px; }
+  .account-filterbar .input { width: auto; flex: 1 1 160px; }
+  .account-filterbar select.input { flex: 0 0 120px; }
+  .account-filter-count { width: 100%; margin: 0; }
+  .platform-main .stat-chip { padding-inline: 10px; }
+  .platform-main .account-card { padding: 12px; }
+  .platform-main .account-tools .btn { flex: 1 1 140px; }
+  .platform-main .proxy-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .platform-main .proxy-list { max-height: 320px; }
+  .platform-main .panel-actions { flex-wrap: wrap; }
+  .platform-main .quick-actions { justify-content: flex-start; }
+  .platform-main :is(.page-head, .page-title) { flex-wrap: wrap; gap: 12px; }
+}

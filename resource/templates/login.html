@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>登录 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
+  <link rel="stylesheet" href="/static/css/auth.css?v=20260929-admin">
 </head>
-<body>
+<body class="auth-page">
 <main class="auth-layout">
   <section class="auth-panel"><div class="auth-main">
     <div class="brand"><span class="brand-mark">Y</span><div><div class="brand-name">YYB Go Enhanced</div><div class="brand-meta">微信协议与自动化控制台</div></div></div>
@@ -14,7 +14,7 @@
     <p class="lead">使用管理员或已注册用户账号继续。</p>
     <form id="form">
       <div class="field"><label for="username">用户名</label><input class="input" id="username" autocomplete="username" required autofocus></div>
-      <div class="field"><label for="password">密码</label><div class="password-wrap"><input class="input" id="password" type="password" autocomplete="current-password" required><button class="reveal" type="button" aria-label="显示密码" title="显示密码">👁</button></div></div>
+      <div class="field"><label for="password">密码</label><div class="password-wrap"><input class="input" id="password" type="password" autocomplete="current-password" required><button class="reveal" type="button" aria-label="显示密码" title="显示密码" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
       <div class="form-error" id="error" role="alert"></div>
       <button class="btn primary" id="submit" type="submit">登录</button>
     </form>
@@ -24,7 +24,7 @@
 </main>
 <script>
 const $=id=>document.getElementById(id);
-document.querySelector('.reveal').onclick=e=>{const p=$('password'),show=p.type==='password';p.type=show?'text':'password';e.currentTarget.setAttribute('aria-label',show?'隐藏密码':'显示密码')};
+document.querySelector('.reveal').onclick=e=>{const p=$('password'),show=p.type==='password';p.type=show?'text':'password';e.currentTarget.setAttribute('aria-label',show?'隐藏密码':'显示密码');e.currentTarget.title=show?'隐藏密码':'显示密码';e.currentTarget.setAttribute('aria-pressed',String(show))};
 $('form').onsubmit=async e=>{e.preventDefault();$('error').textContent='';$('submit').disabled=true;try{const params=new URLSearchParams(location.search),response=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('username').value,password:$('password').value,next:params.get('next')||'/'})}),json=await response.json();if(!response.ok||json.code!==0)throw new Error(json.msg||'登录失败');location.href=json.data.next||'/'}catch(error){$('error').textContent=error.message;$('submit').disabled=false}};
 if(new URLSearchParams(location.search).get('registration')==='disabled'){$('error').textContent='管理员已关闭新用户注册';$('registerLink').hidden=true}
 </script>
