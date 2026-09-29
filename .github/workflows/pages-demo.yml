@@ -9,31 +9,59 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages-demo
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - name: Upload demo artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./docs/demo
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Checkout repository with retry
+        run: |
+          set -Eeuo pipefail
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          for attempt in 1 2 3; do
+            if git fetch --depth=1 origin "$GITHUB_SHA" && git checkout --force --detach FETCH_HEAD; then
+              exit 0
+            fi
+            [[ "$attempt" == 3 ]] && exit 1
+            sleep $((attempt * 10))
+          done
+
+      - name: Validate static demo
+        run: |
+          set -Eeuo pipefail
+          test -s docs/demo/index.html
+          test -s docs/demo/styles.css
+          test -s docs/demo/app.js
+          node --check docs/demo/app.js
+          grep -q 'styles.css' docs/demo/index.html
+          grep -q 'app.js' docs/demo/index.html
+
+      - name: Publish gh-pages branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          publish_dir="$(mktemp -d)"
+          cp -R docs/demo/. "$publish_dir/"
+          cd "$publish_dir"
+          git init
+          git checkout --orphan gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "Publish demo from $GITHUB_SHA"
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          for attempt in 1 2 3; do
+            if git push --force origin HEAD:gh-pages; then
+              exit 0
+            fi
+            [[ "$attempt" == 3 ]] && exit 1
+            sleep $((attempt * 10))
+          done

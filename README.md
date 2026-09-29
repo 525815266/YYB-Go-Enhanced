@@ -6,9 +6,9 @@
 
 面向自托管环境的应用宝协议服务与微信账号管理平台。提供微信扫码登录、账号与 OpenID 管理、`wx.login` code 获取、凭据续期、账号独立代理，以及青龙、呆呆和 Arcadia 面板接入。
 
-[在线演示](https://525815266.github.io/YYB-Go-Enhanced/) · [版本发布](https://github.com/525815266/YYB-Go-Enhanced/releases) · [更新日志](CHANGELOG.md) · [脚本目录](scripts/README.md) · [问题反馈](https://github.com/525815266/YYB-Go-Enhanced/issues)
+[在线演示](https://525815266.github.io/YYB-Go-Enhanced/) · [备用演示](https://raw.githack.com/525815266/YYB-Go-Enhanced/main/docs/demo/index.html) · [版本发布](https://github.com/525815266/YYB-Go-Enhanced/releases) · [更新日志](CHANGELOG.md) · [脚本目录](scripts/README.md) · [问题反馈](https://github.com/525815266/YYB-Go-Enhanced/issues)
 
-> 在线演示使用虚构账号和数据，不连接真实 YYB 服务，也不会保存输入。
+> 在线演示使用虚构账号和数据，可体验账号切换、扫码、代理、运行日志与接口调试，不连接真实 YYB 服务，也不会保存输入。
 
 ## 界面预览
 
