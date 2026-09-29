@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#222a35">
+  <meta name="description" content="YYB Go Enhanced 交互式静态演示，体验账号、代理、脚本运行与接口调试。">
+  <title>YYB Go Enhanced · 交互演示</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="demo-strip" role="note">
+    <span class="demo-strip-dot" aria-hidden="true"></span>
+    交互演示使用虚构数据，不会连接微信、YYB 或自动化面板
+    <a href="https://github.com/525815266/YYB-Go-Enhanced">查看项目</a>
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="主导航">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">Y</span>
+        <span class="brand-copy"><strong>YYB Go</strong><small>微信协议管理平台</small></span>
+      </div>
+
+      <nav class="nav" aria-label="演示模块">
+        <p class="nav-group">工作台</p>
+        <button class="nav-item active" type="button" data-view="dashboard">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+          <span>我的控制台</span>
+        </button>
+        <button class="nav-item" type="button" data-view="scan">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/></svg></span>
+          <span>添加账号</span>
+        </button>
+        <button class="nav-item" type="button" data-view="runs">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/><path d="M4 5v14"/></svg></span>
+          <span>账号运行管理</span><span class="nav-count" id="runningCount">1</span>
+        </button>
+        <button class="nav-item" type="button" data-view="api">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 9-12h-7z"/></svg></span>
+          <span>接口调试</span>
+        </button>
+
+        <p class="nav-group">管理</p>
+        <button class="nav-item" type="button" data-view="proxies">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></svg></span>
+          <span>代理设置</span>
+        </button>
+        <button class="nav-item" type="button" data-view="users">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c.6-3.1 2.6-5 6-5s5.4 1.9 6 5M16 5.5a3 3 0 0 1 0 5.8M17 15c2 .5 3.3 2.1 4 5"/></svg></span>
+          <span>用户管理</span>
+        </button>
+        <button class="nav-item" type="button" data-view="settings">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg></span>
+          <span>系统设置</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span class="service-state"><i></i>演示服务正常</span>
+        <small>v0.2.18 · static</small>
+      </div>
+    </aside>
+
+    <button class="sidebar-overlay" id="sidebarOverlay" type="button" aria-label="关闭导航"></button>
+
+    <section class="stage">
+      <header class="topbar">
+        <div class="topbar-context">
+          <button class="icon-button menu-button" id="menuButton" type="button" aria-label="打开导航">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <div><small>YYB Go / <span id="breadcrumb">账号与能力调用</span></small><h1 id="pageTitle">我的控制台</h1></div>
+        </div>
+        <div class="topbar-actions">
+          <button class="version-button" type="button" id="versionButton"><small>当前版本</small><strong>v0.2.18</strong></button>
+          <div class="user-copy"><strong>演示管理员</strong><small>管理员</small></div>
+          <span class="user-avatar" aria-hidden="true">演</span>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="view active" data-view-panel="dashboard" aria-labelledby="dashboardTitle">
+          <div class="page-head">
+            <div><h2 id="dashboardTitle">账号与能力调用</h2><p>选择账号后查看状态、协议能力和最近运行。</p></div>
+            <div class="page-actions"><button class="button secondary" type="button" id="refreshAccounts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.4 6.4L4 11M5.5 15A7 7 0 0 0 17.6 17.6L20 13"/></svg>刷新状态</button><button class="button primary" type="button" data-go="scan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>添加账号</button></div>
+          </div>
+
+          <div class="status-band" aria-label="服务摘要">
+            <div><span class="status-signal ok"><i></i>服务正常</span><strong>18</strong><small>微信账号</small></div>
+            <div><span>凭据状态</span><strong>15 / 18</strong><small>可直接调用</small></div>
+            <div><span>面板连接</span><strong>青龙</strong><small>已同步 18 个账号</small></div>
+            <div><span>今日请求</span><strong>1,284</strong><small>成功率 97.8%</small></div>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="account-workspace" aria-label="账号列表">
+              <div class="section-head"><div><h3>微信账号</h3><p>账号引用支持 ID 与 OpenID</p></div><label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg><input id="accountSearch" type="search" placeholder="搜索账号或备注" aria-label="搜索账号"></label></div>
+              <div class="account-list" id="accountList"></div>
+            </section>
+
+            <aside class="account-detail" aria-label="当前账号详情">
+              <div class="detail-head"><span class="detail-avatar" id="detailAvatar">张</span><div><small>当前账号</small><h3 id="detailName">张三</h3><span class="inline-status ok"><i></i>凭据正常</span></div><button class="icon-button" type="button" aria-label="复制 OpenID" id="copyOpenid"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></button></div>
+              <dl class="detail-grid">
+                <div><dt>账号 ID</dt><dd id="detailId">1</dd></div>
+                <div><dt>OpenID</dt><dd class="mono" id="detailOpenid">owDemo1...a81Fx</dd></div>
+                <div><dt>代理出口</dt><dd id="detailProxy">直连 · 山东济南</dd></div>
+                <div><dt>最近刷新</dt><dd id="detailRefresh">3 分钟前</dd></div>
+              </dl>
+              <div class="credential-health"><div class="health-label"><span>凭据可用期</span><strong id="healthText">96 分钟</strong></div><div class="progress"><span id="healthProgress" style="width:82%"></span></div><small>后台将在接近到期时按账号策略刷新</small></div>
+              <div class="quick-actions"><button type="button" data-go="runs"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><span><strong>运行脚本</strong><small>按当前账号执行</small></span></button><button type="button" data-go="proxies"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span><strong>代理设置</strong><small>管理独立出口</small></span></button></div>
+            </aside>
+          </div>
+
+          <section class="activity-section">
+            <div class="section-head"><div><h3>最近运行</h3><p>按账号隔离显示任务与结果</p></div><button class="text-button" type="button" data-go="runs">查看全部</button></div>
+            <div class="activity-table-wrap"><table class="activity-table"><thead><tr><th>账号</th><th>脚本</th><th>状态</th><th>开始时间</th><th>耗时</th></tr></thead><tbody><tr><td><span class="table-account"><i class="avatar-xs coral">张</i>张三</span></td><td>龙湖天街签到</td><td><span class="run-status success">成功</span></td><td>今天 08:04</td><td>13 秒</td></tr><tr><td><span class="table-account"><i class="avatar-xs blue">李</i>李四</span></td><td>莱充积分任务</td><td><span class="run-status running">运行中</span></td><td>今天 09:12</td><td>28 秒</td></tr><tr><td><span class="table-account"><i class="avatar-xs green">王</i>王五</span></td><td>极兔速递签到</td><td><span class="run-status warning">需授权</span></td><td>昨天 23:40</td><td>4 秒</td></tr></tbody></table></div>
+          </section>
+        </section>
+
+        <section class="view" data-view-panel="scan" aria-labelledby="scanTitle">
+          <div class="page-head"><div><h2 id="scanTitle">添加微信账号</h2><p>完成扫码后确认账号信息，再同步至自动化面板。</p></div><span class="step-caption" id="scanStepCaption">步骤 1 / 3</span></div>
+          <ol class="steps" aria-label="添加账号进度"><li class="active" data-scan-step="1"><span>1</span><strong>微信扫码</strong></li><li data-scan-step="2"><span>2</span><strong>确认账号</strong></li><li data-scan-step="3"><span>3</span><strong>同步面板</strong></li></ol>
+          <div class="scan-layout">
+            <section class="scan-primary" id="scanPrimary"></section>
+            <aside class="scan-aside"><h3>扫码前设置</h3><label class="field"><span>登录代理</span><select id="scanProxy"><option>直连</option><option>品赞 · 山东济南</option><option>静态代理 · 上海</option></select></label><div class="setting-row"><span><strong>面板自动同步</strong><small>成功后写入 YYB_SERVER</small></span><label class="switch"><input id="autoSync" type="checkbox" checked><span></span></label></div><div class="security-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5c0 5 3.4 8.3 8 10 4.6-1.7 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg><span>二维码与授权会话独立计时。演示不会创建真实登录会话。</span></div></aside>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="runs" aria-labelledby="runsTitle">
+          <div class="page-head"><div><h2 id="runsTitle">账号运行管理</h2><p>按账号筛选任务，控制启停并查看隔离日志。</p></div><button class="button secondary" type="button" id="syncJobs"><svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.4 6.4L4 11M5.5 15A7 7 0 0 0 17.6 17.6L20 13"/></svg>同步面板</button></div>
+          <div class="filter-bar"><label><span>账号</span><select id="runAccount"></select></label><label><span>脚本状态</span><select id="runStatus"><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option></select></label><label class="filter-search"><span>脚本</span><input id="runSearch" type="search" placeholder="搜索脚本名称"></label></div>
+          <div class="run-summary"><span><i class="dot green"></i><strong id="enabledJobs">3</strong> 个启用</span><span><i class="dot amber"></i><strong>1</strong> 个运行中</span><span><i class="dot gray"></i><strong id="disabledJobs">1</strong> 个停用</span><small>最近同步：刚刚</small></div>
+          <div class="jobs" id="jobs"></div>
+        </section>
+
+        <section class="view" data-view-panel="proxies" aria-labelledby="proxyTitle">
+          <div class="page-head"><div><h2 id="proxyTitle">账号代理设置</h2><p>每个账号独立选择网络出口，动态代理仅用于临时调用。</p></div><button class="button primary" type="button" id="saveProxy">保存设置</button></div>
+          <div class="proxy-layout">
+            <aside class="proxy-accounts"><div class="section-head compact"><div><h3>选择账号</h3><p>配置只作用于当前账号</p></div></div><div id="proxyAccountList"></div></aside>
+            <section class="proxy-form"><div class="proxy-current"><span class="detail-avatar" id="proxyAvatar">张</span><div><small>正在配置</small><h3 id="proxyName">张三 · ID 1</h3></div><span class="inline-status ok"><i></i>出口正常</span></div><fieldset class="mode-options"><legend>代理模式</legend><label><input type="radio" name="proxyMode" value="direct" checked><span><strong>直连</strong><small>使用服务器默认网络出口</small></span></label><label><input type="radio" name="proxyMode" value="static"><span><strong>静态代理</strong><small>固定 HTTP CONNECT 或 SOCKS5</small></span></label><label><input type="radio" name="proxyMode" value="dynamic"><span><strong>动态代理 API</strong><small>支持 txt、json 和 json2</small></span></label></fieldset><div class="proxy-fields"><label class="field"><span>代理配置</span><select id="proxyProfile"><option>不使用配置库</option><option>品赞 · 山东一分钟</option><option>巨量 · 华东动态出口</option><option>办公网络 · 固定出口</option></select></label><div class="field-row"><label class="field"><span>目标省份</span><select id="proxyProvince"><option>山东省</option><option>北京市</option><option>上海市</option><option>江苏省</option></select></label><label class="field"><span>目标城市</span><select id="proxyCity"><option>济南市</option><option>青岛市</option><option>烟台市</option></select></label></div><label class="field"><span>提前刷新</span><select><option>到期前 5 分钟</option><option>到期前 15 分钟</option><option>到期前 30 分钟</option></select></label></div><div class="proxy-test"><div><span class="status-signal ok"><i></i>连通测试通过</span><strong>山东省济南市 · 联通</strong><small>入口 120.27.***.81 · 出口 27.195.***.42</small></div><button class="button secondary" id="testProxy" type="button">重新测试</button></div></section>
+          </div>
+        </section>
+
+        <section class="view" data-view-panel="api" aria-labelledby="apiTitle">
+          <div class="page-head"><div><h2 id="apiTitle">接口调试</h2><p>使用虚构账号体验参数填写与 JSON 响应。</p></div><span class="status-signal ok"><i></i>协议服务可用</span></div>
+          <div class="api-layout"><section class="api-form"><label class="field"><span>账号</span><select id="apiAccount"></select></label><label class="field"><span>能力</span><select id="apiAction"><option value="getCode">获取 wx.login code</option><option value="getUserInfo">读取账号资料</option><option value="operateWxData">operateWxData 转发</option></select></label><label class="field"><span>AppID</span><input id="apiAppid" value="wx141bb9b73c970a9" spellcheck="false"></label><label class="field payload-field" hidden><span>Payload</span><textarea id="apiPayload" rows="8" spellcheck="false">{
+  "api_name": "callFunction",
+  "data": { "name": "demo", "data": {} },
+  "env": 1
+}</textarea></label><button class="button primary wide" id="executeApi" type="button"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>执行调用</button></section><section class="response-panel"><div class="response-head"><span>响应结果</span><small id="responseTime">尚未调用</small></div><pre id="apiResponse"><code>{
+  "code": 0,
+  "message": "选择能力后执行调用",
+  "demo": true
+}</code></pre></section></div>
+        </section>
+
+        <section class="view placeholder-view" data-view-panel="users"><div><span class="placeholder-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c.6-3.1 2.6-5 6-5s5.4 1.9 6 5M16 5.5a3 3 0 0 1 0 5.8M17 15c2 .5 3.3 2.1 4 5"/></svg></span><h2>用户与权限</h2><p>正式服务支持管理员、普通用户、用户启停、密码重置和会话管理。</p><button class="button secondary" type="button" data-go="dashboard">返回控制台</button></div></section>
+        <section class="view placeholder-view" data-view-panel="settings"><div><span class="placeholder-icon"><svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg></span><h2>系统设置</h2><p>正式服务可配置面板连接、注册策略、接口令牌、数据库与在线更新。</p><button class="button secondary" type="button" data-go="dashboard">返回控制台</button></div></section>
+      </main>
+    </section>
+  </div>
+
+  <aside class="log-drawer" id="logDrawer" aria-hidden="true" aria-labelledby="logTitle">
+    <div class="log-head"><div><small id="logAccount">张三 · ID 1</small><h2 id="logTitle">龙湖天街签到</h2></div><button class="icon-button dark" id="closeLog" type="button" aria-label="关闭日志"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div class="log-meta"><span class="run-status running" id="logStatus">运行中</span><span id="logTime">刚刚开始</span><label><input id="autoScroll" type="checkbox" checked>跟随最新日志</label></div>
+    <pre class="log-output" id="logOutput" tabindex="0"></pre>
+    <div class="log-actions"><button class="button ghost-dark" type="button" id="clearLog">清空显示</button><button class="button light" type="button" id="rerunJob">再次运行</button></div>
+  </aside>
+  <button class="drawer-overlay" id="drawerOverlay" type="button" aria-label="关闭日志遮罩"></button>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  <script src="./app.js"></script>
+</body>
+</html>
