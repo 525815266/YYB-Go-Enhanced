@@ -134,6 +134,7 @@
     else if (data.has_update === true && managed) setUpdateStatus(`发现新版本 v${updateTarget}，更新会保留现有配置和账号数据。`, "update");
     else if (data.has_update === true && downloadable) setUpdateStatus(`发现新版本 v${updateTarget}。下载后请按上方说明替换当前程序。`, "update");
     else if (!managed && !downloadable) setUpdateStatus(data.message || "当前平台没有可用的预编译更新包。", "warning");
+    else if (data.has_update === false && updateTarget) setUpdateStatus(`当前已经是最新版本（v${currentVersion}）。`, "ok");
     else if (data.agent?.job?.message) setUpdateStatus(data.agent.job.message, "ok");
     else setUpdateStatus("当前已经是最新版本。", "ok");
     return running;

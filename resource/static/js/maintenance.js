@@ -30,7 +30,11 @@
   const job = data.agent?.job; busy = Boolean(job?.running);
   if (check) hasUpdate = data.has_update === true;
   if (latest === data.version) hasUpdate = false;
-  if (job?.message) tell(job.message);
+  if (job?.message) {
+   if (job.running) tell(job.message);
+   else if (job.finished_at) tell(`上次操作（${new Date(job.finished_at * 1000).toLocaleString('zh-CN', { hour12: false })}）：${job.message}`);
+   else tell(job.message);
+  }
   if (data.check_error) tell(data.check_error);
   else if (check && latest && !hasUpdate) tell('当前版本无需更新。');
   controls(); return busy;
