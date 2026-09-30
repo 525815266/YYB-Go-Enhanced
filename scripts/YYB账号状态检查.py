@@ -5,7 +5,7 @@
 
 """维护 YYB 账号公共缓存。
 
-该任务只读取 YYB 的账号列表，不调用任何业务小程序接口，也不会制造
+该任务只探测 YYB 服务健康状态，不代表各账号登录仍有效。不调用业务小程序接口，也不会制造
 未消费的 wx.login code。业务脚本把明确的未授权/未注册响应写入同一缓存。
 """
 
@@ -39,8 +39,11 @@ def parse_server_lines() -> list[tuple[str, str]]:
 
 def check_health(server: str) -> None:
     """/accounts 受 YYB 登录保护，公共任务只做健康探测。"""
-    response = requests.get(server + "/healthz", timeout=15)
+    response = requests.get(server + "/health", timeout=15)
     response.raise_for_status()
+    body = response.json()
+    if not isinstance(body, dict) or body.get("code") != 0 or not isinstance(body.get("data"), dict) or body["data"].get("ok") is not True:
+        raise RuntimeError("健康检查未返回 YYB 服务状态，请检查服务地址或反向代理")
 
 
 def main() -> int:
@@ -50,16 +53,16 @@ def main() -> int:
         return 0
     refs = [ref for _, ref in entries]
     summary = Counter()
-    checked_servers: set[str] = set()
+    checked_servers: dict[str, bool] = {}
     for server, ref in entries:
-        try:
-            if server not in checked_servers:
+        if server not in checked_servers:
+            try:
                 check_health(server)
-                checked_servers.add(server)
-            summary["health_ok"] += 1
-        except (requests.RequestException, ValueError, TypeError, RuntimeError) as exc:
-            print(f"{ref} 检查失败（临时错误）：{exc}")
-            summary["temporary_error"] += 1
+                checked_servers[server] = True
+            except (requests.RequestException, ValueError, TypeError, RuntimeError) as exc:
+                checked_servers[server] = False
+                print(f"{server} 服务检查失败（临时错误，同地址只检查一次）：{exc}")
+        summary["service_reachable" if checked_servers[server] else "temporary_error"] += 1
     result = prune(refs=refs)
     print(f"公共缓存：{status_file()}，账号 {len(refs)}，状态 {dict(summary)}，清理 {len(result['removed'])} 条")
     return 0

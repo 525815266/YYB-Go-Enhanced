@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>工作台 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260928-update">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260930-console">
   <style>
     :root {
       color-scheme: light;
@@ -14,7 +14,7 @@
       --surface-strong: oklch(0.948 0.009 250);
       --ink: oklch(0.19 0.025 252);
       --muted: oklch(0.43 0.025 252);
-      --faint: oklch(0.58 0.018 252);
+      --faint: oklch(0.46 0.018 252);
       --line: oklch(0.885 0.012 250);
       --primary: oklch(0.54 0.205 3);
       --primary-hover: oklch(0.48 0.195 3);
@@ -232,17 +232,14 @@
 
     .summary {
       min-width: 0;
-      background: var(--bg);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 18px;
+      padding: 0;
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
 
     .summary h2 {
       margin: 0;
-      font-size: 20px;
+      font-size: 24px;
       font-weight: 760;
       letter-spacing: 0;
       text-wrap: balance;
@@ -264,11 +261,8 @@
       min-height: 32px;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: var(--surface);
-      border: 1px solid var(--line);
+      gap: 6px;
+      padding: 2px 12px 2px 0;
       color: var(--muted);
     }
 
@@ -278,31 +272,17 @@
     }
 
     .quick-actions {
-      min-width: 260px;
-      background: var(--ink);
-      color: var(--bg);
-      border-radius: var(--radius);
-      padding: 16px;
-      display: grid;
-      align-content: space-between;
-      gap: 14px;
+      align-self: start;
+      color: var(--muted);
     }
-
-    .quick-actions p {
-      margin: 0;
-      color: oklch(0.86 0.012 250);
-      font-size: 13px;
-    }
-
-    .quick-actions .btn {
-      background: oklch(0.25 0.028 252);
-      color: var(--bg);
-      border-color: oklch(0.34 0.028 252);
-    }
-
-    .quick-actions .btn:hover {
-      background: oklch(0.31 0.032 252);
-    }
+    .quick-actions summary, .account-maintenance summary { cursor:pointer; padding:9px 0; font-size:13px; }
+    .quick-actions .inline-actions, .account-maintenance .inline-actions { margin-top:8px; }
+    .account-filters { display:flex; flex-wrap:wrap; align-items:start; gap:10px; padding:14px 18px 0; }
+    .account-search { flex:1 1 240px; }
+    .account-maintenance .inline-actions { flex-direction:column; }
+    .account-filters .input { min-height:40px; }
+    #accountWorkspace, #callWorkspace { scroll-margin-top:80px; }
+    .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 
     .account-band,
     .panel {
@@ -373,8 +353,8 @@
     }
 
     .account-card.alive {
-      border-color: oklch(0.84 0.055 145);
-      background: oklch(0.985 0.008 145);
+      border-color: var(--line);
+      background: var(--bg);
     }
 
     .account-card.alive .account-status {
@@ -400,7 +380,7 @@
 
     .account-card.expired .avatar,
     .account-card.expired .account-main {
-      opacity: 0.58;
+      opacity: 1;
       filter: grayscale(0.88) saturate(0.35);
       transition: opacity 420ms cubic-bezier(0.25, 1, 0.5, 1), filter 420ms cubic-bezier(0.25, 1, 0.5, 1);
     }
@@ -474,7 +454,7 @@
 
     @keyframes expired-content-dim {
       0%, 32% { opacity: 0.92; filter: grayscale(0.15) saturate(0.9); }
-      100% { opacity: 0.58; filter: grayscale(0.88) saturate(0.35); }
+      100% { opacity: 1; filter: grayscale(0.88) saturate(0.35); }
     }
 
     .account-card:hover {
@@ -539,6 +519,9 @@
       white-space: nowrap;
       font-weight: 760;
     }
+    .account-select { border:0; padding:0; background:transparent; color:inherit; font:inherit; font-size:15px; font-weight:700; text-align:left; cursor:pointer; }
+    .account-select::after { content:""; position:absolute; inset:0; z-index:1; }
+    .account-card:focus-within { outline:2px solid var(--platform-accent); outline-offset:3px; }
 
     .account-status {
       display: inline-flex;
@@ -551,15 +534,23 @@
     }
 
     .account-confirm-actions {
-      display: inline-flex;
-      gap: 4px;
-      margin-left: 6px;
+      grid-column:1 / -1;
+      display: flex;
+      align-items:center;
+      gap: 8px;
+      border-top:1px solid var(--line);
+      padding-top:10px;
+      font-size:12px;
+      color:var(--muted);
     }
+    .account-confirm-actions > span { margin-right:auto; }
 
     .account-confirm-actions .btn {
-      min-height: 24px;
-      padding: 2px 7px;
-      font-size: 11px;
+      position:relative;
+      z-index:3;
+      min-height: 34px;
+      padding: 5px 9px;
+      font-size: 12px;
     }
 
     .account-meta {
@@ -714,13 +705,14 @@
       font-size: 11px;
     }
 
-    .account-lifecycle { display:grid; gap:4px; margin-top:3px; }
-    .lifecycle-row { display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:6px; color:var(--muted); font-size:10px; line-height:1.2; }
+    .account-lifecycle { grid-column:1 / -1; display:grid; gap:9px; margin-top:4px; padding-top:12px; border-top:1px solid var(--line); }
+    .lifecycle-row { display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:10px; color:var(--muted); font-size:12px; line-height:1.3; }
     .lifecycle-label { white-space:nowrap; }
-    .lifecycle-track { height:5px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
+    .lifecycle-track { height:6px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
     .lifecycle-track span { display:block; height:100%; border-radius:inherit; background:var(--lifecycle-color,#29934a); transition:width 180ms ease,background-color 180ms ease; }
     .lifecycle-value { min-width:72px; text-align:right; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums; }
-    .lifecycle-note { color:var(--faint); font-size:10px; }
+    .lifecycle-note { color:var(--muted); font-size:11px; }
+    .lifecycle-inactive { color:var(--muted); font-size:12px; min-height:60px; align-content:center; }
 
     .result-panel .panel-body {
       gap: 10px;
@@ -820,47 +812,31 @@
     .link-dialog-existing-row .btn { padding:6px 8px; font-size:12px; }
     @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } .link-dialog-existing-row { align-items:flex-start; flex-direction:column; } }
 
-    /* A little elevation and motion makes the account queue feel interactive
-       without turning a dense operations screen into a marketing surface. */
-    .account-band,
-    .panel,
-    .summary,
-    .quick-actions {
-      box-shadow: 0 12px 30px oklch(0.18 0.025 252 / 0.07);
-    }
-
     .account-strip {
-      padding: 16px;
-      gap: 12px;
+      grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+      padding: 18px;
+      gap: 14px;
     }
 
     .account-card {
-      min-height: 156px;
-      padding: 13px;
-      border-radius: 11px;
-      box-shadow: 0 5px 14px oklch(0.18 0.025 252 / 0.045);
-      transition: background 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1), transform 180ms cubic-bezier(0.25, 1, 0.5, 1);
+      min-height: 180px;
+      padding: 16px;
+      border-radius: 10px;
+      align-content:start;
+      gap:12px;
     }
 
     .account-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 22px oklch(0.18 0.025 252 / 0.1);
+      border-color:var(--platform-accent);
     }
 
     .account-card.selected {
-      box-shadow: 0 0 0 2px var(--accent), 0 10px 24px oklch(0.44 0.112 190 / 0.14);
-    }
-
-    .avatar {
-      box-shadow: 0 0 0 4px oklch(1 0 0 / 0.68);
-    }
-
-    .stat-chip {
-      box-shadow: 0 2px 8px oklch(0.18 0.025 252 / 0.04);
+      border-color:var(--platform-accent);
+      background:oklch(0.985 0.006 3);
+      box-shadow: 0 0 0 1px var(--platform-accent);
     }
 
     @media (max-width: 1360px) {
-      .overview,
       .work-grid {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -871,6 +847,14 @@
     }
 
     @media (max-width: 760px) {
+      .overview { grid-template-columns:1fr; gap:4px; }
+      #accountWorkspace > .section-head { flex-direction:row; align-items:center; }
+      #accountWorkspace > .section-head .panel-actions { width:auto; }
+      #accountWorkspace > .section-head .btn { padding:8px; white-space:nowrap; }
+      .account-filters { padding:12px 12px 0; }
+      .account-search { flex-basis:100%; }
+      .account-strip { padding:12px; }
+      .account-maintenance { margin-left:auto; }
       .topbar {
         height: auto;
         align-items: flex-start;
@@ -978,39 +962,41 @@
     <main class="shell">
       <section class="overview" aria-label="控制台概览">
         <div class="summary">
-          <h2>选择账号，执行服务调用</h2>
-          <p class="summary-copy">首页现在聚焦运行工作流。接口详情保留在 Swagger，当前页面只放账号状态、调用配置和返回结果。</p>
+          <h2>账号工作台</h2>
+          <p class="summary-copy">查看有效期，管理账号与调用。</p>
           <div class="stat-row" aria-label="运行统计">
             <span class="stat-chip">账号 <strong id="accountCount">0</strong></span>
             <span class="stat-chip">可用 <strong id="aliveCount">0</strong></span>
-            <span class="stat-chip">能力 <strong id="featureCount">0</strong></span>
-            <span class="stat-chip">权限 <strong id="currentRoleText">读取中</strong></span>
-            <span class="stat-chip">调用额度 <strong id="currentQuotaText">无限制</strong></span>
-            <span class="stat-chip">当前 <strong id="currentAccountText">未选择</strong></span>
+            <span class="stat-chip">待确认 <strong id="pendingCount">0</strong></span>
+            <span class="stat-chip">已失效 <strong id="expiredCount">0</strong></span>
+            <span hidden>能力 <strong id="featureCount">0</strong>权限 <strong id="currentRoleText">读取中</strong>调用额度 <strong id="currentQuotaText">无限制</strong>当前 <strong id="currentAccountText">未选择</strong></span>
           </div>
         </div>
-        <aside class="quick-actions" aria-label="常用动作">
-          <p>常用入口放在这里，避免把接口文档铺满首页。</p>
+        <details class="quick-actions">
+          <summary>批量操作</summary>
           <div class="inline-actions">
             <button class="btn" id="refreshAllBtn" type="button">刷新存活</button>
             <button class="btn" id="resyncAllBtn" type="button">同步资料</button>
             <button class="btn" id="syncAllQingLongBtn" type="button">同步全部账号到青龙</button>
           </div>
-        </aside>
+        </details>
       </section>
 
       <section class="account-band" id="accountWorkspace" aria-label="账号队列">
         <div class="section-head">
           <div class="section-title">
-            <h3>账号队列</h3>
-            <p>一键整理清理扫码残留；账号压缩会安全迁移现有账号到连续 ID</p>
+            <h3>我的账号</h3>
+            <p id="accountFilterCount" role="status">正在读取账号</p>
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
-            <button class="btn secondary" id="repairAccountsBtn" type="button" title="清理未完成扫码残留并释放空缺 ID">一键整理</button>
-            <button class="btn secondary" id="compactAccountsBtn" type="button" title="迁移现有账号到连续 ID，不删除账号">压缩账号 ID</button>
             <a class="btn primary" href="/scan">添加账号</a>
           </div>
+        </div>
+        <div class="account-filters">
+          <label class="account-search"><span class="sr-only">搜索账号</span><input class="input" id="accountSearch" type="search" placeholder="搜索昵称、备注、ID 或 OpenID" autocomplete="off"></label>
+          <label><span class="sr-only">账号状态</span><select class="input" id="accountStatusFilter"><option value="all">全部状态</option><option value="alive">可用</option><option value="pending">待确认</option><option value="expired">已失效</option></select></label>
+          <details class="account-maintenance"><summary>账号整理</summary><div class="inline-actions"><button class="btn secondary" id="repairAccountsBtn" type="button" title="清理未完成扫码残留并释放空缺 ID">清理扫码残留</button><button class="btn secondary" id="compactAccountsBtn" type="button" title="迁移现有账号到连续 ID，不删除账号">压缩账号 ID</button></div></details>
         </div>
         <div class="account-strip" id="accountStrip">
           <div class="empty-state">账号加载中</div>
@@ -1321,6 +1307,7 @@
           if (element) element.hidden = !isAdmin;
         });
         $("qingLongSettings").hidden = !isAdmin;
+        document.querySelector(".account-maintenance").hidden = !isAdmin;
         $("panelAdminNote").hidden = isAdmin;
       } catch {
         $("currentRoleText").textContent = "未知";
@@ -1365,11 +1352,13 @@
     }
 
     function lifecycleDuration(seconds) {
-      if (!Number.isFinite(seconds) || seconds <= 0) return "未记录";
+      if (!Number.isFinite(seconds)) return "未记录";
+      if (seconds <= 0) return "已到期";
+      if (seconds < 60) return "不足1分钟";
       const days = Math.floor(seconds / 86400);
       const hours = Math.floor((seconds % 86400) / 3600);
       if (days > 0) return `${days}天${hours}小时`;
-      const minutes = Math.max(0, Math.floor(seconds / 60));
+      const minutes = Math.floor((seconds % 3600) / 60);
       if (hours > 0) return `${hours}小时${minutes}分钟`;
       return `${minutes}分钟`;
     }
@@ -1383,6 +1372,7 @@
     }
 
     function lifecycleMarkup(account) {
+      if (account.status === "expired") return '<span class="account-lifecycle lifecycle-inactive">保活已停止 · 重新扫码后恢复</span>';
       const now = Math.floor(Date.now() / 1000);
       const observed = Number(account.refresh_token_observed_at || 0);
       const scanWindow = 30 * 86400;
@@ -1432,19 +1422,28 @@
       document.querySelectorAll(".account-card").forEach(card => {
         const selected = card.dataset.openid === state.selectedOpenID;
         card.classList.toggle("selected", selected);
-        card.setAttribute("aria-pressed", String(selected));
+        card.querySelector(".account-select").setAttribute("aria-pressed", String(selected));
       });
     }
 
     function renderStats() {
       $("accountCount").textContent = String(state.accounts.length);
       $("aliveCount").textContent = String(state.accounts.filter(item => item.status === "alive").length);
+      $("expiredCount").textContent = String(state.accounts.filter(item => item.status === "expired").length);
+      $("pendingCount").textContent = String(state.accounts.filter(item => item.status !== "alive" && item.status !== "expired").length);
       $("featureCount").textContent = String(state.features.length);
       syncSelectedAccount();
     }
 
     function renderAccounts() {
       const strip = $("accountStrip");
+      const query = $("accountSearch").value.trim().toLocaleLowerCase();
+      const filter = $("accountStatusFilter").value;
+      const visible = state.accounts.filter(account => {
+        const status = account.status === "alive" || account.status === "expired" ? account.status : "pending";
+        return (filter === "all" || status === filter) && (!query || [accountName(account), account.nickname, account.remark, account.id, account.openid].some(value => String(value ?? "").toLocaleLowerCase().includes(query)));
+      });
+      $("accountFilterCount").textContent = `显示 ${visible.length} / ${state.accounts.length} 个账号`;
       if (!state.accounts.length) {
         strip.innerHTML = `<div class="empty-state">暂无账号，点击“添加账号”开始扫码。</div>`;
         state.selectedOpenID = "";
@@ -1458,21 +1457,19 @@
 
       strip.innerHTML = "";
       const playExpiredIntro = !state.expiredIntroPlayed;
-      for (const account of state.accounts) {
+      if (!visible.length) strip.innerHTML = '<div class="empty-state">没有匹配的账号，试试其他关键词或状态。</div>';
+      for (const account of visible) {
         const name = accountName(account);
 		const proxy = proxyText(state.proxyConfigs.get(String(account.id)));
         const isExpired = account.status === "expired";
         const cls = isExpired ? "expired" : account.rescan_recommended ? "warning" : statusClass(account.status);
         const status = isExpired ? "已失效" : account.rescan_recommended ? "建议重扫" : statusText(account.status);
         const pendingConfirmation = account.status !== "alive" && account.status !== "expired";
-        const button = document.createElement("button");
-        button.type = "button";
+        const button = document.createElement("article");
         button.className = `account-card ${cls}${isExpired && playExpiredIntro ? " expired-alert" : ""}`;
         button.dataset.openid = account.openid;
         if (isExpired) button.dataset.stateLabel = "已失效";
-        button.setAttribute("aria-pressed", "false");
         const number = accountNumber(account);
-        button.setAttribute("aria-label", `选择账号 ${number}，${name}，状态：${status}`);
         button.innerHTML = `
           <span class="avatar">
             <img alt="" src="/accounts/avatar?ref=${encodeURIComponent(account.openid)}">
@@ -1480,13 +1477,14 @@
           </span>
           <span class="account-main">
             <span class="account-header">
-              <span class="account-name">${escapeHTML(name)}</span>
-              <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}${pendingConfirmation ? `<span class="account-confirm-actions"><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></span>` : ""}</span>
+              <button type="button" class="account-name account-select" aria-pressed="false" aria-label="选择账号 ${escapeHTML(number)}，${escapeHTML(name)}，${status}">${escapeHTML(name)}</button>
+              <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>
             </span>
-			<span class="account-meta" title="账号 ID ${escapeHTML(number)} · UIN: ${escapeHTML(account.uin ?? "-")} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}">账号 ID ${escapeHTML(number)} · ${escapeHTML(proxy)} · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))} · ${formatChecked(account.last_checked_at)}</span>
+            <span class="account-meta" title="最后检查 ${formatChecked(account.last_checked_at)}">ID ${escapeHTML(number)} · ${escapeHTML(proxy)}${isExpired ? "" : ` · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))}`}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
-            ${lifecycleMarkup(account)}
           </span>
+          ${lifecycleMarkup(account)}
+          ${pendingConfirmation ? '<div class="account-confirm-actions"><span>确认状态</span><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></div>' : ""}
         `;
         button.querySelector("img").addEventListener("error", event => {
           event.currentTarget.classList.add("hidden");
@@ -1494,7 +1492,9 @@
         });
         button.addEventListener("click", () => {
           state.selectedOpenID = account.openid;
-          history.replaceState(null, "", `/?ref=${encodeURIComponent(account.id)}`);
+          const params = new URLSearchParams(location.search);
+          params.set("ref", account.id);
+          history.replaceState(null, "", `/?${params}`);
           syncSelectedAccount();
           loadAccountProxySummary();
           setActivity(`已选择账号：${name}`);
@@ -1519,7 +1519,6 @@
       }
       state.expiredIntroPlayed = true;
       renderStats();
-      loadAccountProxySummary();
     }
 
     async function loadAccountProxySummary() {
@@ -1607,6 +1606,7 @@
           : null;
         if (requestedAccount) state.selectedOpenID = requestedAccount.openid;
         renderAccounts();
+        await loadAccountProxySummary();
         setActivity("账号列表已加载");
       } catch (error) {
         $("accountStrip").innerHTML = `<div class="empty-state">账号加载失败：${escapeHTML(error.data?.detail || error.message)}</div>`;
@@ -2049,6 +2049,8 @@
     }
 
     $("reloadAccountsBtn").addEventListener("click", loadAccounts);
+    $("accountSearch").addEventListener("input", renderAccounts);
+    $("accountStatusFilter").addEventListener("change", renderAccounts);
     $("repairAccountsBtn").addEventListener("click", repairAccounts);
     $("compactAccountsBtn").addEventListener("click", compactAccounts);
     $("refreshAllBtn").addEventListener("click", refreshAll);
@@ -2080,17 +2082,16 @@
     });
 
     const focusTarget = new URLSearchParams(location.search).get("focus");
-    if (focusTarget === "accounts" || focusTarget === "test") {
-      requestAnimationFrame(() => document.getElementById(focusTarget === "accounts" ? "accountWorkspace" : "callWorkspace")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    }
 
     applyRoleVisibility();
     loadHealth();
     loadFeatures();
-    loadAccounts();
+    loadAccounts().then(() => {
+      if (focusTarget === "accounts" || focusTarget === "test") document.getElementById(focusTarget === "accounts" ? "accountWorkspace" : "callWorkspace")?.scrollIntoView({ block:"start" });
+    });
     loadQingLongConfig();
     setInterval(loadHealth, 15000);
   </script>
-  <script src="/static/js/platform.js?v=20260929-update-status"></script>
+  <script src="/static/js/platform.js?v=20260930-console"></script>
 </body>
 </html>

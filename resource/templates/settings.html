@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>个人设置 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260928-update">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20260930-console">
 </head>
 <body>
   <header class="shell-header"></header>
@@ -28,6 +28,6 @@
     $("clearSessions").onclick = async () => { try { await api("/api/auth/sessions", { method: "DELETE" }); await load(); } catch (error) { alert(error.message); } };
     load().catch(() => { location.href = "/login"; });
   </script>
-  <script src="/static/js/platform.js?v=20260929-update-status"></script>
+  <script src="/static/js/platform.js?v=20260930-console"></script>
 </body>
 </html>

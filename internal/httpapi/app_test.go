@@ -43,6 +43,21 @@ func TestRunsPageExposesAccountPushSettings(t *testing.T) {
 	}
 }
 
+func TestHealthEndpointsRemainPublicWithAuthEnabled(t *testing.T) {
+	app, err := NewApp(Config{ResourceRoot: t.TempDir(), AdminUser: "health-test", AdminPassword: "local-test-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	for _, path := range []string{"/health", "/healthz"} {
+		response := httptest.NewRecorder()
+		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"ok":true`) {
+			t.Fatalf("anonymous %s: %d %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
 	t.Setenv("GIN_MODE", "test")
 
@@ -75,6 +90,11 @@ func TestHandlerServesGinRoutesAndSwaggerDocs(t *testing.T) {
 	}
 	if healthBody.Code != 0 || healthBody.Msg != "success" || healthBody.Data["ok"] != true {
 		t.Fatalf("GET /health body = %#v", healthBody)
+	}
+	legacyHealth := httptest.NewRecorder()
+	handler.ServeHTTP(legacyHealth, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if legacyHealth.Code != http.StatusOK || legacyHealth.Body.String() != health.Body.String() {
+		t.Fatalf("legacy health endpoint differs: status=%d body=%s", legacyHealth.Code, legacyHealth.Body.String())
 	}
 
 	versionResponse := httptest.NewRecorder()

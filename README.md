@@ -12,12 +12,14 @@
 
 ## 界面预览
 
-![账号控制台与青龙连接设置](docs/images/account-console.png)
+![账号工作台：搜索、状态筛选与有效期（全部为虚构演示数据）](docs/images/console-demo-1440.png)
+
+v0.2.19 工作台支持昵称、备注、ID、OpenID 搜索和状态筛选。卡片区随账号数量自然展开，已失效账号停止展示有效期倒计时。页面预览使用虚构账号。
 
 <p align="center">
   <img src="docs/images/scan-sync-mobile.png" alt="扫码成功后一键添加到青龙" width="32%">
   <img src="docs/images/account-runs-mobile.png" alt="账号运行管理" width="32%">
-  <img src="docs/images/account-lifecycle-demo.svg" alt="账号生命周期与保活状态" width="32%">
+  <img src="docs/images/console-demo-390.png" alt="新版手机工作台（虚构数据）" width="32%">
 </p>
 
 ## 核心能力
@@ -25,6 +27,7 @@
 | 分类 | 能力 |
 | --- | --- |
 | 账号管理 | 手机扫码添加账号、重复扫码更新、账号备注、OpenID 查看、状态刷新、账号整理与安全删除 |
+| 工作台 | 账号搜索、状态筛选、凭据与扫码有效期、失效状态提示，支持桌面和手机 |
 | 用户系统 | 独立登录与注册、管理员与普通用户权限、用户启停、密码重置、会话管理 |
 | 协议接口 | `/wx/*` 与 `/wxapp/*` 兼容接口、小程序 code、用户信息、手机号、云函数与协议调试 |
 | 面板联动 | 青龙、呆呆、Arcadia OpenAPI；同步 `YYB_SERVER`；按账号创建、启停、运行任务并读取隔离日志 |

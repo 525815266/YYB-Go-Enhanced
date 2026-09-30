@@ -10,7 +10,9 @@
     "/settings": ["个人设置", "资料与安全"]
   };
   const view = new URLSearchParams(location.search).get("view");
-  const current = location.pathname === "/runs" && view === "push" ? ["独立推送", "账号通知设置"] : (pages[location.pathname] || ["YYB Go", "管理控制台"]);
+  const focus = new URLSearchParams(location.search).get("focus");
+  const contextual = location.pathname === "/runs" ? {push:["独立推送", "账号通知设置"], logs:["调用记录", "请求与运行日志"]}[view] : location.pathname === "/" ? {accounts:["我的微信账号", "账号与有效期"], test:["接口测试", "协议能力调用"]}[focus] : null;
+  const current = contextual || pages[location.pathname] || ["YYB Go", "管理控制台"];
   const main = document.querySelector("main");
   if (!main) return;
 
@@ -61,7 +63,7 @@
   shell.innerHTML = `
     <aside class="platform-sidebar" aria-label="主导航">
       <a class="platform-brand" href="/"><span class="platform-brand-mark">Y</span><span class="platform-brand-copy"><strong>YYB Go</strong><span>微信协议管理平台</span></span></a>
-      <nav class="platform-nav">${navGroups.map(group => `<div class="platform-nav-section"><div class="platform-nav-group">${group.label}</div>${group.items.map(([href, icon, label, visible, authOnly]) => `<a href="${href}" data-label="${label}" data-admin-only="${!visible}" data-auth-only="${authOnly}" ${isActive(href) ? 'aria-current="page"' : ""}><span class="platform-nav-icon">${icons[icon]}</span><span class="platform-nav-label">${label}</span></a>`).join("")}</div>`).join("")}</nav>
+      <nav class="platform-nav">${navGroups.map(group => `<div class="platform-nav-section"><div class="platform-nav-group">${group.label}</div>${group.items.map(([href, icon, label, visible, authOnly]) => `<a href="${href}" data-label="${label}" data-admin-only="${!visible}" data-auth-only="${authOnly}" ${!visible || authOnly ? 'hidden' : ''} ${isActive(href) ? 'aria-current="page"' : ""}><span class="platform-nav-icon">${icons[icon]}</span><span class="platform-nav-label">${label}</span></a>`).join("")}</div>`).join("")}</nav>
       <div class="platform-sidebar-foot"><button type="button" id="platformLogout" data-label="退出登录"><span class="platform-nav-icon">${icons.logout}</span><span class="platform-nav-label">退出登录</span></button></div>
     </aside>
     <button class="platform-overlay" id="platformOverlay" type="button" aria-label="关闭导航"></button>
@@ -88,8 +90,39 @@
   shell.querySelector(".platform-main").appendChild(main);
   document.body.classList.add("platform-ready");
 
-  const closeNav = () => document.body.classList.remove("platform-nav-open");
-  document.getElementById("platformMenu").onclick = () => document.body.classList.toggle("platform-nav-open");
+  const menu = document.getElementById("platformMenu");
+  const sidebar = shell.querySelector(".platform-sidebar");
+  const mobileNav = matchMedia("(max-width: 860px)");
+  sidebar.id = "platformNavigation";
+  menu.setAttribute("aria-controls", sidebar.id);
+  menu.setAttribute("aria-expanded", "false");
+  document.getElementById("platformOverlay").tabIndex = -1;
+  const closeNav = () => {
+    const restore = document.body.classList.contains("platform-nav-open");
+    document.body.classList.remove("platform-nav-open");
+    menu.setAttribute("aria-expanded", "false");
+    sidebar.inert = mobileNav.matches;
+    if (restore && mobileNav.matches) menu.focus();
+  };
+  menu.onclick = () => {
+    if (document.body.classList.contains("platform-nav-open")) return closeNav();
+    document.body.classList.add("platform-nav-open");
+    sidebar.inert = false;
+    menu.setAttribute("aria-expanded", "true");
+    sidebar.querySelector('a[aria-current="page"]')?.focus();
+  };
+  mobileNav.addEventListener("change", closeNav);
+  closeNav();
+  document.addEventListener("keydown", event => {
+    if (!document.body.classList.contains("platform-nav-open")) return;
+    if (event.key === "Escape") { event.preventDefault(); closeNav(); }
+    if (event.key === "Tab") {
+      const links = [...sidebar.querySelectorAll("a, button")].filter(el => el.getClientRects().length);
+      const first = links[0], last = links[links.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+  });
   document.getElementById("platformOverlay").onclick = closeNav;
   shell.querySelectorAll(".platform-nav a").forEach(link => link.addEventListener("click", closeNav));
   document.getElementById("platformLogout").onclick = async () => { await fetch("/logout", { method: "POST" }); location.href = "/login"; };
@@ -248,8 +281,9 @@
     if (roleStat) roleStat.textContent = roleLabel;
     if (quotaStat) quotaStat.textContent = "无限制";
     document.getElementById("platformAvatar").textContent = Array.from(name)[0]?.toUpperCase() || "Y";
-    shell.querySelectorAll('[data-admin-only="true"]').forEach(link => { link.hidden = user.role !== "admin"; });
-    shell.querySelectorAll('[data-auth-only="true"]').forEach(link => { link.hidden = !authEnabled; });
+    shell.querySelectorAll('.platform-nav a').forEach(link => {
+      link.hidden = (link.dataset.adminOnly === "true" && user.role !== "admin") || (link.dataset.authOnly === "true" && !authEnabled);
+    });
     const repairAccountsButton = document.getElementById("repairAccountsBtn");
     if (repairAccountsButton) repairAccountsButton.hidden = authEnabled && user.role !== "admin";
     document.querySelector(".platform-sidebar-foot").hidden = !authEnabled;
