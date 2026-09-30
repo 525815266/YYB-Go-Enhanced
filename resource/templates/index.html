@@ -282,6 +282,7 @@
     .account-maintenance .inline-actions { flex-direction:column; }
     .account-filters .input { min-height:40px; }
     #accountWorkspace, #callWorkspace { scroll-margin-top:80px; }
+    .mobile-account-actions { display:none; }
     .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 
     .account-band,
@@ -848,8 +849,8 @@
 
     @media (max-width: 760px) {
       .overview { grid-template-columns:1fr; gap:4px; }
-      #accountWorkspace > .section-head { flex-direction:row; align-items:center; }
-      #accountWorkspace > .section-head .panel-actions { width:auto; }
+      #accountWorkspace > .section-head { flex-direction:column; align-items:stretch; }
+      #accountWorkspace > .section-head .panel-actions { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
       #accountWorkspace > .section-head .btn { padding:8px; white-space:nowrap; }
       .account-filters { padding:12px 12px 0; }
       .account-search { flex-basis:100%; }
@@ -910,6 +911,16 @@
         top: 58px;
         font-size: 16px;
       }
+    }
+
+    @media (max-width: 860px) {
+      .account-strip { grid-template-columns:minmax(0,1fr); }
+      .mobile-account-actions:not([hidden]) { display:grid; grid-column:1 / -1; gap:10px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--bg); box-shadow:0 6px 16px oklch(0.18 0.025 252 / .08); scroll-margin:80px 0 20px; }
+      .mobile-account-actions strong { font-size:13px; overflow-wrap:anywhere; }
+      .mobile-account-buttons { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+      .mobile-account-buttons > .btn:first-child { grid-column:1 / -1; }
+      .platform-main .mobile-account-buttons .btn, #accountWorkspace > .section-head .btn { min-height:44px; }
+      .mobile-account-actions p { margin:0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -990,7 +1001,8 @@
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
-            <a class="btn primary" href="/scan">添加账号</a>
+            <button class="btn secondary" id="addAccountLinkBtn" type="button" title="生成只能录入新 YYB 账号的一次性扫码链接">新增链接</button>
+            <a class="btn primary" href="/scan">新增账号</a>
           </div>
         </div>
         <div class="account-filters">
@@ -1000,6 +1012,15 @@
         </div>
         <div class="account-strip" id="accountStrip">
           <div class="empty-state">账号加载中</div>
+        </div>
+        <div class="mobile-account-actions" id="mobileAccountActions" hidden role="region" aria-labelledby="mobileAccountName">
+          <strong id="mobileAccountName">当前账号</strong>
+          <div class="mobile-account-buttons">
+            <button class="btn primary" id="mobileUpdateAccountBtn" type="button">更新扫码</button>
+            <a class="btn secondary" id="mobileProxySettingsLink" href="/proxies">管理代理</a>
+            <button class="btn secondary" id="mobileSyncAccountBtn" type="button">同步到面板</button>
+          </div>
+          <p id="mobileAccountFeedback" role="status" hidden></p>
         </div>
       </section>
 
@@ -1021,7 +1042,6 @@
               <button class="btn secondary" id="saveRemarkBtn" type="button">保存备注</button>
               <button class="btn secondary" id="syncQingLongBtn" type="button">同步到面板</button>
               <button class="btn secondary" id="updateAccountLinkBtn" type="button" title="生成只能更新当前账号的一次性扫码链接">生成更新链接</button>
-              <button class="btn secondary" id="addAccountLinkBtn" type="button" title="生成只能录入新 YYB 账号的一次性扫码链接">生成新增链接</button>
               <button class="btn danger" id="deleteAccountBtn" type="button">删除账号</button>
             </div>
             <div class="proxy-summary">
@@ -1203,10 +1223,12 @@
       proxyConfigs: new Map(),
       selectedOpenID: "",
       lastResult: "",
-      expiredIntroPlayed: false
+      expiredIntroPlayed: false,
+      syncingAccount: false
     };
 
     const $ = id => document.getElementById(id);
+    const mobileAccountLayout = matchMedia("(max-width: 860px)");
 
     $("logoutBtn").addEventListener("click", async () => {
       await fetch("/logout", { method: "POST" });
@@ -1393,6 +1415,8 @@
 
     function setActivity(message) {
       $("activityLine").textContent = message;
+      $("mobileAccountFeedback").textContent = message;
+      $("mobileAccountFeedback").hidden = false;
     }
 
     function setResult(value, meta, isError) {
@@ -1415,7 +1439,10 @@
       $("accountRemarkInput").value = selected?.remark || "";
       $("accountRemarkInput").disabled = !selected;
       $("saveRemarkBtn").disabled = !selected;
-      $("syncQingLongBtn").disabled = !selected;
+      $("syncQingLongBtn").disabled = !selected || state.syncingAccount;
+      $("mobileSyncAccountBtn").disabled = !selected || state.syncingAccount;
+      $("updateAccountLinkBtn").disabled = !selected;
+      $("addAccountLinkBtn").disabled = !selected;
       $("syncAllQingLongBtn").disabled = state.accounts.length === 0;
       $("deleteAccountBtn").disabled = !selected;
       $("proxySettingsLink").href = selected ? `/proxies?ref=${encodeURIComponent(selected.id)}` : "/proxies";
@@ -1424,6 +1451,24 @@
         card.classList.toggle("selected", selected);
         card.querySelector(".account-select").setAttribute("aria-pressed", String(selected));
       });
+      placeMobileAccountActions();
+    }
+
+    function placeMobileAccountActions() {
+      const dock = $("mobileAccountActions");
+      const account = getSelectedAccount();
+      const card = document.querySelector(".account-card.selected");
+      dock.hidden = !mobileAccountLayout.matches || !account || !card;
+      if (dock.hidden) return;
+      $("mobileAccountName").textContent = `ID ${account.id} · ${accountName(account)}`;
+      $("mobileProxySettingsLink").href = `/proxies?ref=${encodeURIComponent(account.id)}`;
+      if (card.nextElementSibling !== dock) card.after(dock);
+    }
+
+    function parkMobileAccountActions() {
+      const dock = $("mobileAccountActions");
+      dock.hidden = true;
+      $("accountWorkspace").appendChild(dock);
     }
 
     function renderStats() {
@@ -1437,6 +1482,7 @@
 
     function renderAccounts() {
       const strip = $("accountStrip");
+      parkMobileAccountActions();
       const query = $("accountSearch").value.trim().toLocaleLowerCase();
       const filter = $("accountStatusFilter").value;
       const visible = state.accounts.filter(account => {
@@ -1445,7 +1491,7 @@
       });
       $("accountFilterCount").textContent = `显示 ${visible.length} / ${state.accounts.length} 个账号`;
       if (!state.accounts.length) {
-        strip.innerHTML = `<div class="empty-state">暂无账号，点击“添加账号”开始扫码。</div>`;
+        strip.innerHTML = `<div class="empty-state">暂无账号，点击“新增账号”开始扫码。</div>`;
         state.selectedOpenID = "";
         renderStats();
         return;
@@ -1498,6 +1544,10 @@
           syncSelectedAccount();
           loadAccountProxySummary();
           setActivity(`已选择账号：${name}`);
+          requestAnimationFrame(() => {
+            const dock = $("mobileAccountActions");
+            if (!dock.hidden) dock.scrollIntoView({ block:"nearest", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+          });
         });
         button.querySelectorAll("[data-confirm-status]").forEach(action => action.addEventListener("click", async event => {
           event.stopPropagation();
@@ -1593,6 +1643,7 @@
     }
 
     async function loadAccounts() {
+      parkMobileAccountActions();
       $("accountStrip").innerHTML = `<div class="empty-state">账号加载中</div>`;
       try {
         state.accounts = await api("GET", "/accounts");
@@ -1609,6 +1660,7 @@
         await loadAccountProxySummary();
         setActivity("账号列表已加载");
       } catch (error) {
+        parkMobileAccountActions();
         $("accountStrip").innerHTML = `<div class="empty-state">账号加载失败：${escapeHTML(error.data?.detail || error.message)}</div>`;
         setActivity("账号列表加载失败");
       }
@@ -1747,9 +1799,12 @@
 
     async function syncQingLong() {
       const account = getSelectedAccount();
-      if (!account) return;
+      if (!account || state.syncingAccount) return;
       const button = $("syncQingLongBtn");
+      state.syncingAccount = true;
       button.disabled = true;
+      $("mobileSyncAccountBtn").disabled = true;
+      setActivity(`正在同步账号 ${account.id} 到面板…`);
       try {
         const saved = await api("PUT", "/accounts/remark", { ref: String(account.id), remark: $("accountRemarkInput").value });
         const index = state.accounts.findIndex(item => item.id === account.id);
@@ -1763,17 +1818,21 @@
         setActivity(`同步面板失败：${error.message}`);
         if (error.message.includes("配置")) $("qingLongSettings").open = true;
       } finally {
-        button.disabled = false;
+        state.syncingAccount = false;
+        button.disabled = !getSelectedAccount();
+        $("mobileSyncAccountBtn").disabled = !getSelectedAccount();
       }
     }
 
     let pendingAccountLinkKind = "";
+    let pendingAccountLinkAccount = null;
 
     function openAccountLinkDialog(kind) {
       const account = getSelectedAccount();
       if (!account) return;
       const defaultMinutes = kind === "update" ? 10 : 30;
       pendingAccountLinkKind = kind;
+      pendingAccountLinkAccount = account;
       $("accountLinkDialogTitle").textContent = kind === "update" ? "生成更新链接" : "生成新增链接";
       $("accountLinkDialogDescription").textContent = kind === "update"
         ? `仅限 ${account.remark || account.nickname || `账号 ${account.id}`} 扫码更新，复制时自动加更新提示`
@@ -1793,11 +1852,12 @@
       if (dialog.open && typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
       pendingAccountLinkKind = "";
+      pendingAccountLinkAccount = null;
     }
 
     async function createAccountLink() {
       const kind = pendingAccountLinkKind;
-      const account = getSelectedAccount();
+      const account = pendingAccountLinkAccount;
       if (!kind || !account) return;
       const minutes = Number($("accountLinkTTL").value);
       if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) {
@@ -1854,7 +1914,7 @@
         ? `已拦截：该账号已有 ${items.length} 条未消费链接。使用现有链接，或作废后再生成。`
         : `该账号已有 ${items.length} 条未消费链接。`;
       $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
-      const account = getSelectedAccount();
+      const account = pendingAccountLinkAccount;
       $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await copyText(accountLinkShareText(item.kind || pendingAccountLinkKind, account, item.url)); button.textContent = "已复制"; setTimeout(() => { button.textContent = "复制"; }, 1600); } catch { setActivity("分享内容已选中，请按 Ctrl+C"); } });
       $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => {
         try {
@@ -2058,6 +2118,9 @@
     $("syncAllQingLongBtn").addEventListener("click", syncAllQingLong);
     $("saveRemarkBtn").addEventListener("click", saveRemark);
     $("syncQingLongBtn").addEventListener("click", syncQingLong);
+    $("mobileSyncAccountBtn").addEventListener("click", syncQingLong);
+    $("mobileUpdateAccountBtn").addEventListener("click", () => openAccountLinkDialog("update"));
+    mobileAccountLayout.addEventListener("change", placeMobileAccountActions);
     $("updateAccountLinkBtn").addEventListener("click", () => openAccountLinkDialog("update"));
     $("addAccountLinkBtn").addEventListener("click", () => openAccountLinkDialog("add"));
     $("accountLinkConfigPane").addEventListener("submit", event => { event.preventDefault(); createAccountLink(); });

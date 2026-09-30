@@ -25,6 +25,21 @@ const path = require('node:path');
     await context.route('**/accounts', route => route.fulfill(envelope(accounts)));
     await context.route('**/accounts/proxy?*', route => {proxyReads++; return route.fulfill(envelope({configured:false}));});
     await context.route('**/accounts/avatar?*', route => route.fulfill({status:404,body:''}));
+    const linkRequests=[];
+    await context.route('**/api/account-links', route => {
+      const body=route.request().postDataJSON();
+      linkRequests.push(body);
+      return route.fulfill(envelope({url:base+'/a/demo-only',expires_at:now+600,existing:[]}));
+    });
+    await context.route('**/accounts/remark',route=>{
+      const body=route.request().postDataJSON();
+      assert.equal(body.ref,'1');
+      return route.fulfill(envelope({account:accounts[0]}));
+    });
+    await context.route('**/api/qinglong/sync',route=>{
+      assert.equal(route.request().postDataJSON().ref,'1');
+      return route.fulfill(envelope({added:true}));
+    });
     await context.route('**/accounts/status', route => {
       const body = route.request().postDataJSON();
       assert.equal(body.ref, '2');
@@ -51,6 +66,7 @@ const path = require('node:path');
       await page.locator('#accountSearch').fill('星河');
       assert.equal(await page.locator('.account-card').count(),1);
       assert.equal(await page.locator('#selectedAccountName').innerText(),'晨风');
+      assert.equal(await page.locator('#mobileAccountActions').isVisible(),false,'filtered-out selection must hide actions');
       await page.locator('#accountSearch').fill('no-match');
       assert.equal(await page.locator('.account-card').count(),0);
       await page.locator('#accountSearch').fill('');
@@ -64,6 +80,38 @@ const path = require('node:path');
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#platformMenu').getAttribute('aria-expanded'),'false');
         assert.equal(await page.evaluate(()=>document.activeElement.id),'platformMenu');
+        await page.locator('.account-card').last().locator('.account-select').click();
+        await page.waitForFunction(()=>{
+          const dock=document.querySelector('#mobileAccountActions');
+          const rect=dock.getBoundingClientRect();
+          return dock.previousElementSibling?.classList.contains('selected') && rect.top>=0 && rect.bottom<=innerHeight;
+        });
+        assert.equal(await page.locator('#mobileAccountName').innerText(),'ID 6 · 拾光');
+        assert.equal(await page.locator('#mobileProxySettingsLink').getAttribute('href'),'/proxies?ref=6');
+        assert.equal(await page.locator('#mobileAccountActions .btn').evaluateAll(buttons=>buttons.every(btn=>btn.getBoundingClientRect().height>=44)),true);
+        await page.locator('#mobileUpdateAccountBtn').click();
+        assert.match(await page.locator('#accountLinkDialogDescription').innerText(),/仅限 拾光/);
+        await page.locator('#accountLinkGenerateBtn').click();
+        await page.locator('#accountLinkResultPane').waitFor({state:'visible'});
+        assert.equal(linkRequests.at(-1).ref,'6');
+        assert.equal(linkRequests.at(-1).kind,'update');
+        assert.match(await page.locator('#accountLinkURL').inputValue(),/更新：拾光/);
+        await page.locator('#accountLinkDoneBtn').click();
+        await page.locator('.account-card').first().locator('.account-select').click();
+        await page.locator('#mobileSyncAccountBtn').click();
+        await page.waitForFunction(()=>document.querySelector('#mobileAccountFeedback').textContent.includes('账号 1 已添加'));
+        assert.equal(await page.locator('#mobileAccountActions').isVisible(),true,'actions survive re-render after sync');
+        await page.locator('#addAccountLinkBtn').click();
+        assert.match(await page.locator('#accountLinkDialogDescription').innerText(),/任意未录入/);
+        await page.locator('#accountLinkGenerateBtn').click();
+        await page.locator('#accountLinkResultPane').waitFor({state:'visible'});
+        assert.equal(linkRequests.at(-1).kind,'add');
+        await page.locator('#accountLinkDoneBtn').click();
+        await page.locator('#reloadAccountsBtn').click();
+        await page.locator('#mobileAccountName').filter({hasText:'晨风'}).waitFor();
+        assert.equal(await page.locator('#mobileAccountActions').count(),1,'one shared action bar');
+      } else {
+        assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);
       }
       if (process.env.YYB_SCREENSHOT_DIR && [1440,390].includes(width)) {
         await page.locator('h2').first().click();
@@ -86,7 +134,28 @@ const path = require('node:path');
     await page.waitForFunction(()=>document.querySelector('.account-maintenance').hidden);
     await page.waitForFunction(()=>document.querySelector('#platformUserRole').textContent === '普通用户');
     assert.equal(await page.locator('.platform-nav a[href="/users"]').isVisible(),false);
+    await page.setViewportSize({width:1024,height:1000});
+    assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);
+    await page.setViewportSize({width:390,height:1000});
+    await page.locator('#mobileAccountActions').waitFor({state:'visible'});
+    let failLoad;
+    await context.route('**/accounts',async route=>{
+      await new Promise(resolve=>{failLoad=resolve;});
+      return route.fulfill({status:503,contentType:'application/json',body:'{"code":503,"msg":"test unavailable","data":null}'});
+    });
+    await page.locator('#reloadAccountsBtn').click();
+    await page.locator('#accountStrip .empty-state').filter({hasText:'账号加载中'}).waitFor();
+    await page.locator('#accountSearch').fill('晨风');
+    failLoad();
+    await page.locator('#accountStrip .empty-state').filter({hasText:'账号加载失败'}).waitFor();
+    assert.equal(await page.locator('#mobileAccountActions').count(),1,'load failure must retain the shared controls');
+    assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);
+    await context.route('**/accounts',route=>route.fulfill(envelope([])));
+    await page.locator('#reloadAccountsBtn').click();
+    await page.waitForFunction(()=>document.querySelector('#accountCount').textContent==='0');
+    assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);
+    assert.equal(await page.locator('#accountWorkspace a[href="/scan"]').isVisible(),true,'empty list retains add account entry');
     assert.deepEqual(errors,[]);
-    console.log('PASS: responsive layout, filtering, duration, expired state, confirmation, navigation and user visibility');
+    console.log('PASS: responsive layout, filtering, mobile action placement/targeting, link creation, sync, empty list, duration, navigation and user visibility');
   } finally { await browser.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});
