@@ -41,16 +41,26 @@ export const router = createRouter({
       component: () => import("./views/Calls.vue"),
       meta: { title: "调用配置" },
     },
-    ...[
-      ["scan", "扫码添加"],
-      ["proxies", "代理设置"],
-      ["account-links", "授权链接"],
-      ["maintenance", "系统维护"],
-    ].map(([path, title]) => ({
-      path: `/${path}`,
-      component: () => import("./views/Legacy.vue"),
-      meta: { title, admin: path === "maintenance" },
-    })),
+    {
+      path: "/scan",
+      component: () => import("./views/Scan.vue"),
+      meta: { title: "扫码添加" },
+    },
+    {
+      path: "/proxies",
+      component: () => import("./views/Proxies.vue"),
+      meta: { title: "代理设置" },
+    },
+    {
+      path: "/account-links",
+      component: () => import("./views/AccountLinks.vue"),
+      meta: { title: "授权链接" },
+    },
+    {
+      path: "/maintenance",
+      component: () => import("./views/Maintenance.vue"),
+      meta: { title: "系统维护", admin: true },
+    },
     {
       path: "/:pathMatch(.*)*",
       component: () => import("./views/NotFound.vue"),

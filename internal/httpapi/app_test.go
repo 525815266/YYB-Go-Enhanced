@@ -253,6 +253,7 @@ func TestAuthMeWithoutConfiguredAuthentication(t *testing.T) {
 		AvatarTimeout:  time.Second,
 		SessionTTL:     time.Minute,
 		QRSessionTTL:   time.Minute,
+		EnablePCLogin:  true,
 	})
 	if err != nil {
 		t.Fatalf("NewApp() error = %v", err)
@@ -267,8 +268,9 @@ func TestAuthMeWithoutConfiguredAuthentication(t *testing.T) {
 	var response struct {
 		Code int `json:"code"`
 		Data struct {
-			AuthEnabled bool `json:"auth_enabled"`
-			User        struct {
+			AuthEnabled    bool `json:"auth_enabled"`
+			PCLoginEnabled bool `json:"pc_login_enabled"`
+			User           struct {
 				Username    string `json:"username"`
 				DisplayName string `json:"display_name"`
 				Role        string `json:"role"`
@@ -278,7 +280,7 @@ func TestAuthMeWithoutConfiguredAuthentication(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode /api/auth/me JSON: %v", err)
 	}
-	if response.Code != 0 || response.Data.AuthEnabled || response.Data.User.Username != "local" || response.Data.User.DisplayName == "" || response.Data.User.Role != "admin" {
+	if response.Code != 0 || response.Data.AuthEnabled || !response.Data.PCLoginEnabled || response.Data.User.Username != "local" || response.Data.User.DisplayName == "" || response.Data.User.Role != "admin" {
 		t.Fatalf("GET /api/auth/me body = %#v", response)
 	}
 	for _, path := range []string{"/settings", "/users"} {

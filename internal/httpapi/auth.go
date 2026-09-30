@@ -232,8 +232,9 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.auth == nil {
 		writeJSON(w, 200, map[string]any{
-			"auth_enabled": false,
-			"session_id":   "",
+			"auth_enabled":     false,
+			"pc_login_enabled": a.cfg.EnablePCLogin,
+			"session_id":       "",
 			"user": map[string]any{
 				"username":     "local",
 				"display_name": "本机管理员",
@@ -248,7 +249,7 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "请先登录")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"auth_enabled": true, "user": user, "session_id": session.ID})
+	writeJSON(w, 200, map[string]any{"auth_enabled": true, "pc_login_enabled": a.cfg.EnablePCLogin, "user": user, "session_id": session.ID})
 }
 func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
