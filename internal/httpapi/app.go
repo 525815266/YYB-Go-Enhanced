@@ -172,7 +172,7 @@ func NewApp(cfg Config) (*App, error) {
 	pool := protocol.NewPool(poolCfg, db)
 	qrClient := qr.NewClient(cfg.RequestTimeout)
 	app := &App{
-		updates:            &updateChecker{client: &http.Client{Timeout: 10 * time.Second}, url: maintenanceVersionURL, fallbackURL: maintenanceVersionAPIURL},
+		updates:            &updateChecker{client: &http.Client{Timeout: 10 * time.Second}, url: maintenanceVersionURL, fallbackURL: maintenanceVersionAPIURL, releaseURL: maintenanceReleaseBase + "/latest"},
 		cfg:                cfg,
 		resources:          res,
 		db:                 db,

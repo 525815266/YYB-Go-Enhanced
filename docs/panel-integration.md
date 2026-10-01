@@ -108,6 +108,22 @@ bash /ql/data/scripts/yyb-scriptctl.sh install 麦富迪_code版.py \
 
 目录匹配仅代表脚本可被发现，不会自动把依赖其他 Cookie / Token 的脚本改造成 YYB 脚本。
 
+## 第三方脚本订阅与更新
+
+第三方仓库的文件更新由青龙「订阅管理」处理；YYB 继续读取面板任务。配置公开仓库 Git 地址、分支、文件筛选及拉库定时，手动运行订阅即可立即更新，不需要反复上传。
+
+例如 Issue #73 提到的 `lcmovie/YYB-GO-Script-i`，其 README 提供：
+
+```bash
+ql repo "https://github.com/lcmovie/YYB-GO-Script-i.git" "^wx-script/.*\.(js|py)$" "" "" "main" "js py"
+```
+
+在青龙订阅管理也可填写同样的地址、分支 `main`、白名单 `^wx-script/.*\.(js|py)$` 和后缀 `js py`。拉库定时例如 `0 */6 * * *`（每 6 小时），不等于脚本执行定时。
+
+拉库后，根据实际任务命令，把包含 `wx-script` 的目录追加到 YYB 的 `YYB_QINGLONG_REPO`，保留原有目录并重启 YYB。例如 `task lcmovie_YYB-GO-Script-i_main/wx-script/qqmusic.py` 对应 `lcmovie_YYB-GO-Script-i_main/wx-script`；是否带 `_main` 以实际目录为准。不要填写 GitHub 的 `/tree/main/...` 网页地址作为仓库地址。
+
+路径不变时，已有账号任务直接运行更新后的文件。如果只使用 YYB 账号任务，首次接入或新增脚本后，检查并禁用订阅生成的原始全局任务，避免重复运行。第三方仓库的筛选规则与业务接口由其作者维护，这里的订阅示例不代表已验证全部脚本的运行效果。
+
 ## 跨服务器排错
 
 请从实际执行脚本的容器内测试，不能只在浏览器中打开服务首页：

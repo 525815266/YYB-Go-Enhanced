@@ -37,6 +37,7 @@ type updateChecker struct {
 	client      *http.Client
 	url         string
 	fallbackURL string
+	releaseURL  string
 }
 
 type maintenanceRuntime struct {
@@ -178,12 +179,12 @@ func (c *updateChecker) fetch(ctx context.Context, source string) (string, error
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", versionSourceHTTPError(resp)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
 	if err != nil {
 		return "", err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	latest := strings.TrimSpace(string(body))
 	if maintenanceSemver.MatchString(latest) {
@@ -205,10 +206,60 @@ func (c *updateChecker) fetch(ctx context.Context, source string) (string, error
 	return "", fmt.Errorf("版本源格式不正确")
 }
 
+func versionSourceHTTPError(resp *http.Response) error {
+	if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0") {
+		return fmt.Errorf("HTTP %d（GitHub 请求限流，请稍后重试或更换服务出口）", resp.StatusCode)
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("HTTP 403（访问被拒绝，请检查服务出口或代理；仅凭 403 无法确认是限流）")
+	}
+	return fmt.Errorf("HTTP %d", resp.StatusCode)
+}
+
+// The public Release redirect does not use the API's unauthenticated rate limit.
+// Inspect only the official tag destination; never follow a redirect or fetch assets.
+func (c *updateChecker) fetchRelease(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.releaseURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "YYB-Go-Enhanced-update-checker")
+	client := *c.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	default:
+		if resp.StatusCode != http.StatusOK {
+			return "", versionSourceHTTPError(resp)
+		}
+		return "", fmt.Errorf("未返回正式发布版本的跳转")
+	}
+	location, err := resp.Location()
+	if err == nil {
+		latest := strings.TrimPrefix(location.String(), maintenanceReleaseBase+"/tag/v")
+		if maintenanceSemver.MatchString(latest) {
+			return latest, nil
+		}
+	}
+	return "", fmt.Errorf("Release 跳转不是本仓库的正式版本")
+}
+
 func (c *updateChecker) check(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.checked.IsZero() && time.Since(c.checked) < 5*time.Minute {
+	if err := ctx.Err(); err != nil {
+		return c.latest, err
+	}
+	cacheTTL := 5 * time.Minute
+	if c.err != nil {
+		cacheTTL = 30 * time.Second
+	}
+	if !c.checked.IsZero() && time.Since(c.checked) < cacheTTL {
 		return c.latest, c.err
 	}
 	sources := []string{c.url}
@@ -216,6 +267,7 @@ func (c *updateChecker) check(ctx context.Context) (string, error) {
 		sources = append(sources, c.fallbackURL)
 	}
 	type result struct {
+		source  string
 		version string
 		err     error
 	}
@@ -225,12 +277,17 @@ func (c *updateChecker) check(ctx context.Context) (string, error) {
 	for _, source := range sources {
 		go func(source string) {
 			latest, err := c.fetch(requestCtx, source)
-			results <- result{version: latest, err: err}
+			results <- result{source: source, version: latest, err: err}
 		}(source)
 	}
 	var failures []string
 	for range sources {
-		outcome := <-results
+		var outcome result
+		select {
+		case <-ctx.Done():
+			return c.latest, ctx.Err()
+		case outcome = <-results:
+		}
 		if outcome.err == nil {
 			cancel()
 			c.checked = time.Now()
@@ -238,7 +295,23 @@ func (c *updateChecker) check(ctx context.Context) (string, error) {
 			c.err = nil
 			return c.latest, nil
 		}
-		failures = append(failures, outcome.err.Error())
+		label := "GitHub Raw"
+		if outcome.source == c.fallbackURL {
+			label = "GitHub Contents API"
+		}
+		failures = append(failures, label+"："+outcome.err.Error())
+	}
+	if c.releaseURL != "" && ctx.Err() == nil {
+		latest, err := c.fetchRelease(requestCtx)
+		if err == nil {
+			c.checked, c.latest, c.err = time.Now(), latest, nil
+			return c.latest, nil
+		}
+		failures = append(failures, "GitHub Release："+err.Error())
+	}
+	// Closing the browser must not cache a cancellation as a network outage.
+	if err := ctx.Err(); err != nil {
+		return c.latest, err
 	}
 	c.checked = time.Now()
 	c.err = fmt.Errorf("所有版本源均不可用：%s", strings.Join(failures, "；"))
@@ -328,7 +401,7 @@ func (a *App) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 				result["download_available"] = platform.DownloadAvailable
 			}
 			if err != nil {
-				result["check_error"] = "检查版本失败，请稍后重试：" + err.Error()
+				result["check_error"] = "检查版本失败，未执行更新。请检查 YYB 服务所在容器/设备的 GitHub 网络出口，30 秒后重试：" + err.Error()
 			}
 		}
 		writeJSON(w, 200, result)

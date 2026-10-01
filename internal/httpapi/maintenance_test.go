@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"yyb_go/internal/auth"
@@ -91,6 +92,133 @@ func TestVersionCheckFallsBackToGitHubContents(t *testing.T) {
 	_, _ = checker.check(context.Background())
 	if failedCalls != 1 || fallbackCalls != 1 {
 		t.Fatalf("version result was not cached: primary=%d fallback=%d", failedCalls, fallbackCalls)
+	}
+}
+
+func TestVersionCheckReleaseFallback(t *testing.T) {
+	var releaseCalls, followedRedirect atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/raw":
+			http.Error(w, "unavailable", http.StatusBadGateway)
+		case "/api":
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.WriteHeader(http.StatusForbidden)
+		case "/latest":
+			releaseCalls.Add(1)
+			if r.Method != http.MethodHead {
+				t.Errorf("release lookup method = %s", r.Method)
+			}
+			w.Header().Set("Location", maintenanceReleaseBase+"/tag/v0.2.23")
+			w.WriteHeader(http.StatusFound)
+		default:
+			followedRedirect.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	checker := &updateChecker{client: &http.Client{Timeout: time.Second}, url: srv.URL + "/raw", fallbackURL: srv.URL + "/api", releaseURL: srv.URL + "/latest"}
+	for i := 0; i < 2; i++ {
+		latest, err := checker.check(context.Background())
+		if err != nil || latest != "0.2.23" {
+			t.Fatalf("release fallback = %q, %v", latest, err)
+		}
+	}
+	if releaseCalls.Load() != 1 || followedRedirect.Load() != 0 {
+		t.Fatal("release fallback was not cached or followed a redirect")
+	}
+}
+
+func TestVersionCheckRejectsUntrustedReleaseRedirects(t *testing.T) {
+	for _, target := range []string{
+		"https://example.com/releases/tag/v0.2.23",
+		"https://github.com/other/repo/releases/tag/v0.2.23",
+		maintenanceReleaseBase + "/tag/v0.2.23?x=1",
+		maintenanceReleaseBase + "/tag/v0.2.23-rc.1",
+		maintenanceReleaseBase + "/latest",
+		"",
+	} {
+		t.Run(target, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Location", target)
+				w.WriteHeader(http.StatusFound)
+			}))
+			defer srv.Close()
+			checker := &updateChecker{client: &http.Client{Timeout: time.Second}, releaseURL: srv.URL}
+			if _, err := checker.fetchRelease(context.Background()); err == nil {
+				t.Fatalf("accepted invalid release destination %q", target)
+			}
+		})
+	}
+}
+
+func TestVersionCheckDoesNotRequestReleaseWhenPrimaryWorks(t *testing.T) {
+	var releaseCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/latest" {
+			releaseCalls.Add(1)
+		}
+		_, _ = w.Write([]byte("0.2.23"))
+	}))
+	defer srv.Close()
+	checker := &updateChecker{client: srv.Client(), url: srv.URL, releaseURL: srv.URL + "/latest"}
+	if _, err := checker.check(context.Background()); err != nil || releaseCalls.Load() != 0 {
+		t.Fatalf("unexpected fallback: %v", err)
+	}
+}
+
+func TestVersionCheckFailureRecoversAfterShortCache(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte("0.2.23"))
+	}))
+	defer srv.Close()
+	checker := &updateChecker{client: srv.Client(), url: srv.URL}
+	if _, err := checker.check(context.Background()); err == nil || !strings.Contains(err.Error(), "请求限流") {
+		t.Fatalf("missing rate limit diagnostic: %v", err)
+	}
+	if _, err := checker.check(context.Background()); err == nil || calls.Load() != 1 {
+		t.Fatal("failure cache should prevent immediate repeated requests")
+	}
+	checker.checked = time.Now().Add(-31 * time.Second)
+	if latest, err := checker.check(context.Background()); err != nil || latest != "0.2.23" {
+		t.Fatalf("did not recover after 30 seconds: %q %v", latest, err)
+	}
+}
+
+func TestVersionCheckCancellationDoesNotPoisonCache(t *testing.T) {
+	started := make(chan struct{})
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-r.Context().Done()
+			return
+		}
+		_, _ = w.Write([]byte("0.2.23"))
+	}))
+	defer srv.Close()
+	checker := &updateChecker{client: &http.Client{Timeout: time.Second}, url: srv.URL}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { <-started; cancel() }()
+	if _, err := checker.check(ctx); err == nil || !checker.checked.IsZero() {
+		t.Fatal("cancelled request must not fill the cache")
+	}
+	if latest, err := checker.check(context.Background()); err != nil || latest != "0.2.23" {
+		t.Fatalf("fresh request failed after cancellation: %q %v", latest, err)
+	}
+}
+
+func TestVersionSourceHTTPErrorDoesNotAssume403IsRateLimit(t *testing.T) {
+	err := versionSourceHTTPError(&http.Response{StatusCode: http.StatusForbidden, Header: make(http.Header)})
+	if !strings.Contains(err.Error(), "无法确认") {
+		t.Fatal(err)
 	}
 }
 

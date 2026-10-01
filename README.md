@@ -160,6 +160,8 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 管理员可点击控制台顶栏版本号检查新版本。系统会识别当前运行环境：Windows、Linux、macOS 裸机提供匹配架构的 Release 下载，Magisk 提供模块 ZIP；Docker 仅在维护执行器已连接时提供在线更新和重启。
 
+v0.2.23 增加官方 Release 备用查询，改善 Raw / API 同时失败时的版本检查。遇到连接重置或 403，请按[更新网络排错](docs/maintenance.md#检查更新报连接重置或-http-403issue-74)检查 YYB 容器出口；Docker 拉取镜像使用宿主机的独立网络配置。
+
 完整版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 安全边界

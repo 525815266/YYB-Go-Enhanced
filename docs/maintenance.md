@@ -1,8 +1,28 @@
-# 面板更新与重启（v0.2.18，2026-09-29）
+# 面板更新与重启（v0.2.23，2026-10-02）
 
 管理员点击任意页面顶栏的版本号即可检查更新并拉取新镜像；完整状态与独立重启入口位于左侧「管理 → 系统维护」。普通用户不能执行维护，后端同样校验管理员会话；关闭登录鉴权的本机模式也不能执行维护。检查版本缓存 5 分钟，不会随普通页面刷新反复访问 GitHub。
 
-版本检查会同时请求 GitHub Raw 与 Contents API，优先采用最先返回的合法版本号。单个域名不可达时不会阻塞更新入口；两个来源都失败时才显示检查错误，且不会误触发重建或降级。
+版本检查会同时请求 GitHub Raw 与 Contents API，优先采用最先返回的合法版本号。两个来源都失败时，再通过 `github.com` 的官方 Release 跳转查询已发布的正式版本；备用查询不占用 GitHub API 的匿名配额，也不会下载安装包。成功结果缓存 5 分钟，全部失败仅缓存 30 秒；取消请求不会缓存成网络故障。无法确认版本时不会触发重建或降级。
+
+Release 备用来源只反映已发布版本，可能暂时落后于主分支。Docker 维护执行器仍检查镜像标签是否与目标版本一致，不会因某个来源恢复就跳过校验。
+
+## 检查更新报连接重置或 HTTP 403（Issue #74）
+
+`connection reset by peer` 表示连接被重置；`HTTP 403` 表示访问被拒绝，可能来自 GitHub 限流、出口限制或代理。只有返回 `X-RateLimit-Remaining: 0` 或 HTTP 429 等明确信号时，程序才提示限流，不能仅凭 403 确定原因。
+
+检查由 **YYB 服务所在容器 / 设备**发出。电脑浏览器能打开 GitHub，不代表容器出口也正常；工作台里的“账号代理”用于账号协议请求，不会自动成为版本检查或 Docker 下载镜像的代理。
+
+可在官方 Docker 容器内分别检查三个来源（`yyb-go` 替换为实际容器名）：
+
+```bash
+docker exec yyb-go wget -S -O /dev/null -T 15 'https://raw.githubusercontent.com/525815266/YYB-Go-Enhanced/main/VERSION'
+docker exec yyb-go wget -S -O /dev/null -T 15 'https://api.github.com/repos/525815266/YYB-Go-Enhanced/contents/VERSION?ref=main'
+docker exec yyb-go wget -S --spider -T 15 'https://github.com/525815266/YYB-Go-Enhanced/releases/latest'
+```
+
+网络恢复后等待 30 秒再检查。若需要代理，可为 YYB 服务进程配置标准 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`；代理地址必须能从容器访问，`127.0.0.1` 在容器里指向容器本身。分享诊断时请隐去代理密码、Cookie 和令牌。
+
+**检查版本成功不代表镜像拉取成功**：Docker 镜像由宿主机 Docker daemon 从 `ghcr.io` 拉取，它的代理和网络配置独立于 YYB 容器。Docker 在线更新还需要下文的维护执行器；未配置时应按原 Compose 方式更新。三个 GitHub 来源都无法访问时，仍需修复服务器网络，备用来源不能保证所有网络环境可达。
 
 ## 部署方式与能力
 
