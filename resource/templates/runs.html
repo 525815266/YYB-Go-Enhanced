@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>运行管理 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260930-console">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261001-compact">
   <style>
     :root {
       color-scheme: light;
@@ -54,6 +54,11 @@
     .tab { min-height: 36px; padding: 7px 11px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); white-space: nowrap; } .tab:last-child { border-right: 0; }
     .tab:hover { background: var(--surface-strong); color: var(--ink); } .tab[aria-selected="true"] { background: var(--bg); color: var(--primary); font-weight: 700; box-shadow: inset 0 -2px var(--primary); }
     .panel { margin-top: 16px; } .panel-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .script-help { margin-top:12px; color:var(--muted); font-size:13px; line-height:1.65; }
+    .script-help summary { cursor:pointer; width:fit-content; padding:4px 0; color:var(--ink); }
+    .script-help ol { padding-left:22px; margin:8px 0; }
+    .script-help code { overflow-wrap:anywhere; }
+    .script-help p { margin:6px 0; }
     .toolbar { display: flex; align-items: center; gap: 8px; } .toolbar input { width: min(310px, 42vw); }
     .notice { margin-top: 14px; padding: 10px 12px; border: 1px solid oklch(0.86 0.06 78); border-radius: var(--radius); background: var(--warning-soft); color: oklch(0.36 0.07 72); } .notice strong { color: var(--ink); }
     .run-scope { padding: 12px 14px; background: var(--accent-soft); border: 1px solid oklch(0.84 0.04 190); border-radius: var(--radius); } .run-scope strong { color: oklch(0.32 0.08 190); }
@@ -122,6 +127,11 @@
             <div class="tabs" role="tablist" aria-label="任务范围" id="taskTabs"><button class="tab" type="button" role="tab" data-view="configured" aria-selected="true">已配置 <span id="configuredTabCount">0</span></button><button class="tab" type="button" role="tab" data-view="enabled" aria-selected="false">已启用 <span id="enabledTabCount">0</span></button><button class="tab" type="button" role="tab" data-view="all" aria-selected="false">全部脚本 <span id="allTabCount">0</span></button></div>
             <div class="toolbar"><input id="taskSearchInput" type="search" placeholder="搜索脚本名称或路径" aria-label="搜索任务脚本"><button class="btn" type="button" id="clearTaskSearchBtn" hidden>清除</button></div>
           </div>
+          <details class="script-help"><summary>上传的脚本没显示？</summary>
+            <p>“全部脚本”来自已配置目录下的面板任务，单独上传文件不会自动入列。</p>
+            <ol><li>将支持 <code>YYB_SERVER</code> 的脚本上传到管理员配置的 <code>YYB_QINGLONG_REPO</code> 目录。</li><li>在面板新建任务，命令例如 <code>task 目录名/脚本.py</code>，填写正确的 Cron。若仅供 YYB 按账号运行，请将这个原始任务设为禁用，避免重复执行。</li><li>回到本页点击“刷新状态”，在“全部脚本”中按名称或路径搜索，再为当前账号启用。</li></ol>
+            <p>自建目录须加入 <code>YYB_QINGLONG_REPO</code>（多个目录以逗号分隔）并重启 YYB 服务；请保留原有目录。目录匹配不代表脚本已完成 YYB 协议适配。</p>
+          </details>
           <div class="notice" id="duplicateNotice" hidden><strong>检测到旧全局任务仍启用。</strong> 同一脚本可能被全局任务和账号任务重复执行，请先在当前面板中停用对应全局任务。</div>
           <div class="table-wrap"><table><thead><tr><th>脚本</th><th>Cron</th><th>任务状态</th><th>最近运行</th><th>定时开关</th><th>操作</th></tr></thead><tbody id="jobsBody"><tr><td class="name"><div class="skeleton"></div></td><td><div class="skeleton"></div></td><td><div class="skeleton"></div></td><td><div class="skeleton"></div></td><td><div class="skeleton"></div></td><td><div class="skeleton"></div></td></tr></tbody></table><div class="empty" id="jobsEmpty" hidden><p id="jobsEmptyText">该账号尚未配置脚本任务。</p><button class="btn" type="button" id="browseBtn">浏览全部脚本</button></div></div>
         </div>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>工作台 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20260930-console">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261001-compact">
   <style>
     :root {
       color-scheme: light;
@@ -245,12 +245,6 @@
       text-wrap: balance;
     }
 
-    .summary-copy {
-      margin: 0;
-      max-width: 72ch;
-      color: var(--muted);
-    }
-
     .stat-row {
       display: flex;
       flex-wrap: wrap;
@@ -277,7 +271,7 @@
     }
     .quick-actions summary, .account-maintenance summary { cursor:pointer; padding:9px 0; font-size:13px; }
     .quick-actions .inline-actions, .account-maintenance .inline-actions { margin-top:8px; }
-    .account-filters { display:flex; flex-wrap:wrap; align-items:start; gap:10px; padding:14px 18px 0; }
+    .account-filters { display:flex; flex-wrap:wrap; align-items:start; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
     .account-search { flex:1 1 240px; }
     .account-maintenance .inline-actions { flex-direction:column; }
     .account-filters .input { min-height:40px; }
@@ -325,10 +319,10 @@
     }
 
     .account-strip {
-      padding: 12px;
+      padding: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-      gap: 10px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
       align-content: start;
       min-height: 112px;
     }
@@ -339,19 +333,22 @@
       overflow: hidden;
       width: 100%;
       min-width: 0;
-      min-height: 148px;
-      padding: 10px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
+      min-height: 92px;
+      padding: 14px 16px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
       background: var(--surface);
       color: var(--ink);
       text-align: left;
       display: grid;
-      grid-template-columns: 36px minmax(0, 1fr);
-      gap: 9px;
-      align-items: start;
+      grid-template-columns: 32px minmax(180px, 1fr) minmax(240px, .95fr) 116px;
+      column-gap: 14px;
+      row-gap: 10px;
+      align-items: center;
       transition: background 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1);
     }
+    .account-card:last-child { border-bottom:0; border-radius:0 0 var(--radius) var(--radius); }
 
     .account-card.alive {
       border-color: var(--line);
@@ -364,8 +361,7 @@
     }
 
     .account-card.warning {
-      border-color: oklch(0.84 0.07 82);
-      background: oklch(0.985 0.014 82);
+      background: oklch(0.99 0.008 82);
     }
 
     .account-card.warning .account-status {
@@ -374,9 +370,7 @@
     }
 
     .account-card.expired {
-      border-color: oklch(0.78 0.025 20);
-      background: oklch(0.94 0.008 20);
-      box-shadow: inset 0 0 0 1px oklch(0.74 0.03 20 / 0.22);
+      background: var(--bg-soft);
     }
 
     .account-card.expired .avatar,
@@ -394,8 +388,8 @@
     .account-card.expired::after {
       content: attr(data-state-label);
       position: absolute;
-      right: 14px;
-      top: 55px;
+      right: 166px;
+      top: 28px;
       z-index: 2;
       padding: 4px 10px 3px;
       border: 3px double oklch(0.49 0.19 24 / 0.72);
@@ -403,7 +397,7 @@
       color: oklch(0.45 0.2 24 / 0.76);
       background: oklch(0.97 0.02 24 / 0.48);
       box-shadow: 0 0 0 1px oklch(0.99 0 0 / 0.5), 0 2px 8px oklch(0.35 0.12 24 / 0.12);
-      font-size: 17px;
+      font-size: 13px;
       font-weight: 900;
       letter-spacing: 0.16em;
       line-height: 1.1;
@@ -459,8 +453,7 @@
     }
 
     .account-card:hover {
-      background: var(--bg);
-      border-color: oklch(0.78 0.035 190);
+      background: var(--bg-soft);
     }
 
     .account-card.expired:hover {
@@ -469,20 +462,19 @@
     }
 
     .account-card.selected {
-      background: var(--accent-soft);
-      border-color: var(--accent);
+      background: oklch(0.978 0.01 3);
+      box-shadow: inset 0 0 0 1px oklch(0.78 0.09 3);
     }
 
     .account-card.expired.selected {
-      background: oklch(0.94 0.012 20);
-      border-color: oklch(0.58 0.15 24);
-      box-shadow: 0 0 0 2px oklch(0.68 0.16 24 / 0.2), inset 0 0 0 1px oklch(0.74 0.04 20 / 0.24);
+      background: oklch(0.962 0.008 20);
+      box-shadow: inset 0 0 0 1px oklch(0.72 0.07 24);
     }
 
     .avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
       overflow: hidden;
       background: var(--surface-strong);
       border: 1px solid var(--line);
@@ -502,7 +494,7 @@
     .account-main {
       min-width: 0;
       display: grid;
-      gap: 4px;
+      gap: 3px;
     }
 
     .account-header {
@@ -520,7 +512,7 @@
       white-space: nowrap;
       font-weight: 760;
     }
-    .account-select { border:0; padding:0; background:transparent; color:inherit; font:inherit; font-size:15px; font-weight:700; text-align:left; cursor:pointer; }
+    .account-select { border:0; padding:0; background:transparent; color:inherit; font:inherit; font-size:14px; font-weight:650; text-align:left; cursor:pointer; }
     .account-select::after { content:""; position:absolute; inset:0; z-index:1; }
     .account-card:focus-within { outline:2px solid var(--platform-accent); outline-offset:3px; }
 
@@ -533,6 +525,11 @@
       white-space: nowrap;
       flex: 0 0 auto;
     }
+    .account-status-toggle { position:relative; z-index:3; border:0; border-radius:4px; padding:3px 5px; background:transparent; cursor:pointer; font:inherit; font-size:12px; }
+    .account-status-toggle:hover, .account-status-toggle[aria-expanded="true"] { background:var(--warning-soft); }
+    .account-status-toggle svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.7; }
+    .account-row-actions { display:flex; justify-content:flex-end; align-items:center; gap:6px; }
+    .account-row-actions .btn { position:relative; z-index:3; min-height:32px; padding:6px 10px; }
 
     .account-confirm-actions {
       grid-column:1 / -1;
@@ -540,7 +537,7 @@
       align-items:center;
       gap: 8px;
       border-top:1px solid var(--line);
-      padding-top:10px;
+      padding-top:8px;
       font-size:12px;
       color:var(--muted);
     }
@@ -706,14 +703,14 @@
       font-size: 11px;
     }
 
-    .account-lifecycle { grid-column:1 / -1; display:grid; gap:9px; margin-top:4px; padding-top:12px; border-top:1px solid var(--line); }
-    .lifecycle-row { display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:10px; color:var(--muted); font-size:12px; line-height:1.3; }
+    .account-lifecycle { min-width:0; display:grid; gap:8px; }
+    .lifecycle-row { display:grid; grid-template-columns:60px minmax(36px,1fr) 100px; align-items:center; gap:8px; color:var(--muted); font-size:12px; line-height:1.3; }
     .lifecycle-label { white-space:nowrap; }
-    .lifecycle-track { height:6px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
+    .lifecycle-track { height:4px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
     .lifecycle-track span { display:block; height:100%; border-radius:inherit; background:var(--lifecycle-color,#29934a); transition:width 180ms ease,background-color 180ms ease; }
     .lifecycle-value { min-width:72px; text-align:right; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums; }
     .lifecycle-note { color:var(--muted); font-size:11px; }
-    .lifecycle-inactive { color:var(--muted); font-size:12px; min-height:60px; align-content:center; }
+    .lifecycle-inactive { color:var(--muted); font-size:12px; padding-right:94px; align-content:center; }
 
     .result-panel .panel-body {
       gap: 10px;
@@ -813,28 +810,11 @@
     .link-dialog-existing-row .btn { padding:6px 8px; font-size:12px; }
     @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } .link-dialog-existing-row { align-items:flex-start; flex-direction:column; } }
 
-    .account-strip {
-      grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
-      padding: 18px;
-      gap: 14px;
-    }
-
-    .account-card {
-      min-height: 180px;
-      padding: 16px;
-      border-radius: 10px;
-      align-content:start;
-      gap:12px;
-    }
-
-    .account-card:hover {
-      border-color:var(--platform-accent);
-    }
-
-    .account-card.selected {
-      border-color:var(--platform-accent);
-      background:oklch(0.985 0.006 3);
-      box-shadow: 0 0 0 1px var(--platform-accent);
+    @media (min-width:861px) and (max-width:1180px) {
+      .account-card { grid-template-columns:32px minmax(150px,1fr) minmax(215px,1fr); }
+      .account-row-actions { grid-column:2; grid-row:2; justify-content:flex-start; }
+      .account-card .account-lifecycle { grid-column:3; grid-row:1 / span 2; }
+      .account-card.expired::after { right:24px; top:16px; }
     }
 
     @media (max-width: 1360px) {
@@ -848,13 +828,16 @@
     }
 
     @media (max-width: 760px) {
-      .overview { grid-template-columns:1fr; gap:4px; }
+      .overview { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+      .overview .quick-actions { align-self:end; }
+      .stat-row { gap:6px; font-size:12px; }
+      .stat-chip { padding-right:2px; gap:4px; }
       #accountWorkspace > .section-head { flex-direction:column; align-items:stretch; }
+      #accountWorkspace > .section-head .section-title { display:flex; align-items:center; gap:12px; }
       #accountWorkspace > .section-head .panel-actions { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
       #accountWorkspace > .section-head .btn { padding:8px; white-space:nowrap; }
-      .account-filters { padding:12px 12px 0; }
+      .account-filters { padding:12px; }
       .account-search { flex-basis:100%; }
-      .account-strip { padding:12px; }
       .account-maintenance { margin-left:auto; }
       .topbar {
         height: auto;
@@ -907,18 +890,26 @@
       }
 
       .account-card.expired::after {
-        right: 18px;
-        top: 58px;
-        font-size: 16px;
+        right: 16px;
+        top: 78px;
+        font-size: 13px;
       }
     }
 
     @media (max-width: 860px) {
       .account-strip { grid-template-columns:minmax(0,1fr); }
-      .mobile-account-actions:not([hidden]) { display:grid; grid-column:1 / -1; gap:10px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--bg); box-shadow:0 6px 16px oklch(0.18 0.025 252 / .08); scroll-margin:80px 0 20px; }
+      .account-card { grid-template-columns:32px minmax(0,1fr); padding:12px; column-gap:10px; min-height:0; }
+      .account-header { min-height:28px; }
+      .account-status-toggle { min-height:44px; margin-block:-8px; }
+      .account-row-actions { display:none; }
+      .account-lifecycle { grid-column:1 / -1; gap:6px; }
+      .account-lifecycle.lifecycle-inactive { min-height:32px; }
+      .account-select { font-size:15px; }
+      .account-confirm-actions .btn { min-height:44px; }
+      .mobile-account-actions:not([hidden]) { display:grid; grid-column:1 / -1; gap:10px; padding:12px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:oklch(0.978 0.01 3); scroll-margin:80px 0 20px; }
       .mobile-account-actions strong { font-size:13px; overflow-wrap:anywhere; }
-      .mobile-account-buttons { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-      .mobile-account-buttons > .btn:first-child { grid-column:1 / -1; }
+      .mobile-account-buttons { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+      .platform-main .mobile-account-buttons .btn { padding:8px 4px; }
       .platform-main .mobile-account-buttons .btn, #accountWorkspace > .section-head .btn { min-height:44px; }
       .mobile-account-actions p { margin:0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
     }
@@ -974,7 +965,6 @@
       <section class="overview" aria-label="控制台概览">
         <div class="summary">
           <h2>账号工作台</h2>
-          <p class="summary-copy">查看有效期，管理账号与调用。</p>
           <div class="stat-row" aria-label="运行统计">
             <span class="stat-chip">账号 <strong id="accountCount">0</strong></span>
             <span class="stat-chip">可用 <strong id="aliveCount">0</strong></span>
@@ -1362,9 +1352,6 @@
       if (config.mode === "static") return "静态代理";
       return "动态代理 API";
     }
-    function proxyKeepaliveText(config) {
-      return config?.keepalive_supported === false ? "短效代理 · 不可保活" : "可参与保活";
-    }
 
     function formatChecked(ts) {
       if (!ts) return "未检测";
@@ -1416,7 +1403,7 @@
     function setActivity(message) {
       $("activityLine").textContent = message;
       $("mobileAccountFeedback").textContent = message;
-      $("mobileAccountFeedback").hidden = false;
+      $("mobileAccountFeedback").hidden = message === "账号列表已加载" || message.startsWith("已选择账号：");
     }
 
     function setResult(value, meta, isError) {
@@ -1524,13 +1511,16 @@
           <span class="account-main">
             <span class="account-header">
               <button type="button" class="account-name account-select" aria-pressed="false" aria-label="选择账号 ${escapeHTML(number)}，${escapeHTML(name)}，${status}">${escapeHTML(name)}</button>
-              <span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>
+              ${pendingConfirmation
+                ? `<button type="button" class="account-status account-status-toggle ${cls}" aria-expanded="false" aria-controls="confirm-account-${account.id}" aria-label="确认账号 ${escapeHTML(number)} 的状态"><span class="status-dot"></span>${status}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>`
+                : `<span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>`}
             </span>
-            <span class="account-meta" title="最后检查 ${formatChecked(account.last_checked_at)}">ID ${escapeHTML(number)} · ${escapeHTML(proxy)}${isExpired ? "" : ` · ${escapeHTML(proxyKeepaliveText(state.proxyConfigs.get(String(account.id))))}`}</span>
+            <span class="account-meta" title="最后检查 ${formatChecked(account.last_checked_at)}">ID ${escapeHTML(number)} · ${escapeHTML(proxy)}${!isExpired && state.proxyConfigs.get(String(account.id))?.keepalive_supported === false ? " · 不可保活" : ""}</span>
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
           </span>
           ${lifecycleMarkup(account)}
-          ${pendingConfirmation ? '<div class="account-confirm-actions"><span>确认状态</span><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></div>' : ""}
+          <span class="account-row-actions"><button type="button" class="btn secondary" data-update-account aria-label="更新 ${escapeHTML(name)} 的扫码">更新</button><a class="btn" href="/proxies?ref=${encodeURIComponent(account.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
+          ${pendingConfirmation ? `<div class="account-confirm-actions" id="confirm-account-${account.id}" hidden><span>确认账号状态</span><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></div>` : ""}
         `;
         button.querySelector("img").addEventListener("error", event => {
           event.currentTarget.classList.add("hidden");
@@ -1548,6 +1538,19 @@
             const dock = $("mobileAccountActions");
             if (!dock.hidden) dock.scrollIntoView({ block:"nearest", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
           });
+        });
+        button.querySelector("[data-update-account]").addEventListener("click", event => {
+          event.stopPropagation();
+          button.click();
+          openAccountLinkDialog("update");
+        });
+        button.querySelector(".account-row-actions a").addEventListener("click", event => event.stopPropagation());
+        button.querySelector(".account-status-toggle")?.addEventListener("click", event => {
+          event.stopPropagation();
+          const toggle = event.currentTarget;
+          const expanded = toggle.getAttribute("aria-expanded") !== "true";
+          toggle.setAttribute("aria-expanded", String(expanded));
+          button.querySelector(".account-confirm-actions").hidden = !expanded;
         });
         button.querySelectorAll("[data-confirm-status]").forEach(action => action.addEventListener("click", async event => {
           event.stopPropagation();

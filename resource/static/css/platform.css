@@ -43,7 +43,7 @@ body.platform-ready > .app { display: none !important; }
 .platform-stage { grid-column: 2; min-width: 0; }
 .platform-topbar { height: var(--platform-header); position: sticky; top: 0; z-index: 35; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 28px; background: oklch(1 0 0 / .9); border-bottom: 1px solid var(--platform-line); box-shadow: 0 4px 18px oklch(0.18 0.025 252 / .04); backdrop-filter: blur(14px); }
 .platform-page-context { min-width: 0; }
-.platform-breadcrumb { color: var(--platform-muted); font-size: 11px; }
+.platform-breadcrumb { color: var(--platform-muted); font-size: 11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .platform-page-title { margin-top: 2px; color: var(--platform-ink); font-size: 15px; font-weight: 730; }
 .platform-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .platform-build { min-width: 92px; display: grid; justify-items: end; padding: 4px 12px 4px 8px; border: 0; border-right: 1px solid var(--platform-line); border-radius: 6px 0 0 6px; background: transparent; color: var(--platform-muted); line-height: 1.25; text-decoration: none; cursor: pointer; transition: background 160ms ease, color 160ms ease; }
@@ -131,7 +131,7 @@ dialog.platform-dialog::backdrop { background: oklch(0.12 0.02 252 / .54); }
   body.platform-nav-open .platform-sidebar { transform: translateX(0); }
   body.platform-nav-open { overflow:hidden; }
   .platform-stage { grid-column: 1; }
-  .platform-menu { display: grid; place-items: center; }
+  .platform-menu { display: grid; place-items: center; flex-shrink:0; }
   .platform-overlay { display: block; position: fixed; inset: 0; z-index: 39; border: 0; background: oklch(0.12 0.02 252 / .45); opacity: 0; pointer-events: none; transition: opacity 180ms ease; }
   body.platform-nav-open .platform-overlay { opacity: 1; pointer-events: auto; }
   .platform-topbar { padding: 0 14px; }
