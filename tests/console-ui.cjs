@@ -117,7 +117,10 @@ const path = require('node:path');
         await page.locator('#accountLinkCancelBtn').click();
         await page.locator('.account-card').first().locator('.account-select').click();
         if (width === 1440) {
-          assert.ok(await page.locator('.account-card').first().evaluate(e=>e.getBoundingClientRect().height) < 115, 'desktop account rows stay compact');
+          const cards = await page.locator('.account-card').evaluateAll(elements=>elements.slice(0,2).map(e=>{const r=e.getBoundingClientRect();return {top:r.top,left:r.left,height:r.height};}));
+          assert.equal(cards[0].top,cards[1].top,'desktop accounts use a card grid');
+          assert.ok(cards[1].left>cards[0].left,'cards sit side by side');
+          assert.ok(cards[0].height < 220,'cards stay compact');
         }
       }
       const pending = page.locator('.account-card').nth(1);
@@ -128,6 +131,7 @@ const path = require('node:path');
       assert.equal(await pending.locator('.account-confirm-actions').isVisible(),false);
       if (process.env.YYB_SCREENSHOT_DIR && [1440,390].includes(width)) {
         await page.locator('h2').first().click();
+        await page.mouse.move(0,0);
         await page.waitForFunction(()=>[...document.querySelectorAll('.avatar img')].every(img=>img.complete));
         await page.screenshot({path:path.join(process.env.YYB_SCREENSHOT_DIR, `console-demo-${width}.png`)});
       }

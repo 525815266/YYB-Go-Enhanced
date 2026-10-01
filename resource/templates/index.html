@@ -319,11 +319,12 @@
     }
 
     .account-strip {
-      padding: 0;
+      padding: 12px;
       display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+      gap: 12px;
       align-content: start;
+      align-items: start;
       min-height: 112px;
     }
 
@@ -333,22 +334,18 @@
       overflow: hidden;
       width: 100%;
       min-width: 0;
-      min-height: 92px;
-      padding: 14px 16px;
-      border: 0;
-      border-bottom: 1px solid var(--line);
-      border-radius: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       background: var(--surface);
       color: var(--ink);
       text-align: left;
       display: grid;
-      grid-template-columns: 32px minmax(180px, 1fr) minmax(240px, .95fr) 116px;
-      column-gap: 14px;
-      row-gap: 10px;
-      align-items: center;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
       transition: background 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1);
     }
-    .account-card:last-child { border-bottom:0; border-radius:0 0 var(--radius) var(--radius); }
 
     .account-card.alive {
       border-color: var(--line);
@@ -388,8 +385,8 @@
     .account-card.expired::after {
       content: attr(data-state-label);
       position: absolute;
-      right: 166px;
-      top: 28px;
+      right: 16px;
+      top: 100px;
       z-index: 2;
       padding: 4px 10px 3px;
       border: 3px double oklch(0.49 0.19 24 / 0.72);
@@ -453,7 +450,8 @@
     }
 
     .account-card:hover {
-      background: var(--bg-soft);
+      border-color: oklch(0.79 0.025 250);
+      box-shadow: 0 3px 10px oklch(0.2 0.025 252 / .06);
     }
 
     .account-card.expired:hover {
@@ -463,7 +461,8 @@
 
     .account-card.selected {
       background: oklch(0.978 0.01 3);
-      box-shadow: inset 0 0 0 1px oklch(0.78 0.09 3);
+      border-color: oklch(0.7 0.13 3);
+      box-shadow: 0 0 0 1px oklch(0.7 0.13 3 / .15);
     }
 
     .account-card.expired.selected {
@@ -499,6 +498,7 @@
 
     .account-header {
       min-width: 0;
+      min-height: 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -528,7 +528,7 @@
     .account-status-toggle { position:relative; z-index:3; border:0; border-radius:4px; padding:3px 5px; background:transparent; cursor:pointer; font:inherit; font-size:12px; }
     .account-status-toggle:hover, .account-status-toggle[aria-expanded="true"] { background:var(--warning-soft); }
     .account-status-toggle svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.7; }
-    .account-row-actions { display:flex; justify-content:flex-end; align-items:center; gap:6px; }
+    .account-row-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; align-items:center; gap:6px; }
     .account-row-actions .btn { position:relative; z-index:3; min-height:32px; padding:6px 10px; }
 
     .account-confirm-actions {
@@ -703,14 +703,14 @@
       font-size: 11px;
     }
 
-    .account-lifecycle { min-width:0; display:grid; gap:8px; }
+    .account-lifecycle { grid-column:1 / -1; min-width:0; display:grid; gap:8px; padding-top:8px; border-top:1px solid var(--line); }
     .lifecycle-row { display:grid; grid-template-columns:60px minmax(36px,1fr) 100px; align-items:center; gap:8px; color:var(--muted); font-size:12px; line-height:1.3; }
     .lifecycle-label { white-space:nowrap; }
     .lifecycle-track { height:4px; overflow:hidden; border-radius:999px; background:var(--surface-strong); }
     .lifecycle-track span { display:block; height:100%; border-radius:inherit; background:var(--lifecycle-color,#29934a); transition:width 180ms ease,background-color 180ms ease; }
     .lifecycle-value { min-width:72px; text-align:right; color:var(--faint); white-space:nowrap; font-variant-numeric:tabular-nums; }
     .lifecycle-note { color:var(--muted); font-size:11px; }
-    .lifecycle-inactive { color:var(--muted); font-size:12px; padding-right:94px; align-content:center; }
+    .lifecycle-inactive { color:var(--muted); font-size:12px; min-height:72px; padding-right:88px; align-content:center; }
 
     .result-panel .panel-body {
       gap: 10px;
@@ -810,13 +810,6 @@
     .link-dialog-existing-row .btn { padding:6px 8px; font-size:12px; }
     @media (max-width:520px) { .link-dialog-body { padding:18px; } .link-dialog-url { flex-direction:column; } .link-dialog-url .btn { width:100%; } .link-dialog-existing-row { align-items:flex-start; flex-direction:column; } }
 
-    @media (min-width:861px) and (max-width:1180px) {
-      .account-card { grid-template-columns:32px minmax(150px,1fr) minmax(215px,1fr); }
-      .account-row-actions { grid-column:2; grid-row:2; justify-content:flex-start; }
-      .account-card .account-lifecycle { grid-column:3; grid-row:1 / span 2; }
-      .account-card.expired::after { right:24px; top:16px; }
-    }
-
     @media (max-width: 1360px) {
       .work-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -891,7 +884,7 @@
 
       .account-card.expired::after {
         right: 16px;
-        top: 78px;
+        top: 100px;
         font-size: 13px;
       }
     }
@@ -903,10 +896,10 @@
       .account-status-toggle { min-height:44px; margin-block:-8px; }
       .account-row-actions { display:none; }
       .account-lifecycle { grid-column:1 / -1; gap:6px; }
-      .account-lifecycle.lifecycle-inactive { min-height:32px; }
+      .account-lifecycle.lifecycle-inactive { min-height:66px; }
       .account-select { font-size:15px; }
       .account-confirm-actions .btn { min-height:44px; }
-      .mobile-account-actions:not([hidden]) { display:grid; grid-column:1 / -1; gap:10px; padding:12px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:oklch(0.978 0.01 3); scroll-margin:80px 0 20px; }
+      .mobile-account-actions:not([hidden]) { display:grid; grid-column:1 / -1; gap:10px; padding:12px; border:1px solid var(--line); border-radius:10px; background:oklch(0.978 0.01 3); scroll-margin:80px 0 20px; }
       .mobile-account-actions strong { font-size:13px; overflow-wrap:anywhere; }
       .mobile-account-buttons { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
       .platform-main .mobile-account-buttons .btn { padding:8px 4px; }

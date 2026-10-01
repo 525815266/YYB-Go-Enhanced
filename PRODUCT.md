@@ -25,6 +25,7 @@ Avoid marketing-style layouts, decorative dashboards, hidden identifiers, and su
 - Show the saved account identifiers immediately after scanning.
 - Keep account state and protocol actions easy to verify.
 - Prefer familiar controls and explicit error states.
+- Present accounts as compact cards with restrained spacing; preserve the card layout when refining density.
 - Treat account credentials and identifiers as sensitive operational data.
 
 ## Accessibility & Inclusion
