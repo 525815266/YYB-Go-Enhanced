@@ -4,14 +4,176 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 	"yyb_go/internal/auth"
 )
+
+func TestUpdateCustomSourceAndOfficialFallback(t *testing.T) {
+	for _, body := range []string{"0.2.24\n", "<html>502</html>", "0.2.24" + strings.Repeat(" ", 4096)} {
+		t.Run(body[:6], func(t *testing.T) {
+			var customCalls, officialCalls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/mirror" {
+					customCalls.Add(1)
+					_, _ = io.WriteString(w, body)
+				} else {
+					officialCalls.Add(1)
+					_, _ = io.WriteString(w, "0.2.25")
+				}
+			}))
+			defer srv.Close()
+			checker := newUpdateChecker("", srv.URL+"/mirror")
+			defer checker.client.CloseIdleConnections()
+			checker.url, checker.fallbackURL, checker.releaseURL = srv.URL+"/official", "", ""
+			want, wantOfficial := "0.2.25", int32(1)
+			if body == "0.2.24\n" {
+				want, wantOfficial = "0.2.24", 0
+			}
+			for i := 0; i < 2; i++ {
+				if latest, err := checker.check(context.Background()); err != nil || latest != want {
+					t.Fatalf("latest=%q err=%v", latest, err)
+				}
+			}
+			if customCalls.Load() != 1 || officialCalls.Load() != wantOfficial {
+				t.Fatalf("custom=%d official=%d", customCalls.Load(), officialCalls.Load())
+			}
+		})
+	}
+}
+
+func TestUpdateConfigurationErrorsDoNotExposeCredentials(t *testing.T) {
+	for _, tc := range []struct{ proxy, source, field string }{
+		{"http://user:secret@proxy.invalid/path", "", "YYB_UPDATE_PROXY"},
+		{"file:///secret", "", "YYB_UPDATE_PROXY"},
+		{"", "https://user:secret@mirror.invalid/VERSION", "YYB_UPDATE_VERSION_URL"},
+		{"", "file:///secret", "YYB_UPDATE_VERSION_URL"},
+		{"", "https:///secret", "YYB_UPDATE_VERSION_URL"},
+	} {
+		checker := newUpdateChecker(tc.proxy, tc.source)
+		_, err := checker.check(context.Background())
+		if err == nil || !strings.Contains(err.Error(), tc.field) || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("unexpected config error: %v", err)
+		}
+	}
+}
+
+func TestUpdateRequestErrorsOmitPrivateSourceURL(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	address := srv.URL
+	srv.Close()
+	checker := newUpdateChecker("", address+"/VERSION?token=do-not-display")
+	checker.url, checker.fallbackURL, checker.releaseURL = address, "", ""
+	_, err := checker.check(context.Background())
+	if err == nil || strings.Contains(err.Error(), "do-not-display") || !strings.Contains(err.Error(), "自定义版本源") {
+		t.Fatalf("error leaked source or lost label: %v", err)
+	}
+}
+
+func TestUpdateDedicatedProxyHandlesHTTPSWithoutChangingGlobalTransport(t *testing.T) {
+	var proxyCalls, versionCalls atomic.Int32
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		versionCalls.Add(1)
+		if r.Header.Get("Proxy-Authorization") != "" {
+			t.Error("proxy credential reached version source")
+		}
+		_, _ = io.WriteString(w, "0.2.24")
+	}))
+	defer target.Close()
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodConnect || r.Host != target.Listener.Addr().String() {
+			http.Error(w, "unexpected proxy request", http.StatusBadRequest)
+			return
+		}
+		proxyCalls.Add(1)
+		upstream, err := net.DialTimeout("tcp", r.Host, time.Second)
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer upstream.Close()
+		client, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer client.Close()
+		_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+		go func() { _, _ = io.Copy(upstream, client); _ = upstream.Close() }()
+		_, _ = io.Copy(client, upstream)
+	}))
+	defer proxy.Close()
+	global := http.DefaultTransport
+	checker := newUpdateChecker(proxy.URL, target.URL+"/VERSION")
+	defer checker.client.CloseIdleConnections()
+	transport := checker.client.Transport.(*http.Transport)
+	transport.TLSClientConfig = target.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	if latest, err := checker.check(context.Background()); err != nil || latest != "0.2.24" {
+		t.Fatalf("HTTPS through update proxy: %q %v", latest, err)
+	}
+	if proxyCalls.Load() != 1 || versionCalls.Load() != 1 || http.DefaultTransport != global || transport == global {
+		t.Fatal("update proxy was not isolated or not used")
+	}
+}
+
+func TestUpdateStandardProxyEnvironment(t *testing.T) {
+	// net/http caches process proxy variables, so verify real env handling in a child.
+	if os.Getenv("YYB_TEST_UPDATE_PROXY_CHILD") == "1" {
+		checker := newUpdateChecker("", "")
+		defer checker.client.CloseIdleConnections()
+		checker.url, checker.fallbackURL, checker.releaseURL = "http://version.invalid/VERSION", "", ""
+		if latest, err := checker.check(context.Background()); err != nil || latest != "0.2.24" {
+			t.Fatalf("HTTP_PROXY ignored: %q %v", latest, err)
+		}
+		transport := checker.client.Transport.(*http.Transport)
+		for _, target := range []string{"http://172.18.0.2/", "http://192.168.9.83/", "http://10.0.1.1/", "http://qinglong/"} {
+			req, _ := http.NewRequest(http.MethodGet, target, nil)
+			if proxy, err := transport.Proxy(req); err != nil || proxy != nil {
+				t.Fatalf("NO_PROXY did not bypass %s: %v %v", target, proxy, err)
+			}
+		}
+		req, _ := http.NewRequest(http.MethodGet, "https://version.invalid/", nil)
+		if proxy, err := transport.Proxy(req); err != nil || proxy == nil || proxy.String() != os.Getenv("HTTPS_PROXY") {
+			t.Fatal("HTTPS_PROXY ignored")
+		}
+		return
+	}
+	var calls atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Host != "version.invalid" {
+			t.Errorf("proxy target = %s", r.URL.Host)
+		}
+		_, _ = io.WriteString(w, "0.2.24")
+	}))
+	defer proxy.Close()
+	t.Setenv("HTTP_PROXY", proxy.URL)
+	t.Setenv("HTTPS_PROXY", proxy.URL)
+	t.Setenv("NO_PROXY", "localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8,qinglong")
+	t.Setenv("REQUEST_METHOD", "")
+	t.Setenv("YYB_TEST_UPDATE_PROXY_CHILD", "1")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(ctx, executable, "-test.run=^TestUpdateStandardProxyEnvironment$").CombinedOutput(); err != nil {
+		t.Fatalf("proxy environment regression: %v\n%s", err, output)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("proxy received %d requests", calls.Load())
+	}
+}
 
 func TestMaintenanceRequiresAdminAndConfirmation(t *testing.T) {
 	a := &App{}

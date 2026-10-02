@@ -41,6 +41,8 @@ services:
       YYB_INTEGRATION_TOKEN: ${YYB_INTEGRATION_TOKEN:-}
       YYB_QINGLONG_REF_MODE: ${YYB_QINGLONG_REF_MODE:-id}
       YYB_ENABLE_PC_LOGIN: ${YYB_ENABLE_PC_LOGIN:-false}
+      YYB_UPDATE_PROXY: ${YYB_UPDATE_PROXY:-}
+      YYB_UPDATE_VERSION_URL: ${YYB_UPDATE_VERSION_URL:-}
     volumes:
       - ./data/db:/app/resource/db
       - ./data/avatars:/app/resource/avatars

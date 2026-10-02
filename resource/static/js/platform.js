@@ -139,7 +139,7 @@
   const maintenanceApi = async (options = {}, check = false) => {
     const response = await fetch(`/api/maintenance${check ? "?check=1" : ""}`, {
       ...options,
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(check || options.method === "POST" ? 45000 : 15000),
       headers: { "Content-Type": "application/json", "X-YYB-Maintenance": "1" }
     });
     const body = await response.json();

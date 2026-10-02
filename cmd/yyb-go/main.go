@@ -95,6 +95,8 @@ func main() {
 
 	cfg := httpapi.Config{
 		MaintenanceSocket: strings.TrimSpace(os.Getenv("YYB_MAINTENANCE_SOCKET")),
+		UpdateProxy:       strings.TrimSpace(os.Getenv("YYB_UPDATE_PROXY")),
+		UpdateVersionURL:  strings.TrimSpace(os.Getenv("YYB_UPDATE_VERSION_URL")),
 		ResourceRoot:      *resourceRoot,
 		EmbeddedWebAssets: !resourceRootExplicit,
 		DBFilename:        *dbFilename,

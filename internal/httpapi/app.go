@@ -28,6 +28,8 @@ import (
 
 type Config struct {
 	MaintenanceSocket string
+	UpdateProxy       string
+	UpdateVersionURL  string
 	ResourceRoot      string
 	EmbeddedWebAssets bool
 	DBFilename        string
@@ -172,7 +174,7 @@ func NewApp(cfg Config) (*App, error) {
 	pool := protocol.NewPool(poolCfg, db)
 	qrClient := qr.NewClient(cfg.RequestTimeout)
 	app := &App{
-		updates:            &updateChecker{client: &http.Client{Timeout: 10 * time.Second}, url: maintenanceVersionURL, fallbackURL: maintenanceVersionAPIURL, releaseURL: maintenanceReleaseBase + "/latest"},
+		updates:            newUpdateChecker(cfg.UpdateProxy, cfg.UpdateVersionURL),
 		cfg:                cfg,
 		resources:          res,
 		db:                 db,
@@ -227,6 +229,9 @@ func NewApp(cfg Config) (*App, error) {
 }
 
 func (a *App) Close() error {
+	if a.updates != nil && a.updates.client != nil {
+		a.updates.client.CloseIdleConnections()
+	}
 	if a.keepAliveCancel != nil {
 		a.keepAliveCancel()
 		<-a.keepAliveDone

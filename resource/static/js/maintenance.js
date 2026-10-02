@@ -10,7 +10,7 @@
   $('downloadPackage').setAttribute('aria-disabled', String(busy));
  };
  async function api(options = {}, check = false) {
-  const response = await fetch('/api/maintenance' + (check ? '?check=1' : ''), { ...options, signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json', 'X-YYB-Maintenance': '1' } });
+  const response = await fetch('/api/maintenance' + (check ? '?check=1' : ''), { ...options, signal: AbortSignal.timeout(check || options.method === 'POST' ? 45000 : 15000), headers: { 'Content-Type': 'application/json', 'X-YYB-Maintenance': '1' } });
   if (response.status === 401) { location.assign('/login?next=/maintenance'); throw new Error('登录已过期'); }
   const body = await response.json();
   if (!response.ok || body.code !== 0) throw new Error(body.msg || '维护请求失败');

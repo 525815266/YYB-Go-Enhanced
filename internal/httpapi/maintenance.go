@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,6 +40,47 @@ type updateChecker struct {
 	url         string
 	fallbackURL string
 	releaseURL  string
+	customURL   string
+	configErr   error
+}
+
+func newUpdateChecker(proxyAddress, versionAddress string) *updateChecker {
+	// Clone instead of modifying the transport used by account and panel requests.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyFromEnvironment
+	c := &updateChecker{
+		client: &http.Client{Transport: transport, Timeout: 10 * time.Second},
+		url:    maintenanceVersionURL, fallbackURL: maintenanceVersionAPIURL,
+		releaseURL: maintenanceReleaseBase + "/latest",
+	}
+	if raw := strings.TrimSpace(proxyAddress); raw != "" {
+		proxy, err := url.Parse(raw)
+		if err != nil || proxy.Hostname() == "" || (proxy.Scheme != "http" && proxy.Scheme != "https" && proxy.Scheme != "socks5" && proxy.Scheme != "socks5h") ||
+			(proxy.Path != "" && proxy.Path != "/") || proxy.RawQuery != "" || proxy.Fragment != "" {
+			c.configErr = fmt.Errorf("YYB_UPDATE_PROXY 格式错误，请填写 http(s)://或 socks5(h)://主机:端口，不含路径、查询参数或片段")
+			return c
+		}
+		// Explicit update-only proxy takes precedence over global proxy / NO_PROXY.
+		transport.Proxy = http.ProxyURL(proxy)
+	}
+	if raw := strings.TrimSpace(versionAddress); raw != "" {
+		source, err := url.Parse(raw)
+		if err != nil || source.Hostname() == "" || (source.Scheme != "http" && source.Scheme != "https") || source.User != nil || source.Fragment != "" {
+			c.configErr = fmt.Errorf("YYB_UPDATE_VERSION_URL 格式错误，请填写返回版本号的 HTTP(S) 完整地址，不含账号密码或片段")
+			return c
+		}
+		c.customURL = source.String()
+	}
+	return c
+}
+
+func versionRequestError(err error) error {
+	// Do not expose mirror query tokens or proxy credentials in API error messages.
+	var requestError *url.Error
+	if errors.As(err, &requestError) {
+		return requestError.Err
+	}
+	return err
 }
 
 type maintenanceRuntime struct {
@@ -176,7 +219,7 @@ func (c *updateChecker) fetch(ctx context.Context, source string) (string, error
 	req.Header.Set("User-Agent", "YYB-Go-Enhanced-update-checker")
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", versionRequestError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -185,6 +228,9 @@ func (c *updateChecker) fetch(ctx context.Context, source string) (string, error
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
 	if err != nil {
 		return "", err
+	}
+	if len(body) > 4096 {
+		return "", fmt.Errorf("版本源响应超过 4 KiB")
 	}
 	latest := strings.TrimSpace(string(body))
 	if maintenanceSemver.MatchString(latest) {
@@ -228,7 +274,7 @@ func (c *updateChecker) fetchRelease(ctx context.Context) (string, error) {
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", versionRequestError(err)
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
@@ -255,12 +301,27 @@ func (c *updateChecker) check(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return c.latest, err
 	}
+	if c.configErr != nil {
+		return "", c.configErr
+	}
 	cacheTTL := 5 * time.Minute
 	if c.err != nil {
 		cacheTTL = 30 * time.Second
 	}
 	if !c.checked.IsZero() && time.Since(c.checked) < cacheTTL {
 		return c.latest, c.err
+	}
+	var failures []string
+	if c.customURL != "" {
+		latest, err := c.fetch(ctx, c.customURL)
+		if err == nil {
+			c.checked, c.latest, c.err = time.Now(), latest, nil
+			return c.latest, nil
+		}
+		if ctx.Err() != nil {
+			return c.latest, ctx.Err()
+		}
+		failures = append(failures, "自定义版本源："+err.Error())
 	}
 	sources := []string{c.url}
 	if c.fallbackURL != "" && c.fallbackURL != c.url {
@@ -280,7 +341,6 @@ func (c *updateChecker) check(ctx context.Context) (string, error) {
 			results <- result{source: source, version: latest, err: err}
 		}(source)
 	}
-	var failures []string
 	for range sources {
 		var outcome result
 		select {

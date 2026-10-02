@@ -1,4 +1,4 @@
-# 面板更新与重启（v0.2.23，2026-10-02）
+# 面板更新与重启（v0.2.24，2026-10-02）
 
 管理员点击任意页面顶栏的版本号即可检查更新并拉取新镜像；完整状态与独立重启入口位于左侧「管理 → 系统维护」。普通用户不能执行维护，后端同样校验管理员会话；关闭登录鉴权的本机模式也不能执行维护。检查版本缓存 5 分钟，不会随普通页面刷新反复访问 GitHub。
 
@@ -22,7 +22,63 @@ docker exec yyb-go wget -S --spider -T 15 'https://github.com/525815266/YYB-Go-E
 
 网络恢复后等待 30 秒再检查。若需要代理，可为 YYB 服务进程配置标准 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`；代理地址必须能从容器访问，`127.0.0.1` 在容器里指向容器本身。分享诊断时请隐去代理密码、Cookie 和令牌。
 
-**检查版本成功不代表镜像拉取成功**：Docker 镜像由宿主机 Docker daemon 从 `ghcr.io` 拉取，它的代理和网络配置独立于 YYB 容器。Docker 在线更新还需要下文的维护执行器；未配置时应按原 Compose 方式更新。三个 GitHub 来源都无法访问时，仍需修复服务器网络，备用来源不能保证所有网络环境可达。
+现有标准 Go HTTP 客户端会读取这些变量，并非使用自定义 `http.Client` 就会忽略代理。v0.2.24 增加下列可选配置；修改后需重新创建容器或重启独立程序。配置有误只阻止版本检查，面板与账号功能仍可启动。
+
+### 仅版本检查使用代理
+
+```yaml
+# 合并到现有 yyb-go 服务，不要替换原来的配置
+environment:
+  YYB_UPDATE_PROXY: http://host.docker.internal:20173
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+`YYB_UPDATE_PROXY` 支持 `http://`、`https://`、`socks5://`、`socks5h://` 地址，可携带代理认证信息。显式设置后优先于系统代理和 `NO_PROXY`，只作用于版本查询，不修改全局 HTTP transport、账号代理、青龙连接或 Docker daemon。未设置时仍使用标准环境变量。`host-gateway` 需要 Docker 20.10+，它只解决宿主机地址解析，不能使只监听宿主机 `127.0.0.1` 的端口被容器访问。
+
+Issue #74 的实际部署是 Armbian + Docker bridge，v2rayA 仅监听宿主机 `127.0.0.1:20172`。作者反馈用 socat 的宿主机 `20173` 端口转发后恢复。优先让代理监听 Docker 可访问的接口并限制来源；若必须转发，下面是**已限制客户端网段**的 systemd 示例：
+
+```ini
+[Unit]
+Description=Proxy forward for Docker update checks
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP4-LISTEN:20173,bind=0.0.0.0,reuseaddr,fork,range=172.18.0.0/24 TCP4:127.0.0.1:20172
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+该示例需要宿主机已安装 socat。`172.18.0.0/24` 必须替换为实际 Docker 子网；结合宿主机防火墙限制该端口，不应把无认证转发暴露到局域网其他设备或公网。不要为此修改 YYB 数据卷或切换 host 网络，也无需开启 `route_localnet` 或加入 DNAT 规则。端口可达性取决于监听地址、占用和防火墙，不能只靠添加 `extra_hosts` 判断已配置成功。
+
+如果选择全局 `HTTP_PROXY` / `HTTPS_PROXY`，应按 Go 支持的 CIDR 和实际服务名设置排除范围，例如：
+
+```yaml
+NO_PROXY: localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,qinglong,yyb-go
+```
+
+`172.`、`192.168.`、`10.*` 不是 IP 网段匹配写法；按服务名访问时也应列出服务名，不能依赖 DNS 解析后匹配 CIDR。全局变量可能影响其他采用系统代理的请求，只有更新需要代理时优先使用 `YYB_UPDATE_PROXY`。
+
+### 可选的自定义版本源
+
+```yaml
+environment:
+  # 填写完整的 VERSION 文件地址，不是镜像站首页或仅一个 URL 前缀
+  YYB_UPDATE_VERSION_URL: https://your-trusted-mirror.example/YYB-Go-Enhanced/main/VERSION
+```
+
+默认不配置、不绑定任何第三方镜像。配置后先访问该地址，要求返回 `X.Y.Z` 纯文本或 GitHub Contents API 的 base64 内容，响应上限 4 KiB；网络错误或无效内容会自动回退到原官方 Raw / Contents API / Release 流程。该来源也使用版本检查代理。
+
+**仅接受自己信任的版本源。**格式校验不代表来源可信；镜像缓存可能落后，不会保证立即看到最新版本，也不会因此降级。此配置只查询版本号，不改写镜像、Release 页面或安装包下载地址；不能用它解决 Docker 拉取 `ghcr.io` 的网络问题。保留 TLS 证书验证，不采用固定 GitHub IP 或关闭 TLS 校验。
+
+前端检查与提交更新的请求等待上限为 45 秒，覆盖自定义源失败后逐级回退的时间；每个版本请求仍有 10 秒超时，普通维护状态查询仍为 15 秒。
+
+**检查版本成功不代表镜像拉取成功**：Docker 镜像由宿主机 Docker daemon 从 `ghcr.io` 拉取，它的代理和网络配置独立于 YYB 容器。Docker 在线更新还需要下文的维护执行器；未配置时应按原 Compose 方式更新。三个 GitHub 来源都无法访问且未配置可用的自定义版本源时，仍需修复服务器网络，备用来源不能保证所有网络环境可达。
 
 ## 部署方式与能力
 
