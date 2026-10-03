@@ -69,6 +69,8 @@ VERSION=0.2.17 VERSION_CODE=2017 bash ./scripts/build-magisk.sh arm64
 
 独立二进制未显式指定 `-resource-root` 时，会把内嵌页面恢复到 `resource/.web-assets/v<版本>`。替换程序后使用新的版本目录，不会继续加载上一版本的页面；数据库、头像和二维码仍保留在原数据目录。
 
+v0.2.25 起，Windows、Linux、macOS 原生程序会自动加载程序旁的 `.env`（没有才查当前工作目录）。完整包内的 `.env.example` 可复制后使用，独立二进制用户也可自行创建；支持 `-env-file` 指定文件。进程环境和显式启动参数优先，详细规则见[配置文档](configuration.md#配置方式)。
+
 推送 `vX.Y.Z` 标签会构建并发布对应 Release。正式 Release 固定包含 7 个独立二进制、7 个完整归档、1 个 Magisk ARM64 ZIP 和 1 个 `checksums.txt`，共 16 个资产。Pull Request 和相关 `main` 提交只做测试、交叉编译与打包校验，不上传临时产物。手动工作流可选择是否发布 Release。
 
 ## 本地构建

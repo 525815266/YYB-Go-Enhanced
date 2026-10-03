@@ -11,7 +11,32 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-原生二进制和 Magisk 部署应把同名变量写入对应的进程环境或模块配置。环境变量只在服务启动时读取，修改后需要重启服务。
+原生二进制从 v0.2.25 起自动读取 `.env`，Windows、Linux、macOS 使用相同规则：
+
+1. 使用 `-env-file 路径` 时只读取指定文件；相对路径按启动时的工作目录解析，文件不存在或格式错误会停止启动。
+2. 未指定时，先查找程序所在目录的 `.env`，没有才读取当前工作目录的 `.env`，两份文件不会合并；都不存在则沿用进程环境和默认值。
+3. 配置优先级为 **显式命令行参数 > 已有进程环境变量 > 所选 `.env` > 默认值**。进程中已设置为空的变量也不会被文件覆盖。
+
+Windows 可把 `.env.example` 复制为程序旁的 `.env`，注意开启文件扩展名显示，避免保存成 `.env.txt`。使用 UTF-8 编码（支持 BOM 和 CRLF）；密码含 `#`、`$` 等字符时用单引号包裹。最小本机配置示例：
+
+```dotenv
+YYB_BIND_ADDRESS=127.0.0.1
+YYB_PORT=8000
+YYB_AUTH_DRIVER=sqlite
+YYB_ADMIN_USER=admin
+YYB_ADMIN_PASSWORD='请替换为强密码'
+YYB_KEEPALIVE_INTERVAL=1m
+YYB_KEEPALIVE_AHEAD=45m
+```
+
+```powershell
+# PowerShell：也可选用其他文件，-port 显式覆盖文件中的 YYB_PORT
+.\yyb-go-windows-amd64.exe -env-file .\production.env -port 8001
+```
+
+`YYB_BIND_ADDRESS`、`YYB_PORT`、`YYB_KEEPALIVE_INTERVAL`、`YYB_KEEPALIVE_AHEAD` 分别对应 `-host`、`-port`、`-keepalive-interval`、`-keepalive-ahead`；其余已有环境变量配置也支持从文件读取。监听 `0.0.0.0` 才允许从其他设备访问，请同时配置登录与协议鉴权。
+
+Magisk 继续优先使用模块配置。Docker Compose 的 `.env` 用于 Compose 变量替换，仅写入该文件不代表任意变量都会传入容器，请核对服务的 `environment`/`env_file`。配置只在服务启动时读取，修改后需要重启；Docker 配置变化通常需要重新创建容器。
 
 ## Web 用户数据库
 

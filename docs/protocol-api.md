@@ -37,7 +37,7 @@ Authorization: Bearer <token>
 | `POST /wx/encryptkey` | 加密能力兼容转发，需要真实 payload |
 | `POST /wx/getlatestuserkey` | `getUserEncryptKey` 兼容转发，需要真实 payload |
 | `POST /wx/cloud` | 云函数或通用 `operateWxData` 转发 |
-| `POST /wx/mpgeta8key` | 文章会话兼容转发 |
+| `POST /wx/mpgeta8key` | `mpGetA8Key` 的 `operateWxData` 兼容转发，未验证通用公众号 A8Key 流程 |
 | `POST /wx/appmsgext` | 文章扩展数据兼容转发 |
 | `POST /wx/appmsglike` | 文章点赞兼容转发 |
 | `/wx/qrcodeauth/*` | 二维码授权会话相关入口 |
@@ -85,9 +85,11 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 ## 公众号 OAuth
 
-公众号网页授权 code 必须由用户在微信内打开授权 URL，并在回调到达 `redirect_uri` 时产生。构造授权 URL、解析 `appid`、`scope`、`state` 或已知 OpenID，都不能提前得到 code。
+当前 `/wx/oauth` 的实现只构造公众号授权 URL，返回 `authorization_required=true`、`code=null`，未实现协议侧发起授权、确认授权再取得网页回调 code 的完整流程。小程序 `wx.login` code 不能直接替代公众号 OAuth code。
 
-因此 `/wx/oauth` 只处理真实授权流程中的信息，不会把小程序 `wx.login` code 当作公众号 OAuth code，也不会根据账号资料伪造回调。
+`/wx/mpgeta8key` 目前将 `mpGetA8Key` 转交给 `operateWxData`；存在此路由不代表通用公众号 A8Key 能力已验证可用。本项目尚未实现 `/yyb/api/oauth-authorize`、`/yyb/api/oauth-authorize-confirm`、`/yyb/api/mp/oauth-authorize`、`/yyb/api/get-a8key` 这些其他项目的接口。
+
+后续兼容需要对应项目的公开文档、脱敏请求/响应和完整授权链路，以确认其依赖的登录态及协议。当前实现的限制不代表其他协议实现一定无法完成。
 
 ## 能力边界
 

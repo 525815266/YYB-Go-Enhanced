@@ -46,6 +46,8 @@
 | Magisk | Android ARM64 设备常驻运行，不依赖 Termux | [Magisk 文档](docs/magisk.md) |
 | 原生二进制 | Linux、Windows、macOS 独立运行 | [Releases](https://github.com/525815266/YYB-Go-Enhanced/releases) |
 
+原生程序 v0.2.25 起支持自动读取程序旁的 `.env`，也可通过 `-env-file` 指定配置；Windows 不再需要逐项设置系统环境变量。具体用法见[配置方式](docs/configuration.md#配置方式)。
+
 ## Docker Compose 快速开始
 
 环境需要 Docker、Docker Compose v2，以及供面板互通的 `qinglong_default` 网络。

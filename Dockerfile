@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
 
-ARG VERSION=0.2.24
+ARG VERSION=0.2.25
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG TARGETOS=linux
@@ -21,7 +21,7 @@ RUN test -n "$TARGETARCH" \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w -X yyb_go/internal/version.Version=${VERSION} -X yyb_go/internal/version.Commit=${COMMIT} -X yyb_go/internal/version.BuildDate=${BUILD_DATE}" -o /out/yyb-go ./cmd/yyb-go
 
 FROM alpine:3.21
-ARG VERSION=0.2.24
+ARG VERSION=0.2.25
 LABEL org.opencontainers.image.version=$VERSION
 
 RUN apk add --no-cache ca-certificates tzdata wget \

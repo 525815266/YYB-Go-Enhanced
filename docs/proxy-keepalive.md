@@ -93,6 +93,20 @@ YYB_KEEPALIVE_AHEAD=45m
 
 业务调用发现凭据接近到期时也会按需续期。网络超时、DNS、代理故障等临时错误会保留账号状态并在后续重试；只有微信明确拒绝 refresh token，或凭据已经确定失效，才标记为需要重扫并停止协议调用。
 
+## 保活成功但 getcode 超时
+
+凭据保活主要使用 HTTP 请求，小程序 `getcode` 还需要建立协议 LongLink/ShortLink 隧道。普通 HTTPS 代理测试或保活成功，不能单独证明这些目标 IP、端口和协议链路都可达，也不能仅凭超时判断账号已经失效。
+
+v0.2.25 修复 SOCKS5 / HTTP CONNECT 在 TCP 连接成功后，握手读取未及时响应调用上下文取消的问题：握手使用调用截止时间与连接超时中的较短者，完成后释放取消回调并清除临时截止时间。HTTP 传输层另设 30 秒连接及握手等待上限，防止连接复用机制保留的后台拨号无限等待。代理选择及直连回退策略不变。
+
+排查时请提供版本、Docker/原生/Magisk 环境、代理类型、从请求开始到报错的时长，以及脱敏完整错误：
+
+- `dial proxy failed`：连接代理入口失败。
+- `socks5/http-connect proxy handshake to ... failed`：代理认证或建立目标隧道失败，可结合目标与错误判断。
+- 后续 LongLink/ShortLink 超时：需要继续检查目标连通性和协议响应，不能用加长超时保证成功。
+
+请勿公开代理密码、提取密钥、协议令牌或账号凭据。某个 issue 的实际根因仍需结合其日志确认。
+
 ## refresh token 生命周期
 
 微信可能只更新 access token，而不轮换 refresh token。后台保活不能保证 refresh token 永久有效。
