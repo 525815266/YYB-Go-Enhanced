@@ -66,7 +66,7 @@ docker compose pull yyb-go
 mkdir -p data/db data/avatars data/qr
 docker run --rm --user 0 --entrypoint sh \
   -v "$PWD/data:/data" ghcr.io/525815266/yyb-go-enhanced:latest \
-  -c 'chown -R yyb:yyb /data/db /data/avatars /data/qr'
+  -c 'chown -R yyb:yyb /data/db /data/avatars /data/qr && chmod -R u+rwX /data/db /data/avatars /data/qr'
 docker compose up -d --no-build
 ```
 

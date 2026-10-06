@@ -28,7 +28,7 @@ docker network connect qinglong_default qinglong
 
 ## SQLite / permission denied
 
-镜像以非 root 的 `yyb` 用户运行。宿主机自动创建的 bind mount 目录可能属于 root，导致 `data/db` 不可写。先确认实际挂载路径并备份数据库；在停止该服务后，仅修正本项目的三个数据目录：
+镜像以非 root 的 `yyb` 用户运行。宿主机自动创建的 bind mount 目录可能属于 root；部分 NAS 继承的 ACL 还会让目录权限显示为 `000`，仅修改属主仍不可写。这时 SQLite 可能显示 `unable to open database file: out of memory (14)`，不一定是内存耗尽。先确认实际挂载路径并备份数据库；在停止该服务后，仅修正本项目的三个数据目录：
 
 ```bash
 # 在本项目部署目录执行；下面必须是实际使用的 data 目录
@@ -36,7 +36,7 @@ docker compose stop yyb-go
 mkdir -p data/db data/avatars data/qr
 docker run --rm --user 0 --entrypoint sh \
   -v "$PWD/data:/data" ghcr.io/525815266/yyb-go-enhanced:latest \
-  -c 'chown -R yyb:yyb /data/db /data/avatars /data/qr'
+  -c 'chown -R yyb:yyb /data/db /data/avatars /data/qr && chmod -R u+rwX /data/db /data/avatars /data/qr'
 docker compose up -d --no-build
 ```
 
