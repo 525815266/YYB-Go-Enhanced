@@ -64,9 +64,9 @@ func requestNewDNS(ctx context.Context, connectTo string, timeout time.Duration)
 		return 0, nil, "", err
 	}
 	defer conn.Close()
-	if timeout > 0 {
-		_ = conn.SetDeadline(time.Now().Add(timeout))
-	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
+	_ = conn.SetDeadline(ioDeadline(ctx, timeout))
 	path := newdnsPath + "?" + buildDNSQuery(0, "Windows", 0)
 	req := fmt.Sprintf("GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, newdnsHost, defaultUA)
 	if _, err = conn.Write([]byte(req)); err != nil {

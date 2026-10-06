@@ -50,7 +50,7 @@
 
 ## Docker Compose 快速开始
 
-环境需要 Docker、Docker Compose v2，以及供面板互通的 `qinglong_default` 网络。
+环境需要 Docker、Docker Compose v2，以及供面板互通的用户自建网络。默认拉取官方 `linux/amd64` / `linux/arm64` 镜像，Armbian 盒子无需在本机编译。以下是**首次安装**步骤：
 
 ```bash
 git clone https://github.com/525815266/YYB-Go-Enhanced.git
@@ -60,10 +60,21 @@ docker network inspect qinglong_default >/dev/null 2>&1 || \
   docker network create qinglong_default
 
 cp .env.example .env
-docker compose up -d --build
+docker compose pull yyb-go
+
+# 初始化映射目录，使容器的非 root 用户能够写入数据库、头像和二维码
+mkdir -p data/db data/avatars data/qr
+docker run --rm --user 0 --entrypoint sh \
+  -v "$PWD/data:/data" ghcr.io/525815266/yyb-go-enhanced:latest \
+  -c 'chown -R yyb:yyb /data/db /data/avatars /data/qr'
+docker compose up -d --no-build
 ```
 
 打开 `http://服务器IP:8000`。未预设管理员时，第一个注册用户自动成为管理员。
+
+青龙也需要加入同一个用户自建网络；容器叫 `qinglong` 不代表网络也叫这个名字。若青龙目前只有 Docker 默认的 `bridge` 网络，可执行 `docker network connect qinglong_default qinglong`（最后一项替换为实际容器名）。已有其他网络时，在 `.env` 设置 `YYB_DOCKER_NETWORK=实际网络名`。青龙重建时还需在其 Compose 中保留该网络，详见 [Armbian / Docker 部署排错](docs/docker-deployment.md)。
+
+后续更新使用 `docker compose pull yyb-go && docker compose up -d --no-build`；保留原 `.env` 和 `data`。开发者仍可选择 `docker compose up -d --build` 源码构建，构建测试保持启用。
 
 默认使用 SQLite，无需额外数据库：
 

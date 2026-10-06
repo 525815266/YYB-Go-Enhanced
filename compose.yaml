@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: local/yyb-go:58492557cc66
+    image: ${YYB_IMAGE:-ghcr.io/525815266/yyb-go-enhanced:latest}
     container_name: yyb-go
     restart: unless-stopped
     command:
@@ -65,4 +65,4 @@ services:
 networks:
   qinglong:
     external: true
-    name: qinglong_default
+    name: ${YYB_DOCKER_NETWORK:-qinglong_default}

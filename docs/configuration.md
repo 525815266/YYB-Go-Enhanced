@@ -8,8 +8,11 @@ Docker Compose 部署推荐复制 `.env.example` 为 `.env`，再修改需要的
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose pull yyb-go
+docker compose up -d --no-build
 ```
+
+首次安装还需要初始化数据目录权限和面板网络，完整步骤见 [Docker 部署说明](docker-deployment.md)。已有配置请保留，不要重新复制示例覆盖它。
 
 原生二进制从 v0.2.25 起自动读取 `.env`，Windows、Linux、macOS 使用相同规则：
 

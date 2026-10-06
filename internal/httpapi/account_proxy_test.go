@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -286,7 +287,9 @@ func TestStaticProxyProfileCanBeSelectedAndReused(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("POST static profile status = %d body=%s", created.Code, created.Body.String())
 	}
-	var profileResponse struct{ Data store.ProxyProviderProfile `json:"data"` }
+	var profileResponse struct {
+		Data store.ProxyProviderProfile `json:"data"`
+	}
 	if err := json.Unmarshal(created.Body.Bytes(), &profileResponse); err != nil || profileResponse.Data.ID == 0 {
 		t.Fatalf("decode static profile = %#v, %v", profileResponse, err)
 	}
@@ -360,6 +363,91 @@ func TestWXAppCallUsesExistingLoginBufferBeforeRefreshing(t *testing.T) {
 	})
 	if err != nil || result["code"] != "ok" || callCount != 1 || refreshCalls != 0 {
 		t.Fatalf("invokeWXApp() result=%#v err=%v calls=%d refreshes=%d", result, err, callCount, refreshCalls)
+	}
+}
+
+func TestProtocolNetworkFailureDoesNotRefreshOrDiscardSession(t *testing.T) {
+	app, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	ctx := context.Background()
+	status := "alive"
+	account, err := app.db.UpsertAccount(ctx, "network-failure", "buffer", nil, nil, nil, nil, map[string]any{"refreshtoken": "refresh"}, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.db.PutSession(ctx, account.ID, nil, map[string]any{"marker": "preserve"}, time.Now().Add(time.Hour).Unix(), ""); err != nil {
+		t.Fatal(err)
+	}
+	refreshes := 0
+	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		refreshes++
+		return protocol.LoginBufferResult{}, errors.New("unexpected refresh")
+	}
+	calls := 0
+	want := &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}
+	_, err = app.invokeWXApp(ctx, account, "wx0000000000000000", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		calls++
+		return nil, fmt.Errorf("LongLink read: %w", want)
+	})
+	if !errors.Is(err, want) || calls != 1 || refreshes != 0 {
+		t.Fatalf("network failure caused credential recovery: calls=%d refreshes=%d err=%v", calls, refreshes, err)
+	}
+	if _, err := app.db.GetSession(ctx, account.ID, ""); err != nil {
+		t.Fatalf("discarded valid session: %v", err)
+	}
+	fresh, err := app.db.GetAccount(ctx, account.ID)
+	if err != nil || accountStatus(fresh) != "alive" {
+		t.Fatalf("network failure changed account state: %v", err)
+	}
+}
+
+func TestAccountOperationWaitCanBeCancelled(t *testing.T) {
+	for _, operation := range []string{"refresh", "proxy-lease"} {
+		t.Run(operation, func(t *testing.T) {
+			app, err := NewApp(Config{ResourceRoot: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.Close()
+			status := "alive"
+			account, err := app.db.UpsertAccount(context.Background(), "queue-test", "buffer", nil, nil, nil, nil, nil, &status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock := app.refreshLockFor(account.ID)
+			if operation == "proxy-lease" {
+				_, err = app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "http://proxy.invalid/", nil, "", "", "", 300)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lock = app.proxyLeaseLockFor(account.ID)
+			}
+			lock <- struct{}{}
+			defer func() { <-lock }()
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				if operation == "refresh" {
+					_, _, err := app.refreshAccount(ctx, account, true)
+					done <- err
+				} else {
+					_, _, err := app.resolveAccountProxy(ctx, account.ID)
+					done <- err
+				}
+			}()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("queue error = %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("cancelled request remained queued")
+			}
+		})
 	}
 }
 

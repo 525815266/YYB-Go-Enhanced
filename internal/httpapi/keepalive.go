@@ -172,8 +172,12 @@ func (a *App) refreshAccount(ctx context.Context, acc *store.WechatAccount, forc
 
 func (a *App) refreshAccountWithPolicy(ctx context.Context, acc *store.WechatAccount, force bool, proxyValue string, fallbackDirect, proxyResolved bool) (string, bool, error) {
 	lock := a.refreshLockFor(acc.ID)
-	lock.Lock()
-	defer lock.Unlock()
+	select {
+	case lock <- struct{}{}:
+	case <-ctx.Done():
+		return accountStatus(acc), false, ctx.Err()
+	}
+	defer func() { <-lock }()
 
 	latest, err := a.db.GetAccount(ctx, acc.ID)
 	if err != nil {
@@ -234,13 +238,13 @@ func (a *App) setAccountStatus(ctx context.Context, accountID int64, status stri
 	return nil
 }
 
-func (a *App) refreshLockFor(accountID int64) *sync.Mutex {
+func (a *App) refreshLockFor(accountID int64) chan struct{} {
 	a.refreshLocksMu.Lock()
 	defer a.refreshLocksMu.Unlock()
 	if lock := a.refreshLocks[accountID]; lock != nil {
 		return lock
 	}
-	lock := &sync.Mutex{}
+	lock := make(chan struct{}, 1)
 	a.refreshLocks[accountID] = lock
 	return lock
 }

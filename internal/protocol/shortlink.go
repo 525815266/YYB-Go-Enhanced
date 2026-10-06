@@ -107,15 +107,15 @@ func send0RTTRaw(ctx context.Context, target Target, entry pskEntry, recvKey, en
 		return nil, nil, err
 	}
 	defer conn.Close()
-	if timeout > 0 {
-		_ = conn.SetDeadline(time.Now().Add(timeout))
-	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
+	_ = conn.SetDeadline(ioDeadline(ctx, timeout))
 	if _, err = conn.Write(req); err != nil {
 		return nil, nil, err
 	}
 	raw, err := io.ReadAll(conn)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("ShortLink response from %s:%d failed: %w", target.IP, target.Port, err)
 	}
 	_, responseBody := splitHTTP(raw)
 	if len(responseBody) == 0 {

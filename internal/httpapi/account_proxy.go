@@ -278,8 +278,12 @@ func (a *App) resolveAccountProxy(ctx context.Context, accountID int64) (string,
 		return proxyValue, false, err
 	}
 	leaseLock := a.proxyLeaseLockFor(accountID)
-	leaseLock.Lock()
-	defer leaseLock.Unlock()
+	select {
+	case leaseLock <- struct{}{}:
+	case <-ctx.Done():
+		return "", false, ctx.Err()
+	}
+	defer func() { <-leaseLock }()
 	a.proxyMu.Lock()
 	if lease, ok := a.proxyLeases[accountID]; ok && lease.SettingUpdatedAt == setting.UpdatedAt && time.Now().Before(lease.ExpiresAt) {
 		a.proxyMu.Unlock()
@@ -297,13 +301,13 @@ func (a *App) resolveAccountProxy(ctx context.Context, accountID int64) (string,
 	return proxyValue, false, err
 }
 
-func (a *App) proxyLeaseLockFor(accountID int64) *sync.Mutex {
+func (a *App) proxyLeaseLockFor(accountID int64) chan struct{} {
 	a.proxyLeaseLocksMu.Lock()
 	defer a.proxyLeaseLocksMu.Unlock()
 	if lock := a.proxyLeaseLocks[accountID]; lock != nil {
 		return lock
 	}
-	lock := &sync.Mutex{}
+	lock := make(chan struct{}, 1)
 	a.proxyLeaseLocks[accountID] = lock
 	return lock
 }

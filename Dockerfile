@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
 
-ARG VERSION=0.2.25
+ARG VERSION=0.2.26
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG TARGETOS=linux
@@ -11,7 +11,11 @@ WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN for attempt in 1 2 3; do \
+      if go mod download; then exit 0; fi; \
+      if [ "$attempt" = 3 ]; then exit 1; fi; \
+      sleep $((attempt * 5)); \
+    done
 
 COPY cmd ./cmd
 COPY internal ./internal
@@ -21,7 +25,7 @@ RUN test -n "$TARGETARCH" \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w -X yyb_go/internal/version.Version=${VERSION} -X yyb_go/internal/version.Commit=${COMMIT} -X yyb_go/internal/version.BuildDate=${BUILD_DATE}" -o /out/yyb-go ./cmd/yyb-go
 
 FROM alpine:3.21
-ARG VERSION=0.2.25
+ARG VERSION=0.2.26
 LABEL org.opencontainers.image.version=$VERSION
 
 RUN apk add --no-cache ca-certificates tzdata wget \
