@@ -120,7 +120,7 @@ v0.2.19 起服务端也兼容旧脚本的 `/healthz`。同一服务地址只探�
   `LAICHONG_TRY_VIDEO`、`LAICHONG_TRY_SHARE` 默认开启，`LAICHONG_TASK_DELAY` 默认 6 秒。
   此模式只复现小程序的任务接口请求，不会实际播放微信广告或分享卡片；以服务端进度和积分为准。
 
-- `asdcb_auto_sign.py`：阿水大杯茶 YYB 版每日签到。每周二先按活动本期券模板 ID 查询个人券包，准确区分未使用/已使用/已过期；未领券时按小程序源码生成 `MD5` 签名和 AES-CBC/PKCS7 `data`。微信的 `getLatestUserKey` 属于小程序运行时本地能力，当前 YYB iLink 转发若返回 `invalid api_name (-12003)`，脚本会明确显示“未提交”，不会将顶层 `success` 或静态 `receiveStatus` 误报为领取结果。可用真实动态参数通过 `ASDCB_MEMBER_CLAIM_PAYLOAD` 覆盖。7.9 折券兑换通过 `ASDCB_ENABLE_79_COUPON=1` 显式开启，默认关闭。`--dry-run` 会在券包核验后直接跳过签到、领券和兑换，并在启动行明确标记查询模式。
+- `asdcb_auto_sign.py`：阿水大杯茶 YYB 版每日签到。每周二先按活动本期券模板 ID 查询个人券包，准确区分未使用/已使用/已过期；未领券时按小程序源码生成 `MD5` 签名和 AES-CBC/PKCS7 `data`，通过 `webapi_getuserencryptkey` 获取短时效加密密钥。若协议或业务返回错误，脚本会明确显示“未提交”，不会将顶层 `success` 或静态 `receiveStatus` 误报为领取结果。可用真实动态参数通过 `ASDCB_MEMBER_CLAIM_PAYLOAD` 覆盖。7.9 折券兑换通过 `ASDCB_ENABLE_79_COUPON=1` 显式开启，默认关闭。`--dry-run` 会在券包核验后直接跳过签到、领券和兑换，并在启动行明确标记查询模式。
 
   ```bash
   python3 asdcb_auto_sign.py --dry-run

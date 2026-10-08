@@ -35,7 +35,7 @@ Authorization: Bearer <token>
 | `POST /wxapp/operateWxData` | 转发完整 `operateWxData` payload |
 | `GET /wx/getuserinfo` | 获取 YYB 账号用户信息 |
 | `POST /wx/encryptkey` | 加密能力兼容转发，需要真实 payload |
-| `POST /wx/getlatestuserkey` | `getUserEncryptKey` 兼容转发，需要真实 payload |
+| `POST /wx/getlatestuserkey` | `webapi_getuserencryptkey` 加密密钥转发，需要真实 payload |
 | `POST /wx/cloud` | 云函数或通用 `operateWxData` 转发 |
 | `POST /wx/mpgeta8key` | `mpGetA8Key` 的 `operateWxData` 兼容转发，未验证通用公众号 A8Key 流程 |
 | `POST /wx/appmsgext` | 文章扩展数据兼容转发 |
@@ -75,7 +75,7 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 `payload` 会交给微信协议层。路由名称不会自动补出目标业务的活动 ID、签名、会话、文章参数或加密字段。
 
-微信客户端的 `wx.getUserCryptoManager().getLatestUserKey()` 在协议层对应 `getUserEncryptKey`。兼容入口会把 payload 中的 `api_name: "getLatestUserKey"` 规范为服务端名称，其他字段保持不变。返回是否包含 `encryptKey`、`iv`、`version` 和 `expireTime`，取决于账号、目标小程序和基础库。
+微信客户端的 `wx.getUserCryptoManager().getLatestUserKey()` 在 `operateWxData` 协议层对应 `webapi_getuserencryptkey`。兼容入口会把 payload 中的 `api_name: "getLatestUserKey"` 或历史名称 `getUserEncryptKey` 规范为该协议名，其他字段保持不变。成功结果通常包含 `encrypt_key`、`iv`、`version` 和 `expire_in`，取决于账号、目标小程序和基础库；`expire_in` 是短时效，应该现取现用。
 
 ## 用户信息与手机号
 

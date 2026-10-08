@@ -211,7 +211,7 @@ def get_wx_latest_user_key(entry):
         json={
             "ref": ref,
             "app_id": MINI_APP_ID,
-            "payload": {"api_name": "getLatestUserKey", "data": {}, "env": 1},
+            "payload": {"api_name": "webapi_getuserencryptkey", "data": {}, "env": 1},
         },
         timeout=TIMEOUT,
     )
@@ -221,7 +221,7 @@ def get_wx_latest_user_key(entry):
         operation_error = _wx_operation_error(payload)
         if operation_error:
             raise ApiError(
-                "YYB Go 当前协议无法调用小程序本地 getLatestUserKey："
+                "YYB Go 小程序加密密钥调用失败："
                 + operation_error
             )
         message = payload.get("message") or payload.get("msg") or payload.get("code")

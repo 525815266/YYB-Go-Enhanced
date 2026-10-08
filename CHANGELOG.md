@@ -2,6 +2,11 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.27 - 2026-10-08
+
+- 修正 `operateWxData` 加密密钥操作名为 `webapi_getuserencryptkey`，兼容客户端名称 `getLatestUserKey` 和历史名称 `getUserEncryptKey`。
+- 更新阿水大杯茶脚本及协议文档，记录 `encrypt_key`、`iv`、`version`、`expire_in` 字段和短时效使用要求。
+
 ## v0.2.26 - 2026-10-06
 
 - #76 后续：修复 LongLink / ShortLink 在代理握手后不响应请求取消的读写等待，HTTPDNS 同步遵守整体截止时间；协议登录、凭据刷新与代理提取的账号排队也支持取消。

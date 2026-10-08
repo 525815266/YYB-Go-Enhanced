@@ -247,9 +247,10 @@ func TestNormalizeEncryptKeyPayload(t *testing.T) {
 		in   map[string]any
 		want string
 	}{
-		{name: "top level client name", in: map[string]any{"api_name": "getLatestUserKey", "data": map[string]any{"appid": "wx-test"}}, want: "getUserEncryptKey"},
-		{name: "nested client name", in: map[string]any{"data": map[string]any{"api_name": "getLatestUserKey", "version": 2}}, want: "getUserEncryptKey"},
-		{name: "server name unchanged", in: map[string]any{"api_name": "getUserEncryptKey"}, want: "getUserEncryptKey"},
+		{name: "top level client name", in: map[string]any{"api_name": "getLatestUserKey", "data": map[string]any{"appid": "wx-test"}}, want: encryptKeyOperation},
+		{name: "nested client name", in: map[string]any{"data": map[string]any{"api_name": "getLatestUserKey", "version": 2}}, want: encryptKeyOperation},
+		{name: "legacy server name", in: map[string]any{"api_name": "getUserEncryptKey"}, want: encryptKeyOperation},
+		{name: "server name unchanged", in: map[string]any{"api_name": encryptKeyOperation}, want: encryptKeyOperation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

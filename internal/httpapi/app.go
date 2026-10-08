@@ -779,13 +779,13 @@ func (a *App) handleOperateWXData(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleWXEncryptKey(w http.ResponseWriter, r *http.Request) {
-	a.handleNamedWXOperation(w, r, "/wx/encryptkey", "getUserEncryptKey", true)
+	a.handleNamedWXOperation(w, r, "/wx/encryptkey", encryptKeyOperation, true)
 }
 
 // handleWXLatestUserKey exposes the client-side getLatestUserKey name while
-// forwarding the corresponding server-side getUserEncryptKey operation.
+// forwarding the corresponding operateWxData encryption-key operation.
 func (a *App) handleWXLatestUserKey(w http.ResponseWriter, r *http.Request) {
-	a.handleNamedWXOperation(w, r, "/wx/getlatestuserkey", "getUserEncryptKey", true)
+	a.handleNamedWXOperation(w, r, "/wx/getlatestuserkey", encryptKeyOperation, true)
 }
 
 func (a *App) handleWXCloud(w http.ResponseWriter, r *http.Request) {
@@ -857,7 +857,7 @@ func (a *App) invokeNamedWXOperation(ctx context.Context, body wxappRequest, api
 	if body.Payload == nil {
 		body.Payload = map[string]any{"api_name": apiName, "data": map[string]any{}, "env": 1}
 	}
-	if apiName == "getUserEncryptKey" {
+	if apiName == encryptKeyOperation {
 		body.Payload = normalizeEncryptKeyPayload(body.Payload)
 	}
 	result, err := a.invokeWXApp(ctx, acc, body.AppID, body.Payload, a.invokeOperateWXData)
@@ -868,9 +868,9 @@ func (a *App) invokeNamedWXOperation(ctx context.Context, body wxappRequest, api
 }
 
 // normalizeEncryptKeyPayload accepts the client API spelling used by
-// wx.getUserCryptoManager().getLatestUserKey(). The iLink server operation is
-// named getUserEncryptKey; only the operation name is adapted and all business
-// data is preserved unchanged.
+// wx.getUserCryptoManager().getLatestUserKey(). The operateWxData operation is
+// named webapi_getuserencryptkey; only the operation name is adapted and all
+// business data is preserved unchanged.
 func normalizeEncryptKeyPayload(payload map[string]any) map[string]any {
 	if payload == nil {
 		return nil
@@ -879,20 +879,26 @@ func normalizeEncryptKeyPayload(payload map[string]any) map[string]any {
 	for key, value := range payload {
 		out[key] = value
 	}
-	if name, ok := out["api_name"].(string); ok && name == "getLatestUserKey" {
-		out["api_name"] = "getUserEncryptKey"
+	if name, ok := out["api_name"].(string); ok && isEncryptKeyOperationAlias(name) {
+		out["api_name"] = encryptKeyOperation
 	}
 	if nested, ok := out["data"].(map[string]any); ok {
 		copyNested := make(map[string]any, len(nested))
 		for key, value := range nested {
 			copyNested[key] = value
 		}
-		if name, ok := copyNested["api_name"].(string); ok && name == "getLatestUserKey" {
-			copyNested["api_name"] = "getUserEncryptKey"
+		if name, ok := copyNested["api_name"].(string); ok && isEncryptKeyOperationAlias(name) {
+			copyNested["api_name"] = encryptKeyOperation
 		}
 		out["data"] = copyNested
 	}
 	return out
+}
+
+const encryptKeyOperation = "webapi_getuserencryptkey"
+
+func isEncryptKeyOperationAlias(name string) bool {
+	return name == "getLatestUserKey" || name == "getUserEncryptKey"
 }
 
 func (a *App) handleWXGetUserInfo(w http.ResponseWriter, r *http.Request) {
