@@ -92,6 +92,7 @@ v0.2.19 起服务端也兼容旧脚本的 `/healthz`。同一服务地址只探�
 
 ## 已修复
 
+- `京东CK采集_code版.py`：区分完整 `pt_key/pt_pin` 与仅下发 `skey` 的响应；缺少票据时不生成或缓存 `JD_COOKIE`，HTTP 错误也不接受响应票据。失败日志只显示状态码和票据是否存在，不打印原始登录正文。完成京东绑定不保证下发 `pt_key`，`skey` 不能直接替代它。脚本保留历史 AppID `wx2f5d8f9715c59d10`；目前没有验证过改用 `wx91d27dbf599dff74` 后取得 `pt_key` 的新方案，不能承诺更换 AppID 即恢复。后续进展见 [#81](https://github.com/525815266/YYB-Go-Enhanced/issues/81)。这次更新只需重新拉取脚本。
 - `DDYX.py`、`DSMMHYSCQD.py`、`DSTX.py`、`DTSH.py`、`JTC.py`、`JYXEJYFHS.py`、`LDXQ.py`、`NWDJG.py`、`NXDC.py`、`QC.py`、`SANF.py`、`THYC.py`、`XFJ.py`、`byd_sign.py`：修复 `YYB_SERVER` 配置提示代码的缩进错误。
 - `WRN.py`：补充实际运行所需的 `sys` 导入。
 - `MS.js`：兼容会员信息的新旧返回结构，缺少 `memberId` 时停止当前账号，避免连续异常。

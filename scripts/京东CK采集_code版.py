@@ -17,8 +17,9 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
 京东 Code 采集动态 code 版（JD_COOKIE / pt_key-pt_pin 采集）
 
 说明：本脚本非日常签到脚本，产出物是京东账号会话凭证 JD_COOKIE(pt_key;pt_pin)。
-     静默登录仅在「该微信 openid 已绑定京东账号」时才会下发 pt 票据；
-     绑定/首登需要京东账号（账号密码/短信/passToken）在小程序内完成一次。
+     只有京东实际返回完整 pt_key/pt_pin 时才能采集，完成绑定不保证下发此类票据。
+     仅返回 skey 表示未取得 JD_COOKIE，不能将 skey 改名为 pt_key。
+     当前保留历史 AppID；没有验证过以主小程序替换后获取 pt_key 的新方案。
 
 功能：
   1. 本地 code 服务获取微信 code（每个端口对应一个微信会话账号）
@@ -410,7 +411,7 @@ def extract_token(data: Any) -> str | None:
 
 
 def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None]:
-    """login_lt 静默登录：成功(已绑定)从 Set-Cookie 提取 pt_key/pt_pin 组装 JD_COOKIE"""
+    """仅从 login_lt 实际下发的 pt_key/pt_pin 组装 JD_COOKIE。"""
     try:
         print("🔐 [登录] 使用 code 静默登录 login_lt")
         response = request_with_proxy(
@@ -457,27 +458,39 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
         info = body.get("info") if isinstance(body.get("info"), dict) else {}
         pt_pin = pt_pin or str(info.get("pin") or "")
 
-        # 已绑定京东账号：静默登录会下发 pt_key/pt_pin
-        if pt_key and pt_pin:
+        # 完整票据只接受成功 HTTP 响应；绑定状态不能替代票据校验。
+        if 200 <= response.status_code < 300 and pt_key and pt_pin:
             jd_cookie = f"pt_key={pt_key};pt_pin={pt_pin};"
-            print(f"✅ [采集] 采集 JD_COOKIE 成功：pin={pt_pin} pt_key={mask(pt_key)}")
+            print("✅ [采集] 已取得完整 JD_COOKIE（票据值不写入日志）")
             print("ℹ️ [提示] 如需同步到青龙 JD_COOKIE，请自行接入青龙 Open API（QL_URL/QL_CLIENT_ID/QL_CLIENT_SECRET）。")
             return jd_cookie, {"ptKey": pt_key, "ptPin": pt_pin, "body": body}
 
-        # 未绑定京东账号：login_lt 返回 get apppwd failed / pin 为空
+        # 失败时只输出票据是否存在，避免正文中的 skey、pin 等进入日志或通知。
+        skey = response.cookies.get("skey") or pick_cookie(set_cookie_raw, "skey") or info.get("skey") or body.get("skey")
         ret_msg = str(body.get("retMsg") or body.get("retmsg") or "")
         ret_code = body.get("retCode", body.get("retcode"))
-        pin_status = info.get("pinStatus")
-        if "apppwd" in ret_msg or str(ret_code) == "21" or (not info.get("pin") and pin_status == 0 and pin_status is not False):
-            print(f"⚠️ [采集] 该微信未绑定京东账号（login_lt retCode={ret_code} {ret_msg}），无法凭微信 code 静默取得 pt_key/pt_pin。")
-            print("   需先在京东小程序内用【京东账号(账号密码/短信/passToken)】登录一次完成绑定，此为京东账号红线，判 blocked。")
-            return None, {"blocked": f"该微信未绑定京东账号（retCode={ret_code} {ret_msg}），无法凭微信 code 静默取得 pt_key/pt_pin"}
-
-        print(f"❌ [采集] login_lt 未返回 pt 票据 (HTTP {response.status_code})：{json_preview(body, 300)}")
-        return None, {"body": body, "status": response.status_code}
+        safe_ret_code = str(ret_code) if re.fullmatch(r"-?\d{1,10}", str(ret_code)) else "未知"
+        summary = (
+            f"HTTP {response.status_code}，retCode={safe_ret_code}，"
+            f"pt_key={'有' if pt_key else '无'}，pt_pin={'有' if pt_pin else '无'}，"
+            f"skey={'有' if skey else '无'}"
+        )
+        if not 200 <= response.status_code < 300:
+            reason = "京东 login_lt 请求未成功，未保存票据"
+        elif skey and not pt_key:
+            reason = "京东仅返回 skey，未下发 pt_key；skey 不能替代 JD_COOKIE，当前没有已验证的转换方案"
+        elif "apppwd" in ret_msg.lower() or str(ret_code) == "21":
+            reason = "京东静默登录未取得完整 pt 票据；仅凭该返回不能断定未绑定，请核对目标小程序的登录状态"
+        else:
+            reason = "京东未返回完整 pt_key/pt_pin，不能生成 JD_COOKIE，也不能据此判断绑定状态"
+        message = f"{reason}（{summary}）"
+        print(f"⚠️ [采集] {message}")
+        return None, {"blocked": message}
     except Exception as exc:
-        print(f"❌ [登录] 请求异常: {exc}")
-        return None, None
+        # 请求异常可能携带含一次性 code 的 URL，不回显原始异常。
+        message = f"京东登录请求或响应处理异常（{type(exc).__name__}）"
+        print(f"❌ [登录] {message}")
+        return None, {"blocked": message}
 
 
 def api_get(server: str, url: str, token: str, proxies: Dict[str, str] | None, headers: Dict[str, str] | None = None) -> Dict[str, Any]:
