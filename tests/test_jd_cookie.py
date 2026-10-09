@@ -52,11 +52,11 @@ class JDCookieTests(unittest.TestCase):
         self.assertNotIn("fake-pin-secret", text)
 
     def test_complete_cookie_still_succeeds(self):
-        for raw in (False, True):
-            with self.subTest(raw_header=raw):
+        for raw, status in ((False, 200), (True, 200), (False, 302)):
+            with self.subTest(raw_header=raw, status=status):
                 cookies = {"pt_key": "fake-key-secret", "pt_pin": "fake-pin-secret"}
                 response = response_for(
-                    {"retcode": 0}, cookies=None if raw else cookies,
+                    {"retcode": 0}, cookies=None if raw else cookies, status=status,
                     raw_cookie="pt_key=fake-key-secret; Path=/, pt_pin=fake-pin-secret; Path=/" if raw else "",
                 )
                 (token, _), output = self.login(response)

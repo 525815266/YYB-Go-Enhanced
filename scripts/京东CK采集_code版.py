@@ -458,8 +458,8 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
         info = body.get("info") if isinstance(body.get("info"), dict) else {}
         pt_pin = pt_pin or str(info.get("pin") or "")
 
-        # 完整票据只接受成功 HTTP 响应；绑定状态不能替代票据校验。
-        if 200 <= response.status_code < 300 and pt_key and pt_pin:
+        # 保留登录跳转响应下发的票据，拒绝 HTTP 错误；绑定状态不能替代票据校验。
+        if 200 <= response.status_code < 400 and pt_key and pt_pin:
             jd_cookie = f"pt_key={pt_key};pt_pin={pt_pin};"
             print("✅ [采集] 已取得完整 JD_COOKIE（票据值不写入日志）")
             print("ℹ️ [提示] 如需同步到青龙 JD_COOKIE，请自行接入青龙 Open API（QL_URL/QL_CLIENT_ID/QL_CLIENT_SECRET）。")
@@ -475,7 +475,7 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
             f"pt_key={'有' if pt_key else '无'}，pt_pin={'有' if pt_pin else '无'}，"
             f"skey={'有' if skey else '无'}"
         )
-        if not 200 <= response.status_code < 300:
+        if not 200 <= response.status_code < 400:
             reason = "京东 login_lt 请求未成功，未保存票据"
         elif skey and not pt_key:
             reason = "京东仅返回 skey，未下发 pt_key；skey 不能替代 JD_COOKIE，当前没有已验证的转换方案"
