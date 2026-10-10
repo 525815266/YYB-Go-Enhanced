@@ -275,84 +275,102 @@ func (p *Pool) loginAndSession(ctx context.Context, loginBuffer, tcpProxy string
 	if loginBuffer == "" {
 		return WmpfSession{}, fmt.Errorf("login_buffer is empty")
 	}
-	targets, err := getLonglinkTargets(ctx, p.cfg.LoginTimeout, p.cfg.DNSCacheTTL)
+	// HTTPDNS is optional: leave time for the official hostname fallback when
+	// both HTTPDNS endpoints are unreachable.
+	dnsTimeout := min(p.cfg.ShortlinkTimeout, p.cfg.LoginTimeout/3)
+	dnsCtx, cancelDNS := context.WithTimeout(ctx, dnsTimeout)
+	targets, err := getLonglinkTargets(dnsCtx, dnsTimeout, p.cfg.DNSCacheTTL)
+	cancelDNS()
 	if err != nil {
 		return WmpfSession{}, fmt.Errorf("HTTPDNS LongLink failed: %w", err)
 	}
 	targets = orderLonglinkTargets(targets, 6)
+	st, err := tryLonglinkCandidates(ctx, targets, p.cfg.LoginTimeout, func(attemptCtx context.Context, target Target) (WmpfSession, error) {
+		return p.loginTarget(attemptCtx, target, loginBuffer, tcpProxy, fallbackDirect)
+	})
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	st.ShortlinkTargets = getShortlinkTargets(ctx, p.cfg.ShortlinkTimeout, p.cfg.DNSCacheTTL)
+	return st, nil
+}
+
+func tryLonglinkCandidates(ctx context.Context, targets []Target, timeout time.Duration, login func(context.Context, Target) (WmpfSession, error)) (WmpfSession, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	var last error
-	for _, t := range targets {
+	for i, t := range targets {
 		if err := ctx.Err(); err != nil {
-			return WmpfSession{}, fmt.Errorf("LongLink login cancelled: %w", err)
+			return WmpfSession{}, fmt.Errorf("LongLink login cancelled after %d/%d candidates: %w", i, len(targets), errors.Join(err, last))
 		}
-		mc, err := connectMmtls(ctx, t, p.cfg.LoginTimeout, tcpProxy, fallbackDirect)
-		if err != nil {
-			last = err
-			continue
+		// Split the remaining budget across candidates, so one silent endpoint
+		// cannot consume all the time reserved for fallback addresses/ports.
+		deadline, _ := ctx.Deadline()
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(targets)-i))
+		st, err := login(attemptCtx, t)
+		cancelAttempt()
+		if err == nil {
+			return st, nil
 		}
-		defer mc.close()
-		meta, err := parseLoginBuffer(loginBuffer)
-		if err != nil {
-			return WmpfSession{}, err
-		}
-		appDeviceID, err := randomAppDeviceID()
-		if err != nil {
-			return WmpfSession{}, err
-		}
-		temp := &manualAuthTemp{}
-		body, err := buildLoginBody(loginBuffer, meta.DeviceID, appDeviceID, temp)
-		if err != nil {
-			return WmpfSession{}, err
-		}
-		if err = mc.sendApp(cmdManualAuth, body); err != nil {
-			last = err
-			continue
-		}
-		resp, err := mc.recvApp()
-		if err != nil {
-			last = err
-			continue
-		}
-		if resp.Cmd != cmdManualAuth {
-			last = fmt.Errorf("manualauth failed: cmd=%d", resp.Cmd)
-			continue
-		}
-		mar, err := parseLoginResponse(resp.Body, temp)
-		if err != nil {
-			last = err
-			continue
-		}
-		appSess, err := extractSession(mar)
-		if err != nil {
-			last = err
-			continue
-		}
-		appSess.DeviceID = meta.DeviceID
-		appSess.HostAppID = meta.HostAppID
-		psks, err := mc.extractPSKs()
-		if err != nil {
-			last = err
-			continue
-		}
-		psk, ok := pickAccessPSK(psks)
-		if !ok {
-			last = fmt.Errorf("login finished but no access PSK was issued")
-			continue
-		}
-		shortTargets := getShortlinkTargets(ctx, p.cfg.ShortlinkTimeout, p.cfg.DNSCacheTTL)
-		return WmpfSession{
-			Session:          appSess,
-			PSK:              psk,
-			ShortlinkTargets: shortTargets,
-			CreatedAt:        time.Now(),
-			TCPProxy:         tcpProxy,
-			FallbackDirect:   fallbackDirect,
-		}, nil
+		last = fmt.Errorf("candidate %d/%d %s:%d: %w", i+1, len(targets), t.IP, t.Port, err)
 	}
 	if last == nil {
 		last = fmt.Errorf("no LongLink candidates")
 	}
 	return WmpfSession{}, fmt.Errorf("all LongLink candidates failed: %w", last)
+}
+
+func (p *Pool) loginTarget(ctx context.Context, target Target, loginBuffer, tcpProxy string, fallbackDirect bool) (WmpfSession, error) {
+	mc, err := connectMmtls(ctx, target, p.cfg.LoginTimeout, tcpProxy, fallbackDirect)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	defer mc.close()
+	meta, err := parseLoginBuffer(loginBuffer)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	appDeviceID, err := randomAppDeviceID()
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	temp := &manualAuthTemp{}
+	body, err := buildLoginBody(loginBuffer, meta.DeviceID, appDeviceID, temp)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	if err = mc.sendApp(cmdManualAuth, body); err != nil {
+		return WmpfSession{}, fmt.Errorf("manualauth send: %w", err)
+	}
+	resp, err := mc.recvApp()
+	if err != nil {
+		return WmpfSession{}, fmt.Errorf("manualauth response: %w", err)
+	}
+	if resp.Cmd != cmdManualAuth {
+		return WmpfSession{}, fmt.Errorf("manualauth failed: cmd=%d", resp.Cmd)
+	}
+	mar, err := parseLoginResponse(resp.Body, temp)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	appSess, err := extractSession(mar)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	appSess.DeviceID = meta.DeviceID
+	appSess.HostAppID = meta.HostAppID
+	psks, err := mc.extractPSKs()
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	psk, ok := pickAccessPSK(psks)
+	if !ok {
+		return WmpfSession{}, fmt.Errorf("login finished but no access PSK was issued")
+	}
+	return WmpfSession{
+		Session: appSess, PSK: psk, CreatedAt: time.Now(),
+		TCPProxy: tcpProxy, FallbackDirect: fallbackDirect,
+	}, nil
 }
 
 func (p *Pool) sendEnvelope(ctx context.Context, st WmpfSession, envelope []byte) ([]byte, []byte, error) {

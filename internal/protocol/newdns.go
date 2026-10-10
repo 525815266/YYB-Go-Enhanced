@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -238,21 +237,27 @@ func getShortlinkTargets(ctx context.Context, timeout, cacheTTL time.Duration) [
 }
 
 func orderLonglinkTargets(targets []Target, max int) []Target {
-	pref := []int{8080, 80, 443, 5000}
-	seen := map[string]bool{}
+	// A host can advertise several usable ports. Keep each endpoint, with 443
+	// first because some CONNECT proxies restrict the available destination ports.
+	pref := []int{443, 8080, 80, 5000}
+	seen := map[Target]bool{}
 	var out []Target
+	add := func(t Target) {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
 	for _, p := range pref {
 		for _, t := range targets {
-			if t.Port == p && !seen[t.IP] {
-				seen[t.IP] = true
-				out = append(out, t)
+			if t.Port == p {
+				add(t)
 			}
 		}
 	}
-	if len(out) == 0 {
-		out = append(out, targets...)
+	for _, t := range targets {
+		add(t)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].IP < out[j].IP })
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}

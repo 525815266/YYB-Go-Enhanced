@@ -2,9 +2,34 @@ package protocol
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestOrderLonglinkTargetsRetainsPortsAndResolverOrder(t *testing.T) {
+	input := []Target{
+		{IP: "203.0.113.20", Port: 8080}, {IP: "203.0.113.10", Port: 8080},
+		{IP: "203.0.113.20", Port: 443}, {IP: "203.0.113.10", Port: 443},
+		{IP: "203.0.113.20", Port: 443}, {IP: "203.0.113.20", Port: 80},
+		{IP: "203.0.113.20", Port: 5000}, {IP: "203.0.113.20", Port: 8443},
+	}
+	want := []Target{
+		{IP: "203.0.113.20", Port: 443}, {IP: "203.0.113.10", Port: 443},
+		{IP: "203.0.113.20", Port: 8080}, {IP: "203.0.113.10", Port: 8080},
+		{IP: "203.0.113.20", Port: 80}, {IP: "203.0.113.20", Port: 5000},
+		{IP: "203.0.113.20", Port: 8443},
+	}
+	for _, limit := range []int{0, 6} {
+		expected := want
+		if limit > 0 {
+			expected = want[:limit]
+		}
+		if got := orderLonglinkTargets(input, limit); !reflect.DeepEqual(got, expected) {
+			t.Fatalf("limit %d: got %v, want %v", limit, got, expected)
+		}
+	}
+}
 
 func TestGetLonglinkTargetsFallsBackToOfficialHostname(t *testing.T) {
 	dnsCache.Lock()
