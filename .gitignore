@@ -9,6 +9,7 @@ nginx.htpasswd
 *.sqlite3
 *.log
 __pycache__/
+/scripts/unicom_token_cache.json
 *.py[cod]
 /yyb-go
 /dist/
