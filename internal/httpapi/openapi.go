@@ -560,6 +560,7 @@ func newOpenAPISpec() map[string]any {
 					"remark": map[string]any{"type": "string", "maxLength": 80},
 				}),
 				"ProxySpec": objectSchema(nil, map[string]any{
+					"protocol_proxy_mode":   map[string]any{"type": "string", "enum": []string{"account", "direct"}, "description": "新账号小程序调用出口，默认跟随账号连接模式；已有账号重扫保留原设置。"},
 					"product":               map[string]any{"type": "string", "enum": []string{"appstore"}, "default": "appstore", "description": "登录产品。电脑管家等产品在凭据兑换链路验证前不会创建会话。"},
 					"mode":                  map[string]any{"type": "string", "enum": []string{"direct", "static", "api"}, "default": "direct"},
 					"proxy_type":            map[string]any{"type": "string", "enum": []string{"http", "socks5"}, "default": "http", "description": "http 使用 HTTP CONNECT。"},
@@ -572,6 +573,7 @@ func newOpenAPISpec() map[string]any {
 					"refresh_ahead_minutes": map[string]any{"type": "integer", "minimum": 5, "maximum": 90, "default": 5},
 				}),
 				"AccountProxyRequest": objectSchema([]string{"ref", "mode"}, map[string]any{
+					"protocol_proxy_mode":   map[string]any{"type": "string", "enum": []string{"account", "direct"}, "description": "小程序调用出口；省略或 null 保留原值，新账号默认 account。扫码与凭据刷新仍遵循账号代理。"},
 					"ref":                   map[string]any{"type": "string", "description": "账号 ID、UIN 或 openid。"},
 					"mode":                  map[string]any{"type": "string", "enum": []string{"direct", "static", "api"}},
 					"proxy_type":            map[string]any{"type": "string", "enum": []string{"http", "socks5"}},
@@ -596,6 +598,7 @@ func newOpenAPISpec() map[string]any {
 					"refresh_ahead_minutes": map[string]any{"type": "integer", "minimum": 5, "maximum": 90, "default": 5},
 				}),
 				"AccountProxySetting": objectSchema([]string{"account_id", "mode", "proxy_type", "configured", "updated_at"}, map[string]any{
+					"protocol_proxy_mode":   map[string]any{"type": "string", "enum": []string{"account", "direct"}, "description": "小程序调用跟随账号连接模式或直接连接微信。"},
 					"account_id":            int64Schema(),
 					"mode":                  map[string]any{"type": "string", "enum": []string{"direct", "static", "api"}},
 					"proxy_type":            map[string]any{"type": "string", "enum": []string{"http", "socks5"}},

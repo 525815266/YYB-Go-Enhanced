@@ -366,6 +366,9 @@ func juliangSign(params map[string]string, apiKey string) string {
 }
 
 func (a *App) normalizeAccountProxyInput(ctx context.Context, body accountProxyIn) (accountProxyIn, proxysource.Spec, error) {
+	if body.ProtocolProxyMode != nil && *body.ProtocolProxyMode != "account" && *body.ProtocolProxyMode != "direct" {
+		return accountProxyIn{}, proxysource.Spec{}, fmt.Errorf("小程序调用出口必须为 account（跟随账号）或 direct（直连）")
+	}
 	body.RegionCode = strings.TrimSpace(body.RegionCode)
 	body.RegionProvince = strings.TrimSpace(body.RegionProvince)
 	body.RegionCity = strings.TrimSpace(body.RegionCity)

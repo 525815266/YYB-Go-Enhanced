@@ -19,17 +19,18 @@ import (
 )
 
 type accountProxyIn struct {
-	Product             string `json:"product"`
-	Ref                 string `json:"ref"`
-	Mode                string `json:"mode"`
-	ProxyType           string `json:"proxy_type"`
-	StaticProxy         string `json:"static_proxy"`
-	APIURL              string `json:"api_url"`
-	ProviderProfileID   *int64 `json:"provider_profile_id"`
-	RegionCode          string `json:"region_code"`
-	RegionProvince      string `json:"region_province"`
-	RegionCity          string `json:"region_city"`
-	RefreshAheadMinutes int64  `json:"refresh_ahead_minutes"`
+	Product             string  `json:"product"`
+	Ref                 string  `json:"ref"`
+	Mode                string  `json:"mode"`
+	ProxyType           string  `json:"proxy_type"`
+	StaticProxy         string  `json:"static_proxy"`
+	APIURL              string  `json:"api_url"`
+	ProviderProfileID   *int64  `json:"provider_profile_id"`
+	RegionCode          string  `json:"region_code"`
+	RegionProvince      string  `json:"region_province"`
+	RegionCity          string  `json:"region_city"`
+	RefreshAheadMinutes int64   `json:"refresh_ahead_minutes"`
+	ProtocolProxyMode   *string `json:"protocol_proxy_mode"`
 }
 
 const loginProductAppStore = "appstore"
@@ -102,6 +103,7 @@ func proxySettingPublic(setting *store.AccountProxySetting, account *store.Wecha
 		"provider_profile_id": setting.ProviderProfileID,
 		"region_code":         setting.RegionCode, "region_province": setting.RegionProvince, "region_city": setting.RegionCity,
 		"refresh_ahead_minutes": setting.RefreshAheadSeconds / 60,
+		"protocol_proxy_mode":   setting.ProtocolProxyMode,
 		"token_ttl_minutes":     tokenTTLMinutes,
 		"lifetime_class":        lifetimeClass, "keepalive_supported": keepaliveSupported, "keepalive_note": keepaliveNote,
 		"proxy_warning": proxyWarning(dynamic),
@@ -254,6 +256,19 @@ func (a *App) resolveProxySpec(ctx context.Context, spec proxysource.Spec) (stri
 	return proxysource.Resolve(ctx, client, spec)
 }
 
+// Protocol calls can explicitly use direct egress without extracting a proxy.
+// QR login, profile queries and credential refresh keep using resolveAccountProxy.
+func (a *App) resolveWXAppProxy(ctx context.Context, accountID int64) (string, bool, error) {
+	setting, err := a.db.GetAccountProxySetting(ctx, accountID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", false, err
+	}
+	if err == nil && setting.ProtocolProxyMode == "direct" {
+		return "", false, nil
+	}
+	return a.resolveAccountProxy(ctx, accountID)
+}
+
 func (a *App) resolveAccountProxy(ctx context.Context, accountID int64) (string, bool, error) {
 	setting, err := a.db.GetAccountProxySetting(ctx, accountID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -342,7 +357,7 @@ func (a *App) saveAccountProxyInput(ctx context.Context, accountID int64, body a
 	return a.db.UpsertAccountProxySetting(ctx, accountID, normalized.Mode, normalized.ProxyType,
 		normalized.StaticProxy, apiURL, body.ProviderProfileID,
 		strings.TrimSpace(body.RegionCode), strings.TrimSpace(body.RegionProvince), strings.TrimSpace(body.RegionCity),
-		refreshAheadSeconds)
+		refreshAheadSeconds, body.ProtocolProxyMode)
 }
 
 func (a *App) accountExistsBeforeScan(ctx context.Context, openID string) (bool, error) {

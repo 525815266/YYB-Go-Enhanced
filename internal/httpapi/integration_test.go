@@ -59,7 +59,7 @@ func TestIntegrationAccountProxyRequiresTokenAndResolvesSetting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAccount() error = %v", err)
 	}
-	if _, err = app.db.UpsertAccountProxySetting(context.Background(), account.ID, "static", "http", "http-connect://proxy-user:proxy-pass@203.0.113.8:8080", "", nil, "", "", "", 300); err != nil {
+	if _, err = app.db.UpsertAccountProxySetting(context.Background(), account.ID, "static", "http", "http-connect://proxy-user:proxy-pass@203.0.113.8:8080", "", nil, "", "", "", 300, nil); err != nil {
 		t.Fatalf("UpsertAccountProxySetting() error = %v", err)
 	}
 

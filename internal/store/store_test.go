@@ -446,8 +446,8 @@ func TestCompactAccountIDsRemapsChildren(t *testing.T) {
 		t.Fatalf("seed proxy setting: %v", err)
 	}
 	if _, err = db.sql.ExecContext(ctx, `INSERT INTO account_proxy_settings
-		(account_id, mode, proxy_type, static_proxy, api_url, created_at, updated_at)
-		VALUES(3, 'api', 'http', '', 'https://proxy.example/account-3', 1, 1)`); err != nil {
+		(account_id, mode, proxy_type, static_proxy, api_url, protocol_proxy_mode, created_at, updated_at)
+		VALUES(3, 'api', 'http', '', 'https://proxy.example/account-3', 'direct', 1, 1)`); err != nil {
 		t.Fatalf("seed second proxy setting: %v", err)
 	}
 	mapping, err := db.CompactAccountIDs(ctx)
@@ -472,6 +472,10 @@ func TestCompactAccountIDsRemapsChildren(t *testing.T) {
 		}
 	}
 	var proxyURL string
+	setting, err := db.GetAccountProxySetting(ctx, 2)
+	if err != nil || setting.ProtocolProxyMode != "direct" {
+		t.Fatalf("account 3 routing policy moved to ID 2 = %#v, %v", setting, err)
+	}
 	if err = db.sql.QueryRowContext(ctx, "SELECT api_url FROM account_proxy_settings WHERE account_id=2").Scan(&proxyURL); err != nil || proxyURL != "https://proxy.example/account-3" {
 		t.Fatalf("account 3 proxy moved to ID 2 = %q, err = %v", proxyURL, err)
 	}

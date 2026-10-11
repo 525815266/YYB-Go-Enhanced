@@ -19,15 +19,27 @@ func TestAccountProxySettingLifecycle(t *testing.T) {
 		t.Fatalf("UpsertAccount() error = %v", err)
 	}
 	setting, err := db.AccountProxySettingOrDefault(context.Background(), account.ID)
-	if err != nil || setting.Mode != "direct" {
+	if err != nil || setting.Mode != "direct" || setting.ProtocolProxyMode != "account" {
 		t.Fatalf("default setting = %#v, %v", setting, err)
 	}
-	setting, err = db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "https://proxy.example/get?city=jinan", nil, "370100", "山东省", "济南市", 900)
+	policy := "direct"
+	setting, err = db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "https://proxy.example/get?city=jinan", nil, "370100", "山东省", "济南市", 900, &policy)
 	if err != nil || setting.Mode != "api" || setting.APIURL == "" {
 		t.Fatalf("saved setting = %#v, %v", setting, err)
 	}
-	if setting.RegionCode != "370100" || setting.RefreshAheadSeconds != 900 {
+	if setting.RegionCode != "370100" || setting.RefreshAheadSeconds != 900 || setting.ProtocolProxyMode != policy {
 		t.Fatalf("saved region/refresh = %#v", setting)
+	}
+	target, err := db.UpsertAccount(context.Background(), "copy-target", "buffer", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CopyAccountProxySetting(context.Background(), account.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := db.GetAccountProxySetting(context.Background(), target.ID)
+	if err != nil || copied.ProtocolProxyMode != policy || copied.APIURL != setting.APIURL {
+		t.Fatalf("copied policy = %#v, %v", copied, err)
 	}
 }
 
@@ -85,7 +97,7 @@ VALUES(1, 'api', 'http', '', 'https://proxy.example/get', 1, 1);`)
 	}
 	defer db.Close()
 	setting, err := db.GetAccountProxySetting(context.Background(), 1)
-	if err != nil || setting.Mode != "api" || setting.RefreshAheadSeconds != DefaultProxyRefreshAheadSeconds || setting.RegionCode != "" {
+	if err != nil || setting.Mode != "api" || setting.RefreshAheadSeconds != DefaultProxyRefreshAheadSeconds || setting.RegionCode != "" || setting.ProtocolProxyMode != "account" {
 		t.Fatalf("migrated setting = %#v, %v", setting, err)
 	}
 }

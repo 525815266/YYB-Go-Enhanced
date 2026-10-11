@@ -137,7 +137,7 @@ func TestDynamicProxyLeaseAvoidsRepeatedExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAccount() error = %v", err)
 	}
-	if _, err := app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", proxyAPI.URL, nil, "", "", "", 300); err != nil {
+	if _, err := app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", proxyAPI.URL, nil, "", "", "", 300, nil); err != nil {
 		t.Fatalf("UpsertAccountProxySetting() error = %v", err)
 	}
 	for range 2 {
@@ -326,7 +326,8 @@ func TestExistingAccountRescanPreservesProxySetting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProxyProviderProfile() error = %v", err)
 	}
-	if _, err := app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "", &profile.ID, "370100", "山东省", "济南市", 300); err != nil {
+	policy := "direct"
+	if _, err := app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "", &profile.ID, "370100", "山东省", "济南市", 300, &policy); err != nil {
 		t.Fatalf("UpsertAccountProxySetting() error = %v", err)
 	}
 	direct, _ := proxysource.NormalizeSpec(proxysource.Spec{Mode: "direct"})
@@ -334,7 +335,7 @@ func TestExistingAccountRescanPreservesProxySetting(t *testing.T) {
 		t.Fatalf("saveNewAccountProxy() error = %v", err)
 	}
 	setting, err := app.db.GetAccountProxySetting(context.Background(), account.ID)
-	if err != nil || setting.ProviderProfileID == nil || *setting.ProviderProfileID != profile.ID || setting.RegionCode != "370100" {
+	if err != nil || setting.ProviderProfileID == nil || *setting.ProviderProfileID != profile.ID || setting.RegionCode != "370100" || setting.ProtocolProxyMode != "direct" {
 		t.Fatalf("proxy after rescan = %#v, %v", setting, err)
 	}
 }
@@ -419,7 +420,7 @@ func TestAccountOperationWaitCanBeCancelled(t *testing.T) {
 			}
 			lock := app.refreshLockFor(account.ID)
 			if operation == "proxy-lease" {
-				_, err = app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "http://proxy.invalid/", nil, "", "", "", 300)
+				_, err = app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", "http://proxy.invalid/", nil, "", "", "", 300, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -469,7 +470,7 @@ func TestExpiredAccountRejectsBeforeResolvingProxy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertAccount() error = %v", err)
 	}
-	if _, err := app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", proxyAPI.URL, nil, "", "", "", 300); err != nil {
+	if _, err := app.db.UpsertAccountProxySetting(context.Background(), account.ID, "api", "http", "", proxyAPI.URL, nil, "", "", "", 300, nil); err != nil {
 		t.Fatalf("UpsertAccountProxySetting() error = %v", err)
 	}
 	callCount := 0

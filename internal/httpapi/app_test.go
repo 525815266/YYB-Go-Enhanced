@@ -512,6 +512,8 @@ func TestSQLite普通用户账号隔离AndAdminCanInspectOwnership(t *testing.T)
 	}{
 		{method: http.MethodGet, path: "/api/qinglong/jobs?ref=" + strconv.FormatInt(foreign.ID, 10)},
 		{method: http.MethodPost, path: "/accounts/refresh", body: `{"ref":"` + strconv.FormatInt(foreign.ID, 10) + `"}`},
+		{method: http.MethodGet, path: "/accounts/proxy?ref=" + strconv.FormatInt(foreign.ID, 10)},
+		{method: http.MethodPut, path: "/accounts/proxy", body: `{"ref":"` + strconv.FormatInt(foreign.ID, 10) + `","mode":"direct","protocol_proxy_mode":"direct"}`},
 	} {
 		blocked := httptest.NewRecorder()
 		req := httptest.NewRequest(testRequest.method, testRequest.path, strings.NewReader(testRequest.body))

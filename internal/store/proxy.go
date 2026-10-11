@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type AccountProxySetting struct {
 	RegionProvince      string `json:"region_province"`
 	RegionCity          string `json:"region_city"`
 	RefreshAheadSeconds int64  `json:"refresh_ahead_seconds"`
+	ProtocolProxyMode   string `json:"protocol_proxy_mode"`
 	CreatedAt           int64  `json:"created_at"`
 	UpdatedAt           int64  `json:"updated_at"`
 }
@@ -28,11 +30,11 @@ func (db *DB) GetAccountProxySetting(ctx context.Context, accountID int64) (*Acc
 	setting := &AccountProxySetting{}
 	err := db.sql.QueryRowContext(ctx, `
 SELECT account_id, mode, proxy_type, static_proxy, api_url, provider_profile_id,
-       region_code, region_province, region_city, refresh_ahead_seconds, created_at, updated_at
+       region_code, region_province, region_city, refresh_ahead_seconds, protocol_proxy_mode, created_at, updated_at
 FROM account_proxy_settings WHERE account_id=?`, accountID).Scan(
 		&setting.AccountID, &setting.Mode, &setting.ProxyType, &setting.StaticProxy,
 		&setting.APIURL, &setting.ProviderProfileID, &setting.RegionCode, &setting.RegionProvince,
-		&setting.RegionCity, &setting.RefreshAheadSeconds, &setting.CreatedAt, &setting.UpdatedAt,
+		&setting.RegionCity, &setting.RefreshAheadSeconds, &setting.ProtocolProxyMode, &setting.CreatedAt, &setting.UpdatedAt,
 	)
 	return setting, err
 }
@@ -45,10 +47,14 @@ func (db *DB) AccountProxySettingOrDefault(ctx context.Context, accountID int64)
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	return &AccountProxySetting{AccountID: accountID, Mode: "direct", ProxyType: "http", RefreshAheadSeconds: DefaultProxyRefreshAheadSeconds}, nil
+	return &AccountProxySetting{AccountID: accountID, Mode: "direct", ProxyType: "http", RefreshAheadSeconds: DefaultProxyRefreshAheadSeconds, ProtocolProxyMode: "account"}, nil
 }
 
-func (db *DB) UpsertAccountProxySetting(ctx context.Context, accountID int64, mode, proxyType, staticProxy, apiURL string, profileID *int64, regionCode, regionProvince, regionCity string, refreshAheadSeconds int64) (*AccountProxySetting, error) {
+// A nil protocolProxyMode preserves the policy when an older client saves a setting.
+func (db *DB) UpsertAccountProxySetting(ctx context.Context, accountID int64, mode, proxyType, staticProxy, apiURL string, profileID *int64, regionCode, regionProvince, regionCity string, refreshAheadSeconds int64, protocolProxyMode *string) (*AccountProxySetting, error) {
+	if protocolProxyMode != nil && *protocolProxyMode != "account" && *protocolProxyMode != "direct" {
+		return nil, fmt.Errorf("protocol_proxy_mode must be account or direct")
+	}
 	if refreshAheadSeconds <= 0 {
 		refreshAheadSeconds = DefaultProxyRefreshAheadSeconds
 	}
@@ -56,16 +62,17 @@ func (db *DB) UpsertAccountProxySetting(ctx context.Context, accountID int64, mo
 	_, err := db.sql.ExecContext(ctx, `
 INSERT INTO account_proxy_settings
 (account_id, mode, proxy_type, static_proxy, api_url, provider_profile_id, region_code,
- region_province, region_city, refresh_ahead_seconds, created_at, updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+ region_province, region_city, refresh_ahead_seconds, protocol_proxy_mode, created_at, updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,COALESCE(?, 'account'),?,?)
 ON CONFLICT(account_id) DO UPDATE SET
 mode=excluded.mode, proxy_type=excluded.proxy_type, static_proxy=excluded.static_proxy,
 api_url=excluded.api_url, provider_profile_id=excluded.provider_profile_id,
 region_code=excluded.region_code, region_province=excluded.region_province,
 region_city=excluded.region_city, refresh_ahead_seconds=excluded.refresh_ahead_seconds,
+protocol_proxy_mode=COALESCE(?, account_proxy_settings.protocol_proxy_mode),
 updated_at=excluded.updated_at`,
 		accountID, mode, proxyType, staticProxy, apiURL, profileID, regionCode,
-		regionProvince, regionCity, refreshAheadSeconds, now, now,
+		regionProvince, regionCity, refreshAheadSeconds, protocolProxyMode, now, now, protocolProxyMode,
 	)
 	if err != nil {
 		return nil, err
@@ -80,7 +87,7 @@ func (db *DB) CopyAccountProxySetting(ctx context.Context, sourceAccountID, targ
 	}
 	_, err = db.UpsertAccountProxySetting(ctx, targetAccountID, setting.Mode, setting.ProxyType,
 		setting.StaticProxy, setting.APIURL, setting.ProviderProfileID, setting.RegionCode,
-		setting.RegionProvince, setting.RegionCity, setting.RefreshAheadSeconds)
+		setting.RegionProvince, setting.RegionCity, setting.RefreshAheadSeconds, &setting.ProtocolProxyMode)
 	return err
 }
 

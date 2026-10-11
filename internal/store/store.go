@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS account_proxy_settings (
     region_province        TEXT    NOT NULL DEFAULT '',
     region_city            TEXT    NOT NULL DEFAULT '',
     refresh_ahead_seconds  INTEGER NOT NULL DEFAULT 300,
+    protocol_proxy_mode    TEXT    NOT NULL DEFAULT 'account',
     created_at             INTEGER NOT NULL,
     updated_at             INTEGER NOT NULL
 );
@@ -345,6 +346,7 @@ func migrateAccountProxySettings(ctx context.Context, db *sql.DB) error {
 		{"region_province", "TEXT NOT NULL DEFAULT ''"},
 		{"region_city", "TEXT NOT NULL DEFAULT ''"},
 		{"refresh_ahead_seconds", "INTEGER NOT NULL DEFAULT 300"},
+		{"protocol_proxy_mode", "TEXT NOT NULL DEFAULT 'account'"},
 	}
 	for _, column := range columns {
 		exists, err := sqliteColumnExists(ctx, db, "account_proxy_settings", column.name)

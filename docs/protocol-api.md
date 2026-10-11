@@ -17,6 +17,7 @@ YYB Go Enhanced 提供 `/wxapp/*` 标准入口和 `/wx/*` 兼容入口。运行�
 - `app_id` 是目标小程序 AppID。
 - 请求使用 `POST` 和 `Content-Type: application/json`。
 - `wx.login` code 短期且一次性，不能跨请求或跨脚本复用。
+- 小程序调用默认使用账号代理；v0.2.29 起可在「代理设置 → 小程序调用出口」单独选择直连，扫码及凭据刷新仍按账号代理执行，见[分流说明](proxy-keepalive.md#保活走代理小程序调用直连)。
 
 启用 `YYB_PROTOCOL_TOKEN` 后，所有 `/wx/*` 与 `/wxapp/*` 自动化请求必须增加：
 

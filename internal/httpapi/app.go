@@ -1252,7 +1252,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if accountNeedsRescan(acc) {
 		return nil, accountExpiredError{openid: acc.OpenID}
 	}
-	proxyValue, fallbackDirect, err := a.resolveAccountProxy(ctx, acc.ID)
+	proxyValue, fallbackDirect, err := a.resolveWXAppProxy(ctx, acc.ID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve account proxy: %w", err)
 	}
@@ -1267,7 +1267,10 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		return nil, callErr
 	}
 	_ = a.db.InvalidateSession(ctx, acc.ID, proxyValue)
-	status, refreshErr := a.refreshLivenessWithProxy(ctx, acc, proxyValue, fallbackDirect)
+	// Credential recovery always uses the account's refresh route, even when
+	// this protocol call explicitly selected direct egress.
+	status, _, refreshErr := a.refreshAccount(ctx, acc, true)
+	status = a.finishLivenessRefresh(ctx, acc, status)
 	if status != "alive" {
 		if status == "expired" {
 			return nil, accountExpiredError{openid: acc.OpenID}
