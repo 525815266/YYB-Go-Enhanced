@@ -5,20 +5,25 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
 type fakeDaidaiPanel struct {
-	mu         sync.Mutex
-	appKey     string
-	appSecret  string
-	token      string
-	envs       []qingLongEnv
-	tasks      []qingLongCron
-	deletedIDs []int64
-	runIDs     []int64
+	mu            sync.Mutex
+	appKey        string
+	appSecret     string
+	token         string
+	envs          []qingLongEnv
+	tasks         []qingLongCron
+	deletedIDs    []int64
+	runIDs        []int64
+	envUpserts    int
+	envUpdateIDs  []int64
+	failEnvUpdate bool
 }
 
 func newFakeDaidaiPanel(t *testing.T) (*fakeDaidaiPanel, *httptest.Server) {
@@ -77,6 +82,7 @@ func newFakeDaidaiPanel(t *testing.T) (*fakeDaidaiPanel, *httptest.Server) {
 			_, _ = w.Write(out)
 
 		case r.URL.Path == "/api/v1/envs/by-name" && r.Method == http.MethodPut:
+			fake.envUpserts++
 			var body struct {
 				Name    string `json:"name"`
 				Value   string `json:"value"`
@@ -85,7 +91,7 @@ func newFakeDaidaiPanel(t *testing.T) (*fakeDaidaiPanel, *httptest.Server) {
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			found := false
 			for i, e := range fake.envs {
-				if e.Name == body.Name {
+				if e.Name == body.Name && (body.Remarks == "" || e.Remarks == body.Remarks) {
 					fake.envs[i].Value = body.Value
 					if body.Remarks != "" {
 						fake.envs[i].Remarks = body.Remarks
@@ -105,6 +111,31 @@ func newFakeDaidaiPanel(t *testing.T) (*fakeDaidaiPanel, *httptest.Server) {
 			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"message":"更新成功"}`))
+
+		case strings.HasPrefix(r.URL.Path, "/api/v1/envs/") && r.Method == http.MethodPut:
+			id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/v1/envs/"), 10, 64)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			fake.envUpdateIDs = append(fake.envUpdateIDs, id)
+			if fake.failEnvUpdate {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			var body struct{ Name, Value, Remarks string }
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			for i := range fake.envs {
+				if fake.envs[i].ID == id {
+					fake.envs[i].Name, fake.envs[i].Value, fake.envs[i].Remarks = body.Name, body.Value, body.Remarks
+					_, _ = w.Write([]byte(`{"message":"更新成功"}`))
+					return
+				}
+			}
+			w.WriteHeader(http.StatusNotFound)
 
 		case r.URL.Path == "/api/v1/tasks" && r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusOK)

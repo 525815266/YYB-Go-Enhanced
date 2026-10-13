@@ -332,8 +332,6 @@ func (a *App) autoSyncAfterScan(acc *store.WechatAccount) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		a.panelSyncMu.Lock()
-		defer a.panelSyncMu.Unlock()
 		if _, _, err := a.syncAccountToQingLong(ctx, account); err != nil {
 			log.Printf("[auto-sync] account %d panel sync failed: %v", account.ID, err)
 		}
@@ -356,6 +354,8 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "请先配置面板 OpenAPI")
 		return
 	}
+	a.panelSyncMu.Lock()
+	defer a.panelSyncMu.Unlock()
 	accounts, err := a.db.ListAccounts(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -366,15 +366,14 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	env, err := selectYYBServerEnv(envs)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	currentValue, remarks := "", "YYB Go 账号列表"
-	for _, env := range envs {
-		if env.Name == "YYB_SERVER" {
-			currentValue = env.Value
-			if strings.TrimSpace(env.Remarks) != "" {
-				remarks = env.Remarks
-			}
-			break
-		}
+	if env != nil {
+		currentValue, remarks = env.Value, env.Remarks
 	}
 	remarks = managedYYBServerRemarks(remarks, accounts)
 	value := currentValue
@@ -386,7 +385,7 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 			added++
 		}
 	}
-	if err := a.qinglong.upsertEnv(r.Context(), "YYB_SERVER", value, remarks); err != nil {
+	if err := a.saveYYBServerEnv(r.Context(), env, value, remarks); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -396,19 +395,19 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccount) (string, bool, error) {
+	a.panelSyncMu.Lock()
+	defer a.panelSyncMu.Unlock()
 	envs, err := a.qinglong.listEnvs(ctx, "YYB_SERVER")
 	if err != nil {
 		return "", false, err
 	}
+	env, err := selectYYBServerEnv(envs)
+	if err != nil {
+		return "", false, err
+	}
 	currentValue, remarks := "", "YYB Go 账号列表"
-	for _, env := range envs {
-		if env.Name == "YYB_SERVER" {
-			currentValue = env.Value
-			if strings.TrimSpace(env.Remarks) != "" {
-				remarks = env.Remarks
-			}
-			break
-		}
+	if env != nil {
+		currentValue, remarks = env.Value, env.Remarks
 	}
 	accounts, err := a.db.ListAccounts(ctx)
 	if err != nil {
@@ -416,10 +415,47 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 	}
 	remarks = managedYYBServerRemarks(remarks, accounts)
 	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
-	if err := a.qinglong.upsertEnv(ctx, "YYB_SERVER", value, remarks); err != nil {
+	if err := a.saveYYBServerEnv(ctx, env, value, remarks); err != nil {
 		return "", false, err
 	}
 	return value, added, nil
+}
+
+// Prefer the active variable over disabled historical copies. Ambiguous
+// active copies require explicit reconciliation rather than losing entries
+// or silently re-enabling accounts from a stale variable.
+func selectYYBServerEnv(envs []qingLongEnv) (*qingLongEnv, error) {
+	var active, disabled *qingLongEnv
+	disabledCount := 0
+	for i := range envs {
+		env := &envs[i]
+		if env.Name != "YYB_SERVER" {
+			continue
+		}
+		if env.enabled() {
+			if active != nil {
+				return nil, errors.New("面板存在多条已启用的 YYB_SERVER，请先在面板合并账号并仅保留一条启用记录，再同步；已有变量未被修改")
+			}
+			active = env
+		} else {
+			disabled = env
+			disabledCount++
+		}
+	}
+	if active != nil {
+		return active, nil
+	}
+	if disabledCount > 1 {
+		return nil, errors.New("面板存在多条已禁用的 YYB_SERVER，请先选择并启用需要继续使用的一条，再同步；已有变量未被修改")
+	}
+	return disabled, nil
+}
+
+func (a *App) saveYYBServerEnv(ctx context.Context, env *qingLongEnv, value, remarks string) error {
+	if env != nil {
+		return a.qinglong.updateEnv(ctx, env.ID, "YYB_SERVER", value, remarks)
+	}
+	return a.qinglong.upsertEnv(ctx, "YYB_SERVER", value, remarks)
 }
 
 func managedYYBServerRemarks(existing string, accounts []*store.WechatAccount) string {
@@ -465,7 +501,9 @@ func mergeYYBServerValue(existing, server string, acc *store.WechatAccount, mode
 		}
 	}
 	refMode := ""
-	if len(modes) > 0 { refMode = modes[0] }
+	if len(modes) > 0 {
+		refMode = modes[0]
+	}
 	ref := id
 	if strings.EqualFold(strings.TrimSpace(refMode), "openid") && strings.TrimSpace(acc.OpenID) != "" {
 		ref = strings.TrimSpace(acc.OpenID)

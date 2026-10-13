@@ -204,11 +204,15 @@ func (d *daidaiDriver) UpsertEnv(ctx context.Context, name, value, remarks strin
 }
 
 func (d *daidaiDriver) UpdateEnv(ctx context.Context, id int64, name, value, remarks string) error {
-	return d.UpsertEnv(ctx, name, value, remarks)
+	if id <= 0 {
+		return fmt.Errorf("呆呆面板环境变量 ID 无效")
+	}
+	body := map[string]string{"name": name, "value": value, "remarks": remarks}
+	return d.request(ctx, http.MethodPut, fmt.Sprintf("/api/v1/envs/%d", id), body, nil)
 }
 
 func (d *daidaiDriver) UpdateEnvEntry(ctx context.Context, env qingLongEnv, newValue string) error {
-	return d.UpsertEnv(ctx, env.Name, newValue, env.Remarks)
+	return d.UpdateEnv(ctx, env.ID, env.Name, newValue, env.Remarks)
 }
 
 func (d *daidaiDriver) DeleteEnvs(ctx context.Context, ids []int64) error {
