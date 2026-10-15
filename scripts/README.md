@@ -221,15 +221,25 @@ YYB 开启鉴权时设置可选环境变量 `YYB_API_KEY`。脚本不再使用�
 重新执行上游订阅可能会覆盖这些修复，建议在订阅更新后重新检查。脚本仍受原项目授权和条款约束。
 # 寻星电玩网页积分
 
-`findstars_web_points.py` 调用寻星电玩网页的活动任务接口，领取服务端返回为 `complete` 的积分任务并汇总积分变化。
+`findstars_web_points.py` 调用寻星电玩网页的活动任务接口，按官网的任务进度、总领取上限判断是否可领取，并复查领取后的积分和任务状态。日常任务命令仍为 `task findstars_web_points.py`。
 
-网页授权完成后，从浏览器请求中复制 `FS-Token`，在青龙创建环境变量：
+推荐从本人已完成网页登录授权的 HAR 导入登录态，无需手动找令牌：
+
+```bash
+python3 findstars_web_points.py --import-har /path/to/authorized.har --label 网页账号
+```
+
+导入只验证用户身份、保存令牌，不提交领取。缓存默认位于 `/ql/data/config/findstars_web_tokens.json`，容器重启后保留；非青龙环境默认使用用户目录下的 `.config/yyb-go/`，可用 `FINDSTARS_TOKEN_CACHE` 指定路径。同备注的导入缓存优先于旧变量；已有缓存绑定其他用户时拒绝覆盖。沿用旧环境变量时，`--label` 填原变量的备注，例如 `网页账号`，避免同时保留失效的旧配置。
+
+也可从本人浏览器请求中复制 `FS-Token`，在青龙创建环境变量：
 
 ```text
 FINDSTARS_TOKENS=备注#FS-Token
 ```
 
-多个账号按行填写。该令牌属于寻星网页登录态，不是 YYB 的小程序 OpenID；YYB 无法凭公众号 OpenID 直接生成它。令牌失效后脚本会提示重新网页登录授权，不会伪造积分或授权结果。
+多个账号按行或 `&` 分隔，也兼容 `FINDSTARS_TOKEN` / `FINDSTARS_FS_TOKEN`。`FINDSTARS_DRY_RUN=1` 只查询、不领取。领取超时不自动重放；登录态过期、领取失败或结果待核对时退出码为 1，不再把失败当作正常执行。
+
+该令牌属于寻星网页登录态，不是 YYB 的小程序 OpenID。2026-10-16 实测：公众号 H5 OAuth 授权成功后，导入 HAR 可以恢复积分任务；当前 YYB 公众号调用返回 `invalid api_name`，尚无已验证的自动换取或续期方案。令牌再次失效时仍需本人重新授权并导入。HAR 和缓存含账号凭据，请勿提交到仓库或公开分享。
 
 # 百花约跑团线上投票
 
