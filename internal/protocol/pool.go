@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -284,7 +286,7 @@ func (p *Pool) loginAndSession(ctx context.Context, loginBuffer, tcpProxy string
 	if err != nil {
 		return WmpfSession{}, fmt.Errorf("HTTPDNS LongLink failed: %w", err)
 	}
-	targets = orderLonglinkTargets(targets, 6)
+	targets = longlinkLoginTargets(targets, 6)
 	st, err := tryLonglinkCandidates(ctx, targets, p.cfg.LoginTimeout, func(attemptCtx context.Context, target Target) (WmpfSession, error) {
 		return p.loginTarget(attemptCtx, target, loginBuffer, tcpProxy, fallbackDirect)
 	})
@@ -298,10 +300,10 @@ func (p *Pool) loginAndSession(ctx context.Context, loginBuffer, tcpProxy string
 func tryLonglinkCandidates(ctx context.Context, targets []Target, timeout time.Duration, login func(context.Context, Target) (WmpfSession, error)) (WmpfSession, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var last error
+	var failures []error
 	for i, t := range targets {
 		if err := ctx.Err(); err != nil {
-			return WmpfSession{}, fmt.Errorf("LongLink login cancelled after %d/%d candidates: %w", i, len(targets), errors.Join(err, last))
+			return WmpfSession{}, fmt.Errorf("LongLink login cancelled after %d/%d candidates: %w", i, len(targets), errors.Join(append(failures, err)...))
 		}
 		// Split the remaining budget across candidates, so one silent endpoint
 		// cannot consume all the time reserved for fallback addresses/ports.
@@ -312,12 +314,12 @@ func tryLonglinkCandidates(ctx context.Context, targets []Target, timeout time.D
 		if err == nil {
 			return st, nil
 		}
-		last = fmt.Errorf("candidate %d/%d %s:%d: %w", i+1, len(targets), t.IP, t.Port, err)
+		failures = append(failures, fmt.Errorf("candidate %d/%d %s: %w", i+1, len(targets), net.JoinHostPort(t.IP, strconv.Itoa(t.Port)), err))
 	}
-	if last == nil {
-		last = fmt.Errorf("no LongLink candidates")
+	if len(failures) == 0 {
+		failures = append(failures, fmt.Errorf("no LongLink candidates"))
 	}
-	return WmpfSession{}, fmt.Errorf("all LongLink candidates failed: %w", last)
+	return WmpfSession{}, fmt.Errorf("all LongLink candidates failed: %w", errors.Join(failures...))
 }
 
 func (p *Pool) loginTarget(ctx context.Context, target Target, loginBuffer, tcpProxy string, fallbackDirect bool) (WmpfSession, error) {

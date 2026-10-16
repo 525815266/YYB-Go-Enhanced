@@ -264,6 +264,24 @@ func orderLonglinkTargets(targets []Target, max int) []Target {
 	return out
 }
 
+func longlinkLoginTargets(targets []Target, max int) []Target {
+	// A successful HTTPDNS answer does not prove its endpoints are reachable.
+	// Always reserve a slot for regular DNS (or proxy-side DNS) of the official
+	// hostname, even when HTTPDNS supplied more endpoints than the attempt limit.
+	fallback := Target{IP: longlinkDomain, Port: 443}
+	ordered := orderLonglinkTargets(targets, 0)
+	out := make([]Target, 0, len(ordered)+1)
+	for _, target := range ordered {
+		if target != fallback {
+			out = append(out, target)
+		}
+	}
+	if max > 0 && len(out) >= max {
+		out = out[:max-1]
+	}
+	return append(out, fallback)
+}
+
 func splitHTTP(raw []byte) (string, []byte) {
 	idx := strings.Index(string(raw), "\r\n\r\n")
 	if idx < 0 {

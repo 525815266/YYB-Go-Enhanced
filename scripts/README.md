@@ -7,6 +7,12 @@
 授权 code/加密包等调用形式。青龙不再直接订阅原仓库，防止更新覆盖适配层；配置、
 青龙任务统一使用 `task 525815266_YYB-Go-Enhanced/scripts/脚本名.py`，脚本由本仓库审核发布。
 
+## 顺丰脚本线索（#92，2026-10-16）
+
+已找到公开的 [SuperNaiBA/YYB-GO-Script 的 sfsy.py](https://github.com/SuperNaiBA/YYB-GO-Script/blob/c55efc23d219dd5b1b61dbd1699c185fa8203cb2/sfsy.py)：使用 `YYB_SERVER`，调用 `/wxapp/getCode`，以顺丰小程序 code 经过 UCMP `appOnLogin` 和活动页换取顺丰业务 Cookie，再执行签到等任务。它是第三方脚本，尚未收录或验证完整任务成功。
+
+当前公开源码能读取本项目 `data.result.code` 返回结构。业务 Cookie 到期时可重新登录获取，不代表 Cookie 永不过期，也不等于所有活动接口都长期有效。源码取码超时为 30 秒，可能早于 YYB 默认整体调用预算；接入前还需核对协议鉴权头、同名环境变量分隔方式与业务接口版本。若已启用 `YYB_PROTOCOL_TOKEN`，脚本取码请求必须携带对应 Bearer token。
+
 ## 中国联通融合版（2026-10-12）
 
 `chinaUnicom.py` 基于现有 Python v1.1.0，融合用户提供的中国联通 JS v1.10 的

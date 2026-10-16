@@ -105,3 +105,45 @@ func TestLonglinkSingleCandidateKeepsFullBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLonglinkUnreachableHTTPDNSCanReachHostnameFallback(t *testing.T) {
+	// Model a nonempty but unusable HTTPDNS answer such as #93. Regular DNS
+	// must still receive an attempt rather than failing on the HTTPDNS list.
+	targets := longlinkLoginTargets([]Target{{IP: "203.0.113.10", Port: 443}}, 6)
+	calls := 0
+	st, err := tryLonglinkCandidates(context.Background(), targets, time.Second,
+		func(ctx context.Context, candidate Target) (WmpfSession, error) {
+			calls++
+			if candidate.IP != longlinkDomain {
+				return WmpfSession{}, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("unreachable")}
+			}
+			if ctx.Err() != nil {
+				t.Fatal("hostname fallback lost its time budget")
+			}
+			return WmpfSession{Session: AppSession{UIN: 123}}, nil
+		})
+	if err != nil || calls != 2 || st.Session.UIN != 123 {
+		t.Fatalf("calls=%d session=%+v err=%v", calls, st, err)
+	}
+}
+
+func TestLonglinkFailureIncludesAllEndpointStages(t *testing.T) {
+	dialErr := errors.New("dial refused")
+	handshakeErr := errors.New("handshake failed")
+	_, err := tryLonglinkCandidates(context.Background(), []Target{
+		{IP: "203.0.113.10", Port: 443}, {IP: longlinkDomain, Port: 443},
+	}, time.Second, func(_ context.Context, candidate Target) (WmpfSession, error) {
+		if candidate.IP == longlinkDomain {
+			return WmpfSession{}, handshakeErr
+		}
+		return WmpfSession{}, dialErr
+	})
+	for _, text := range []string{"candidate 1/2 203.0.113.10:443", "dial refused", "candidate 2/2 longcloud.weixin.com:443", "handshake failed"} {
+		if err == nil || !strings.Contains(err.Error(), text) {
+			t.Fatalf("missing %q in %v", text, err)
+		}
+	}
+	if !errors.Is(err, dialErr) || !errors.Is(err, handshakeErr) {
+		t.Fatalf("error causes lost: %v", err)
+	}
+}
