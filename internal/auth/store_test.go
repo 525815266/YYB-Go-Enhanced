@@ -97,3 +97,90 @@ func TestSQLiteBootstrapAdmin(t *testing.T) {
 		t.Fatalf("bootstrap role = %q, want admin", user.Role)
 	}
 }
+
+func TestRecoverAdminPasswordPreservesOtherDataAndRevokesOnlyTargetSessions(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	admin, err := store.RegisterUser(ctx, "owner", "Owner", "old-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := store.RegisterUser(ctx, "member", "Member", "member-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := store.CreateSession(ctx, admin.ID, "test", "127.0.0.1", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberToken, _, err := store.CreateSession(ctx, member.ID, "test", "127.0.0.1", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimAccount(ctx, 9, member.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetRegistrationEnabled(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecoverAdminPassword(ctx, "OWNER", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Authenticate(ctx, "owner", "old-password"); err == nil {
+		t.Fatal("old password still works")
+	}
+	if _, err := store.Authenticate(ctx, "owner", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.UserBySession(ctx, adminToken); err == nil {
+		t.Fatal("old administrator session still works")
+	}
+	if _, _, err := store.UserBySession(ctx, memberToken); err != nil {
+		t.Fatalf("member session lost: %v", err)
+	}
+	if owner, err := store.AccountOwner(ctx, 9); err != nil || owner != member.ID {
+		t.Fatalf("account ownership changed: %d, %v", owner, err)
+	}
+	if enabled, err := store.RegistrationEnabled(ctx); err != nil || enabled {
+		t.Fatalf("registration setting changed: %v, %v", enabled, err)
+	}
+	for _, username := range []string{"member", "missing"} {
+		if err := store.RecoverAdminPassword(ctx, username, "another-password"); err == nil {
+			t.Fatalf("recovered non-admin %q", username)
+		}
+	}
+	if _, err := store.Authenticate(ctx, "member", "member-password"); err != nil {
+		t.Fatal("member password was modified")
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE users SET enabled=FALSE WHERE id=?", admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecoverAdminPassword(ctx, "owner", "another-password"); err == nil {
+		t.Fatal("disabled admin was recovered")
+	}
+}
+
+func TestRecoverAdminPasswordRollsBackWhenSessionDeletionFails(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.BootstrapAdmin(ctx, "owner", "old-password"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, "DROP TABLE user_sessions"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecoverAdminPassword(ctx, "owner", "new-password"); err == nil {
+		t.Fatal("recovery succeeded without revoking sessions")
+	}
+	if _, err := store.Authenticate(ctx, "owner", "old-password"); err != nil {
+		t.Fatalf("password was changed despite failed transaction: %v", err)
+	}
+}

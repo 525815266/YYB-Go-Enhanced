@@ -193,23 +193,12 @@ func NewApp(cfg Config) (*App, error) {
 		proxyLeaseLocks:    map[int64]chan struct{}{},
 		keepAliveRetryAt:   map[int64]time.Time{},
 	}
-	authDriver := strings.ToLower(strings.TrimSpace(cfg.AuthDriver))
-	authDSN := strings.TrimSpace(cfg.AuthDSN)
-	if authDriver == "" && cfg.AuthMySQLDSN != "" {
-		authDriver = "mysql"
-		authDSN = cfg.AuthMySQLDSN
+	authDriver, authDSN, err := cfg.AuthDatabase()
+	if err != nil {
+		_ = db.Close()
+		return nil, err
 	}
 	if authDriver != "" && authDriver != "none" {
-		if authDriver == "mysql" && authDSN == "" {
-			authDSN = cfg.AuthMySQLDSN
-		}
-		if authDriver == "sqlite" && authDSN == "" {
-			authDSN = filepath.Join(res.DB, "auth.db")
-		}
-		if authDSN == "" {
-			_ = db.Close()
-			return nil, fmt.Errorf("auth %s DSN is empty", authDriver)
-		}
 		authCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		authStore, authErr := auth.Open(authCtx, authDriver, authDSN)

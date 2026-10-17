@@ -77,6 +77,36 @@ YYB_ADMIN_PASSWORD=请替换为强密码
 - 修改密码会注销该用户的其他会话；管理员重置密码或停用用户会注销其全部会话。
 - 管理员可在控制台关闭公开注册。
 
+### 忘记管理员密码（v0.2.32 起）
+
+在部署机器的终端执行本地恢复命令，最后的 `admin` 替换为**实际管理员用户名**。按提示输入两次新密码（不回显，10–72 字节）；成功后命令退出，不启动另一份 Web 服务，也不执行保活或面板同步。
+
+Docker（容器名按实际修改）：
+
+```bash
+docker exec -it yyb-go /app/yyb-go -resource-root /app/resource -reset-admin-password admin
+```
+
+Windows（在平时启动程序的目录执行）：
+
+```powershell
+.\yyb-go-windows-amd64.exe -reset-admin-password admin
+# 使用自定义配置和数据目录时，应与日常启动参数一致：
+.\yyb-go-windows-amd64.exe -env-file .\production.env -resource-root D:\YYB\resource -reset-admin-password admin
+```
+
+Linux / macOS：
+
+```bash
+./yyb-go-linux-amd64 -resource-root ./resource -reset-admin-password admin
+```
+
+命令与服务共用 `.env`、`YYB_AUTH_DRIVER`、`YYB_AUTH_DSN` 和旧 MySQL 变量的选择规则；Docker 会读取容器的现有环境变量。自定义配置、SQLite 路径或 MySQL 连接必须与服务保持一致；不会因为忘记密码而自动切换数据库。SQLite 文件不存在会直接报错，不创建空库。Magisk 请在 root 终端先加载 `/data/adb/yyb-go/config.conf` 并导出其中的 `YYB_AUTH_DRIVER`、`YYB_AUTH_DSN`、`YYB_AUTH_MYSQL_DSN`，再使用模块内的 `bin/yyb-go`，指定 `-resource-root /data/adb/yyb-go/resource`；不要重新运行 `service.sh` 代替恢复命令。
+
+仅重置指定的、已启用的管理员密码，并在同一事务内注销该用户的全部旧会话；普通用户、其他管理员、账号归属、微信凭据、代理和面板设置保留。不自动创建用户、提升普通用户权限或启用已停用用户。自动化时也可从标准输入提供一行密码；推荐交互输入，避免把密码写进命令历史、截图或日志。
+
+`YYB_ADMIN_USER` / `YYB_ADMIN_PASSWORD` **仅初始化空用户库**，修改它们不会覆盖已有密码。不要删除 `auth.db` 来重置密码，也不要以关闭网页登录作为恢复办法。该能力仅在持有部署机器终端权限时可用，没有免鉴权的 Web 重置接口。
+
 ## Cookie 与 HTTPS
 
 局域网 HTTP 部署保持：

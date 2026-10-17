@@ -8,6 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	golang.org/x/crypto v0.39.0
+	golang.org/x/term v0.32.0
 	modernc.org/sqlite v1.38.2
 )
 

@@ -38,7 +38,7 @@
 | 脚本管理 | 统一收录审核后的 YYB 多账号脚本；支持整库同步、单脚本拉取、拉取并创建任务 |
 | 部署维护 | Docker Compose、Android ARM64 Magisk、跨平台内嵌资源二进制；按运行平台提供更新入口 |
 
-v0.2.31 为 LongLink 始终保留官方域名回退，修复 HTTPDNS 返回节点但全部不可达时缺少替代路径的问题，并保留各候选错误。v0.2.30 的呆呆变量按 ID 更新与 v0.2.29 的“保活走代理、小程序调用直连”继续保留；设置位于「代理设置 → 小程序调用出口」，默认跟随账号代理。说明见[LongLink 排查](docs/proxy-keepalive.md#保活成功但-getcode-超时)和[重复变量处理](docs/panel-integration.md#重复变量处理)。手机号接口目前不支持列出或指定授权号码，详见[协议说明](docs/protocol-api.md#用户信息与手机号)。
+v0.2.32 新增[管理员忘记密码的本地恢复命令](docs/configuration.md#忘记管理员密码v0232-起)，保留现有账号与配置，无需删除数据库。爱隐形脚本的商户登录适配仍待验证，见[脚本说明](scripts/README.md#爱隐形适配状态95-2026-10-17)。之前的 [LongLink 域名回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)、[呆呆变量按 ID 更新](docs/panel-integration.md#重复变量处理)与“保活走代理、小程序调用直连”均保留；调用出口设置位于「代理设置 → 小程序调用出口」。
 
 ## 部署选择
 

@@ -25,6 +25,7 @@ func main() {
 	tcpProxy := flag.String("tcp-proxy", "", "optional TCP proxy: socks5://host:port or http-connect://host:port")
 	keepAliveInterval := flag.Duration("keepalive-interval", time.Minute, "account keepalive check interval; 0 disables")
 	keepAliveAhead := flag.Duration("keepalive-ahead", 45*time.Minute, "refresh credentials this long before expiry")
+	resetAdmin := flag.String("reset-admin-password", "", "reset an existing administrator's password locally, then exit; password is read from stdin")
 	flag.Parse()
 	executable, executableErr := os.Executable()
 	executableDir := ""
@@ -49,12 +50,6 @@ func main() {
 			resourceRootExplicit = true
 		}
 	})
-	if dnsServers, err := configureDNS(os.Getenv("YYB_DNS_SERVERS")); err != nil {
-		log.Fatalf("configure DNS: %v", err)
-	} else if len(dnsServers) > 0 {
-		log.Printf("using configured DNS servers: %s", strings.Join(dnsServers, ", "))
-	}
-
 	panelType := getEnvWithFallback("PANEL_TYPE", "YYB_PANEL_TYPE", "QL_TYPE")
 	if panelType == "" {
 		panelType = "qinglong"
@@ -144,6 +139,17 @@ func main() {
 		EnablePCLogin:     strings.EqualFold(strings.TrimSpace(os.Getenv("YYB_ENABLE_PC_LOGIN")), "true"),
 	}
 
+	if *resetAdmin != "" {
+		if err := resetAdminPassword(cfg, *resetAdmin, os.Stdin, os.Stdout); err != nil {
+			log.Fatalf("重置失败：%v", err)
+		}
+		return
+	}
+	if dnsServers, err := configureDNS(os.Getenv("YYB_DNS_SERVERS")); err != nil {
+		log.Fatalf("configure DNS: %v", err)
+	} else if len(dnsServers) > 0 {
+		log.Printf("using configured DNS servers: %s", strings.Join(dnsServers, ", "))
+	}
 	app, err := httpapi.NewApp(cfg)
 	if err != nil {
 		log.Fatalf("init app: %v", err)

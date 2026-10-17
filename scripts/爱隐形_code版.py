@@ -6,7 +6,8 @@
 QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 Webhook key（机器人地址 ?key= 后面的值，留空不推送）
 
 # ==========================================================
-# 功能说明：code 换 token（含缓存与自动刷新）
+# 登录适配待验证：code 换 userid 的接口参数尚无真实请求验证（#95）。
+# YYB 能取到 code 不代表本脚本已经完成商户登录适配。
 # 机制：本地 code 服务获取微信 code → 换取 token → 缓存到本地 JSON；
 #       下次运行先读取缓存 token，并调用用户信息接口验证是否仍有效；
 #       有效则直接复用（无需再获取 code）；失效或过期则重新获取 code 自动刷新。
@@ -38,6 +39,8 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
 
 ⚠️ 登录接口为推断，未经真机验证，失败请抓包核对
    （源脚本为 userid 抓包型，/sso/login/baselogin 的 code 参数位为推断）
+   来源：https://github.com/3ixi/autoscripts/blob/bae528cb8d28ec751d86daea3bbd89a699b8ba2b/aiyx.py
+   源脚本使用 UserId 登录，不提供 wx.login code 换 userid 的链路。
 """
 
 
@@ -134,6 +137,7 @@ def log_title() -> None:
     print(f"║ 🕒 启动时间: {now_text():<32}║")
     print(f"║ 🔢 账号数量: {len(SERVERS):<34}║")
     print("╚" + "═" * 50 + "╝")
+    print("⚠️ [适配状态] code 换 userid 的商户登录参数尚未验证；登录失败不代表 YYB 账号失效。")
 
 
 def log_account_header(index: int, total: int, server: str) -> None:
@@ -401,7 +405,7 @@ def extract_token(data: Any) -> str | None:
 
     candidates = []
     for obj in (data, inner):
-        for key in ("UserId", "userId", "userid", "user_id", "id"):
+        for key in ("UserId", "userId", "userid", "user_id"):
             value = obj.get(key)
             if value not in (None, "", "null", 0):
                 candidates.append(value)
@@ -411,6 +415,17 @@ def extract_token(data: Any) -> str | None:
             return str(item)
 
     return None
+
+
+def login_failure_message(data: Any) -> str:
+    if not isinstance(data, dict):
+        return "商户登录返回结构异常，未取得 userid（不会输出原始登录响应）"
+    if data.get("error_msg") == "用户不存在":
+        return (
+            "商户登录返回“用户不存在”；当前 code 换 userid 的参数尚未验证，"
+            "不能据此认定微信账号失效、未注册或代理异常。需核对小程序真实登录请求（#95）"
+        )
+    return "商户登录未成功，当前 code 换 userid 的适配仍待验证（不回显原始登录响应）"
 
 
 def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None]:
@@ -429,26 +444,33 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
             server=server,
         )
 
+        if not 200 <= response.status_code < 300:
+            data = {"error_msg": f"商户登录 HTTP {response.status_code}，未取得 userid"}
+            print(f"❌ [登录] {data['error_msg']}")
+            return None, data
         try:
             data = response.json()
-        except Exception:
-            data = {"raw": response.text[:800]}
+        except ValueError:
+            data = None
 
         # 照源脚本：error_code == 10001 表示登录成功
-        if data.get("error_code") != 10001:
-            print(f"❌ [登录] 登录失败: {data.get('error_msg') or json_preview(data)}")
-            return None, data
+        if not isinstance(data, dict) or data.get("error_code") not in (10001, "10001"):
+            message = login_failure_message(data)
+            print(f"❌ [登录] {message}")
+            return None, {"error_msg": message}
 
         userid = extract_token(data)
         if userid:
             print(f"✅ [登录] userid 获取成功: {mask(userid)}")
             return userid, data
 
-        print(f"❌ [登录] 未识别 userid 字段: {json_preview(data)}")
-        return None, data
-    except Exception as exc:
-        print(f"❌ [登录] 请求异常: {exc}")
-        return None, None
+        message = "商户登录响应未包含明确的 userid，未保存缓存；普通 id 字段不会当作账号身份"
+        print(f"❌ [登录] {message}")
+        return None, {"error_msg": message}
+    except Exception:
+        message = "商户登录请求异常，未取得 userid；请检查连接，不能据此判断账号失效"
+        print(f"❌ [登录] {message}")
+        return None, {"error_msg": message}
 
 
 def api_get(server: str, url: str, token: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
@@ -533,12 +555,18 @@ def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str |
         print("🔍 [缓存] 验证 userid")
         try:
             asset_resp = api_post(server, ASSET_URL, cache_token, proxies, {"user_id": cache_token})
-            if not asset_resp.get("error_code"):
+            if isinstance(asset_resp, dict) and asset_resp.get("error_code") in (0, "0") and isinstance(asset_resp.get("data"), dict):
                 print("✅ [缓存] userid 有效")
                 return cache_token, None
-        except Exception as exc:
-            print(f"⚠️ [缓存] 验证异常: {exc}")
-        print("⚠️ [缓存] userid 已失效，重新登录")
+            if not isinstance(asset_resp, dict) or asset_resp.get("error_code") in (None, -1, "-1", 0, "0"):
+                message = "商户缓存校验响应异常，本轮停止登录；保留缓存，不把缺失状态码当作验证成功"
+                print(f"⚠️ [缓存] {message}")
+                return None, {"error_msg": message}
+        except Exception:
+            message = "商户缓存校验请求失败，本轮停止登录并保留缓存；请求异常不代表 userid 已失效"
+            print(f"⚠️ [缓存] {message}")
+            return None, {"error_msg": message}
+        print("⚠️ [缓存] 商户未接受缓存 userid，尝试重新登录（登录适配待验证）")
 
     code = get_code(server)
     if not code:
@@ -590,7 +618,7 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
 
     token, raw_login = login_with_cache(server, proxies)
     if not token:
-        result["error"] = f"登录失败: {json_preview(raw_login)}"
+        result["error"] = (raw_login or {}).get("error_msg") or "未取得商户 userid，请核对 YYB 取码与商户登录两个阶段"
         return result
 
     result["token"] = mask(token)

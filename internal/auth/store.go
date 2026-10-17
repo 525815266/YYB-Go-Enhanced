@@ -130,6 +130,15 @@ type Session struct {
 }
 
 func Open(ctx context.Context, driver, dsn string) (*Store, error) {
+	return open(ctx, driver, dsn, true)
+}
+
+// OpenExisting skips schema initialization for local recovery commands.
+func OpenExisting(ctx context.Context, driver, dsn string) (*Store, error) {
+	return open(ctx, driver, dsn, false)
+}
+
+func open(ctx context.Context, driver, dsn string, migrate bool) (*Store, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
 	if driver != "mysql" && driver != "sqlite" {
 		return nil, fmt.Errorf("unsupported auth database driver %q", driver)
@@ -148,6 +157,9 @@ func Open(ctx context.Context, driver, dsn string) (*Store, error) {
 	if err = db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect auth %s: %w", driver, err)
+	}
+	if !migrate {
+		return &Store{db: db, driver: driver}, nil
 	}
 	schema := mysqlSchema
 	if driver == "sqlite" {
@@ -487,6 +499,41 @@ func (s *Store) AdminResetPassword(ctx context.Context, id int64, password strin
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, "UPDATE users SET password_hash=?, updated_at=? WHERE id=?", string(hash), time.Now().UTC(), id); err != nil {
 		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id=?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RecoverAdminPassword is only exposed through the local command line. It must
+// never create a user, promote a member, or re-enable a disabled administrator.
+func (s *Store) RecoverAdminPassword(ctx context.Context, username, password string) error {
+	if err := ValidatePassword(password); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id int64
+	if err = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE username=? AND role='admin' AND enabled=TRUE", normalizeUsername(username)).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("未找到该名称的启用管理员；请核对用户名和认证数据库配置")
+		}
+		return err
+	}
+	result, err := tx.ExecContext(ctx, "UPDATE users SET password_hash=?, updated_at=? WHERE id=? AND role='admin' AND enabled=TRUE", string(hash), time.Now().UTC(), id)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return errors.New("管理员状态已变化，密码未重置")
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id=?", id); err != nil {
 		return err
