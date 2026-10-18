@@ -25,6 +25,17 @@ func (e *RefreshRejectedError) Error() string {
 	return fmt.Sprintf("refresh failed: code=%d msg=%s", e.Code, e.Message)
 }
 
+// LoginBufferRejectedError identifies a business rejection from the login
+// buffer endpoint, separate from proxy, HTTP and JSON decoding failures.
+type LoginBufferRejectedError struct {
+	Code    int
+	Message string
+}
+
+func (e *LoginBufferRejectedError) Error() string {
+	return fmt.Sprintf("login_buffer failed: code=%d msg=%s", e.Code, e.Message)
+}
+
 const (
 	yybHost         = "https://yybadaccess.3g.qq.com"
 	loginBufferURL  = yybHost + "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth"
@@ -146,8 +157,8 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 	}, &data); err != nil {
 		return "", err
 	}
-	if intFromAny(data["code"]) != 0 {
-		return "", fmt.Errorf("login_buffer failed: code=%v msg=%v", data["code"], data["msg"])
+	if code := intFromAny(data["code"]); code != 0 {
+		return "", &LoginBufferRejectedError{Code: code, Message: fmt.Sprint(data["msg"])}
 	}
 	values := stringSlicePath(data, "ext_info", "list_s", "login_buffer", "value")
 	if len(values) == 0 || values[0] == "" {

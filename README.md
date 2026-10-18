@@ -38,7 +38,7 @@
 | 脚本管理 | 统一收录审核后的 YYB 多账号脚本；支持整库同步、单脚本拉取、拉取并创建任务 |
 | 部署维护 | Docker Compose、Android ARM64 Magisk、跨平台内嵌资源二进制；按运行平台提供更新入口 |
 
-v0.2.32 新增[管理员忘记密码的本地恢复命令](docs/configuration.md#忘记管理员密码v0232-起)，保留现有账号与配置，无需删除数据库。爱隐形脚本的商户登录适配仍待验证，见[脚本说明](scripts/README.md#爱隐形适配状态95-2026-10-17)。之前的 [LongLink 域名回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)、[呆呆变量按 ID 更新](docs/panel-integration.md#重复变量处理)与“保活走代理、小程序调用直连”均保留；调用出口设置位于「代理设置 → 小程序调用出口」。
+v0.2.33 修复部分错误文本将账号误标为永久失效的问题：仅 access token 到期、代理 token 或传输错误保留重试，详见[约两小时失效排查](docs/proxy-keepalive.md#约两小时后失效的排查96)。新增[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)，标注验证日期与实际范围，未验证脚本不默认视为可用。v0.2.32 的[管理员本地密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 域名回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)、[呆呆变量按 ID 更新](docs/panel-integration.md#重复变量处理)与“保活走代理、小程序调用直连”继续保留。
 
 ## 部署选择
 

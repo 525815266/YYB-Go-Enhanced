@@ -1,9 +1,49 @@
 package protocol
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
+
+type loginBufferRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f loginBufferRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestLoginBufferRejectionPreservesBusinessErrorType(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadGateway} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			client := NewLoginBufferClientWithHTTPClient(&http.Client{Transport: loginBufferRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != loginBufferURL {
+					t.Fatalf("unexpected endpoint: %v", req.URL)
+				}
+				return &http.Response{
+					StatusCode: status,
+					Body:       io.NopCloser(strings.NewReader(`{"code":-101,"msg":"GetLoginBuffer error [40188] [invalid scope]"}`)),
+					Header:     make(http.Header),
+				}, nil
+			})}, time.Second)
+			_, err := client.FetchLoginBuffer(context.Background(), LoginBufferCredentials{})
+			if err == nil {
+				t.Fatal("expected rejection")
+			}
+			var rejected *LoginBufferRejectedError
+			if status == http.StatusOK {
+				if !errors.As(err, &rejected) || rejected.Code != -101 || rejected.Message != "GetLoginBuffer error [40188] [invalid scope]" {
+					t.Fatalf("business rejection = %v", err)
+				}
+			} else if errors.As(err, &rejected) {
+				t.Fatalf("HTTP error must not be a business rejection: %v", err)
+			}
+		})
+	}
+}
 
 func TestCredentialsMapPreservesRefreshTokenObservation(t *testing.T) {
 	observedAt := time.Now().Add(-24 * time.Hour).Unix()

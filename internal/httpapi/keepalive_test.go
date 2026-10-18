@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -229,17 +230,94 @@ func TestDefinitiveRefreshRejectionExpiresAccount(t *testing.T) {
 	}
 }
 
+func TestAmbiguousTokenFailuresRemainRetryable(t *testing.T) {
+	now := time.Now()
+	for _, failure := range []error{
+		errors.New("proxy authentication failed: token expired, please re-login"),
+		errors.New("HTTP 502: upstream refresh_token expired"),
+		errors.New("decode JSON: invalid token"),
+		errors.New("refresh failed: code=-109 msg=42007 refresh_token exception"),
+		errors.New("HTTP 502: GetLoginBuffer error [40188] [invalid scope]"),
+		&protocol.RefreshRejectedError{Code: -109, Message: "access_token expired"},
+		&protocol.RefreshRejectedError{Code: -109, Message: "invalid access token"},
+		&protocol.RefreshRejectedError{Code: -109, Message: "token expired"},
+		&protocol.LoginBufferRejectedError{Code: -101, Message: "access_token expired"},
+	} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			for _, state := range []struct {
+				expiry time.Time
+				want   string
+			}{
+				{now.Add(time.Hour), "alive"},
+				{now.Add(-time.Minute), "unknown"},
+			} {
+				creds := protocol.LoginBufferCredentials{ExpiresAt: state.expiry.Unix()}
+				if got := refreshFailureStatus("alive", creds, failure, now); got != state.want {
+					t.Fatalf("refreshFailureStatus(%v) = %q, want %q", state.expiry, got, state.want)
+				}
+			}
+		})
+	}
+}
+
+func TestAccessTokenRejectionCanRecoverWithoutRescan(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "openid-access-retry", time.Now().Add(-time.Minute))
+	calls := 0
+	app.refreshLoginBuffer = func(_ context.Context, creds protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		calls++
+		if calls == 1 {
+			return protocol.LoginBufferResult{}, &protocol.RefreshRejectedError{Code: -109, Message: "access_token expired"}
+		}
+		creds.AccessToken = "access-recovered"
+		creds.ExpiresAt = time.Now().Add(2 * time.Hour).Unix()
+		return protocol.LoginBufferResult{LoginBuffer: "buffer-recovered", Credentials: creds, Refreshed: true}, nil
+	}
+	status, refreshed, err := app.refreshAccount(context.Background(), acc, false)
+	if err == nil || refreshed || status != "unknown" {
+		t.Fatalf("first refresh = %q, %v, %v; want retryable unknown", status, refreshed, err)
+	}
+	stored, err := app.db.GetAccount(context.Background(), acc.ID)
+	if err != nil || stored.LoginBuffer != acc.LoginBuffer || stored.Credentials["refreshtoken"] != acc.Credentials["refreshtoken"] {
+		t.Fatalf("retry must preserve existing credentials: %v", err)
+	}
+	status, refreshed, err = app.refreshAccount(context.Background(), acc, false)
+	if err != nil || !refreshed || status != "alive" || calls != 2 {
+		t.Fatalf("second refresh = %q, %v, %v, calls %d", status, refreshed, err, calls)
+	}
+}
+
 func TestTencent42007ExpiresAccount(t *testing.T) {
-	err := errors.New("refresh failed: code=-109 msg=WXRefresh go error, code: 42007, msg access_token and refresh_token exception")
+	err := &protocol.RefreshRejectedError{Code: -109, Message: "WXRefresh go error, code: 42007, msg access_token and refresh_token exception"}
 	if !definitiveCredentialFailure(err) {
 		t.Fatal("42007 refresh token rejection should require a rescan")
 	}
 }
 
 func TestTencent40188ExpiresAccount(t *testing.T) {
-	err := errors.New("login_buffer failed: code=-101 msg=GetLoginBuffer error [40188] [invalid scope]")
+	err := &protocol.LoginBufferRejectedError{Code: -101, Message: "GetLoginBuffer error [40188] [invalid scope]"}
 	if !definitiveCredentialFailure(err) {
 		t.Fatal("40188 invalid scope should require a rescan")
+	}
+}
+
+func TestExplicitCredentialFailuresRemainTerminal(t *testing.T) {
+	for _, failure := range []error{
+		protocol.ErrMissingRefreshToken,
+		&protocol.RefreshRejectedError{Code: 42007, Message: "refresh_token exception"},
+		&protocol.LoginBufferRejectedError{Code: 40188, Message: "invalid scope"},
+		&protocol.RefreshRejectedError{Code: -109, Message: "refreshToken expired"},
+		&protocol.RefreshRejectedError{Code: -109, Message: "refresh-token invalid"},
+		&protocol.RefreshRejectedError{Code: -109, Message: "刷新令牌已失效"},
+		&protocol.RefreshRejectedError{Code: -109, Message: "please re-login"},
+	} {
+		if !definitiveCredentialFailure(fmt.Errorf("refresh account: %w", failure)) {
+			t.Errorf("explicit credential rejection must remain terminal: %v", failure)
+		}
+	}
+	if definitiveCredentialFailure(nil) {
+		t.Fatal("nil must not expire an account")
 	}
 }
 

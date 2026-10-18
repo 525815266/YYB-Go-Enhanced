@@ -265,27 +265,35 @@ func definitiveCredentialFailure(err error) bool {
 	}
 	var rejected *protocol.RefreshRejectedError
 	if errors.As(err, &rejected) {
-		return definitiveRefreshMessage(rejected.Message)
+		return definitiveRefreshMessage(rejected.Code, rejected.Message)
 	}
-	return definitiveRefreshMessage(err.Error())
+	var bufferRejected *protocol.LoginBufferRejectedError
+	if errors.As(err, &bufferRejected) {
+		return definitiveRefreshMessage(bufferRejected.Code, bufferRejected.Message)
+	}
+	// Transport errors may contain a proxy provider's "token expired" or an
+	// HTTP/JSON error body. They are not evidence that WeChat revoked a session.
+	return false
 }
 
-func definitiveRefreshMessage(raw string) bool {
+func definitiveRefreshMessage(code int, raw string) bool {
 	message := strings.ToLower(strings.TrimSpace(raw))
-	if strings.Contains(message, "42007") && strings.Contains(message, "refresh_token") {
+	message = strings.NewReplacer("_", " ", "-", " ", "refreshtoken", "refresh token").Replace(message)
+	refreshToken := strings.Contains(message, "refresh token") || strings.Contains(message, "刷新令牌")
+	if (code == 42007 || strings.Contains(message, "42007")) && refreshToken {
 		return true
 	}
-	if strings.Contains(message, "40188") && strings.Contains(message, "invalid scope") {
+	if (code == 40188 || strings.Contains(message, "40188")) && strings.Contains(message, "invalid scope") {
 		return true
 	}
 	invalid := strings.Contains(message, "invalid") || strings.Contains(message, "expired") ||
 		strings.Contains(message, "expire") || strings.Contains(message, "无效") ||
 		strings.Contains(message, "过期") || strings.Contains(message, "失效")
-	token := strings.Contains(message, "token") || strings.Contains(message, "登录") ||
-		strings.Contains(message, "凭证") || strings.Contains(message, "授权")
-	relogin := strings.Contains(message, "relogin") || strings.Contains(message, "re-login") ||
+	relogin := strings.Contains(message, "relogin") || strings.Contains(message, "re login") ||
 		strings.Contains(message, "重新登录") || strings.Contains(message, "重新授权")
-	return relogin || (invalid && token)
+	// Access-token expiry alone is recoverable. Ambiguous "token expired"
+	// responses also remain retryable until a refresh rejection is explicit.
+	return relogin || (invalid && refreshToken)
 }
 
 func (a *App) accountRefreshAhead(ctx context.Context, accountID int64) (time.Duration, error) {
