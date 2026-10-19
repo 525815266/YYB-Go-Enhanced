@@ -6,11 +6,14 @@
 QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 Webhook key（机器人地址 ?key= 后面的值，留空不推送）
 
 # ==========================================================
-# 登录适配待验证：code 换 userid 的接口参数尚无真实请求验证（#95）。
-# YYB 能取到 code 不代表本脚本已经完成商户登录适配。
-# 机制：本地 code 服务获取微信 code → 换取 token → 缓存到本地 JSON；
-#       下次运行先读取缓存 token，并调用用户信息接口验证是否仍有效；
-#       有效则直接复用（无需再获取 code）；失效或过期则重新获取 code 自动刷新。
+# 登录适配（2024 小程序包解包核对，接口已从源码确认）：
+#   wx.login code → POST /sso/login/minalogin {sourceChannel:"Mina", code}
+#                   → data.open_id / data.union_id / data.user_id（老用户 user_id 非空）
+#   baselogin 不接收 code；它用 {sourceChannel:"Mina", login_type:"MemberCenter", UserId:<userid>}
+#   仅用于登录后的身份刷新（取用户信息）。
+#   ⚠️ 若 minalogin 返回无 user_id = code 对应未注册新用户，需走手机号绑定
+#      （/sso/login/loginbyphonedynmicpwd 或 /sso/register/thirdpartaccount），
+#      脚本无法自动完成，需更换已注册账号的 code。
 # ==========================================================
 
 
@@ -18,11 +21,11 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
 爱隐形小程序动态 code 版
 
 功能：
-  1. 本地 code 服务获取微信 code
-  2. /sso/login/baselogin 使用 code 换 userid
+  1. 本地 code 服务获取微信 code（YYB 兼容层 /wxapp/getCode）
+  2. /sso/login/minalogin 使用 code 换 open_id/user_id（已从解包确认）
   3. 每日签到（getsignlist 查询 + sign-in 提交）
   4. 查询金币资产
-  5. PushPlus 推送
+  5. PushPlus / 企业微信推送
   6. 品赞代理，业务请求优先代理，失败直连兜底
 
 环境变量：
@@ -37,10 +40,10 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
   socks5 代理需：
   pip install requests[socks]
 
-⚠️ 登录接口为推断，未经真机验证，失败请抓包核对
-   （源脚本为 userid 抓包型，/sso/login/baselogin 的 code 参数位为推断）
-   来源：https://github.com/3ixi/autoscripts/blob/bae528cb8d28ec751d86daea3bbd89a699b8ba2b/aiyx.py
-   源脚本使用 UserId 登录，不提供 wx.login code 换 userid 的链路。
+✅ 登录接口已按小程序解包核对（确认链路：minalogin(code) → user_id）。
+   baselogin 仅用于身份刷新（UserId + login_type="MemberCenter"）。
+   历史来源：https://github.com/3ixi/autoscripts/blob/bae528cb8d28ec751d86daea3bbd89a699b8ba2b/aiyx.py
+   （源脚本为 UserId 登录型，不含 minalogin code 链路；当前脚本已按解包修正）
 """
 
 
@@ -79,7 +82,13 @@ ENABLE_DIRECT_FALLBACK = True
 REQUEST_TIMEOUT = 30
 
 BASE_URL = "https://japi.yinxingyanjing.com"
-LOGIN_URL = f"{BASE_URL}/sso/login/baselogin"
+# 登录接口（2024 小程序解包核对，见下方「解包核对结论」）：
+#  - code 换身份：POST /sso/login/minalogin {sourceChannel:"Mina", code}
+#    → 返回 data 含 open_id / union_id / user_id（老用户 user_id 非空）
+#  - baselogin 不接收 code！它用 UserId/user_id（登录后的身份刷新/取用户信息），
+#    body = {sourceChannel:"Mina", login_type:"MemberCenter", UserId:<userid>}
+LOGIN_URL = f"{BASE_URL}/sso/login/minalogin"
+BASELOGIN_MEMBER_URL = f"{BASE_URL}/sso/login/baselogin"
 SIGN_LIST_URL = f"{BASE_URL}/user/sigouser/getsignlist"
 SIGN_IN_URL = f"{BASE_URL}/user/sigouser/sign-in"
 ASSET_URL = f"{BASE_URL}/user/user-info/getassetheaderinfo"
@@ -137,7 +146,7 @@ def log_title() -> None:
     print(f"║ 🕒 启动时间: {now_text():<32}║")
     print(f"║ 🔢 账号数量: {len(SERVERS):<34}║")
     print("╚" + "═" * 50 + "╝")
-    print("⚠️ [适配状态] code 换 userid 的商户登录参数尚未验证；登录失败不代表 YYB 账号失效。")
+    print("⚠️ [适配状态] 登录走 minalogin(code)；失败请核对 YYB 取码与 code 是否对应该小程序账号。")
 
 
 def log_account_header(index: int, total: int, server: str) -> None:
@@ -419,33 +428,32 @@ def extract_token(data: Any) -> str | None:
 
 def login_failure_message(data: Any) -> str:
     if not isinstance(data, dict):
-        return "商户登录返回结构异常，未取得 userid（不会输出原始登录响应）"
-    if data.get("error_msg") == "用户不存在":
+        return "minalogin 返回结构异常，未取得 user_id（不会输出原始登录响应）"
+    if data.get("error_msg") in ("用户不存在", "用户不存在或已注销"):
         return (
-            "商户登录返回“用户不存在”；当前 code 换 userid 的参数尚未验证，"
-            "不能据此认定微信账号失效、未注册或代理异常。需核对小程序真实登录请求（#95）"
+            "minalogin 返回“用户不存在/已注销”；该 code 对应的微信可能未注册或账号已注销，"
+            "并非登录参数错误（参数已按解包核对）。"
         )
-    return "商户登录未成功，当前 code 换 userid 的适配仍待验证（不回显原始登录响应）"
+    return "minalogin 未成功返回 user_id；当前 code 可能是未注册新用户（不回显原始登录响应）"
 
 
 def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None]:
     try:
-        print("🔐 [登录] 使用 code 换 userid")
+        print("🔐 [登录] minalogin：使用 wx.login code 换 open_id/user_id")
         response = request_with_proxy(
             "POST",
             LOGIN_URL,
             headers=common_headers(),
             json={
                 "sourceChannel": "Mina",
-                "Code": code,
-                "login_type": "MemberCenter",
+                "code": code,
             },
             proxies=proxies,
             server=server,
         )
 
         if not 200 <= response.status_code < 300:
-            data = {"error_msg": f"商户登录 HTTP {response.status_code}，未取得 userid"}
+            data = {"error_msg": f"minalogin HTTP {response.status_code}，未取得 userid"}
             print(f"❌ [登录] {data['error_msg']}")
             return None, data
         try:
@@ -453,22 +461,30 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
         except ValueError:
             data = None
 
-        # 照源脚本：error_code == 10001 表示登录成功
-        if not isinstance(data, dict) or data.get("error_code") not in (10001, "10001"):
-            message = login_failure_message(data)
+        # 成功判定：minalogin 对已注册老用户会返回 user_id；
+        # error_code 兼容源脚本“10001 表示登录成功”的抓包约定。
+        if not isinstance(data, dict):
+            message = "minalogin 返回结构异常（非 JSON），未取得 user_id"
             print(f"❌ [登录] {message}")
             return None, {"error_msg": message}
 
         userid = extract_token(data)
         if userid:
-            print(f"✅ [登录] userid 获取成功: {mask(userid)}")
+            print(f"✅ [登录] user_id 获取成功: {mask(userid)}")
             return userid, data
 
-        message = "商户登录响应未包含明确的 userid，未保存缓存；普通 id 字段不会当作账号身份"
+        # 未提取到 user_id：仅当明确出现业务失败码/失败信息时才判失败，
+        # 否则视为“未注册新用户”，提示人工介入。
+        if data.get("error_code") not in (10001, "10001", 0, "0"):
+            message = login_failure_message(data)
+            print(f"❌ [登录] {message}")
+            return None, {"error_msg": message}
+
+        message = "minalogin 未返回 user_id（该 code 可能是未注册新用户，需手机号绑定流程）"
         print(f"❌ [登录] {message}")
         return None, {"error_msg": message}
     except Exception:
-        message = "商户登录请求异常，未取得 userid；请检查连接，不能据此判断账号失效"
+        message = "minalogin 请求异常，未取得 userid；请检查连接，不能据此判断账号失效"
         print(f"❌ [登录] {message}")
         return None, {"error_msg": message}
 
@@ -566,7 +582,7 @@ def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str |
             message = "商户缓存校验请求失败，本轮停止登录并保留缓存；请求异常不代表 userid 已失效"
             print(f"⚠️ [缓存] {message}")
             return None, {"error_msg": message}
-        print("⚠️ [缓存] 商户未接受缓存 userid，尝试重新登录（登录适配待验证）")
+        print("⚠️ [缓存] minalogin 校验未通过，尝试重新登录（按解包参数自动刷新）")
 
     code = get_code(server)
     if not code:
