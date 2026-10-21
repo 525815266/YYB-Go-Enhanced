@@ -139,6 +139,7 @@ def log_title() -> None:
     print(f"║ 🕒 启动时间: {now_text():<32}║")
     print(f"║ 🔢 账号数量: {len(SERVERS):<34}║")
     print("╚" + "═" * 50 + "╝")
+    print("ℹ️ [适配状态] code 登录接口仍为推断、尚未验证；取码成功不等于商户登录或签到成功。")
 
 
 def log_account_header(index: int, total: int, server: str) -> None:
@@ -412,8 +413,8 @@ def extract_token(data: Any) -> str | None:
             ])
 
     for item in candidates:
-        if item and item != "null":
-            return str(item)
+        if isinstance(item, str) and item.strip() and item.strip().lower() not in ("null", "none", "0"):
+            return item.strip()
 
     return None
 
@@ -454,10 +455,18 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
             verify=False,
         )
 
+        if not 200 <= response.status_code < 300:
+            message = f"商户登录 HTTP {response.status_code}；code 登录接口尚未验证，不保存 token"
+            print(f"❌ [登录] {message}")
+            return None, {"msg": message}
         try:
             data = response.json()
-        except Exception:
-            data = {"raw": response.text[:800]}
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            return None, {"msg": "商户登录响应不是 JSON 对象；不保存 token"}
+        if "code" in data and not (type(data["code"]) in (int, str) and data["code"] in (0, "0")):
+            return None, {"msg": "商户登录明确拒绝；接口仍待验证，不接受响应中的 token"}
 
         token = extract_token(data)
         if token:
@@ -468,29 +477,32 @@ def login_by_code(server: str, code: str, proxies: Dict[str, str] | None) -> Tup
             print(f"✅ [登录] token 获取成功: {mask(token)}")
             return token, data
 
-        print(f"❌ [登录] 未识别 token 字段: {json_preview(data)}")
-        return None, data
-    except Exception as exc:
-        print(f"❌ [登录] 请求异常: {exc}")
-        return None, None
+        message = "未取得有效商户 token；当前 code 登录接口尚未验证，需核对真实登录链路"
+        print(f"❌ [登录] {message}")
+        return None, {"msg": message}
+    except Exception:
+        message = "商户登录请求异常，本轮停止；不回显带 code 的请求地址，不据此判断 YYB 失效"
+        print(f"❌ [登录] {message}")
+        return None, {"msg": message}
 
 
-def api_get(server: str, url: str, token: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
+def api_get(server: str, url: str, token: str, proxies: Dict[str, str] | None, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
     response = request_with_proxy(
         "GET",
         url,
         headers=common_headers(token),
+        params=params,
         proxies=proxies,
         server=server,
         verify=False,
     )
+    if not 200 <= response.status_code < 300:
+        return {"code": -1, "http_status": response.status_code, "msg": "商户签到 HTTP 失败"}
     try:
-        return response.json()
-    except Exception:
-        return {
-            "code": -1,
-            "msg": f"JSON解析失败: {response.text[:300]}",
-        }
+        data = response.json()
+    except ValueError:
+        return {"code": -1, "msg": "商户签到返回非 JSON"}
+    return data if isinstance(data, dict) else {"code": -1, "msg": "商户签到响应结构异常"}
 
 
 def api_post(server: str, url: str, token: str, proxies: Dict[str, str] | None, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -563,6 +575,7 @@ def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str |
     注意：源脚本仅有签到接口、无只读用户信息接口，缓存 token 在有效期内
     直接复用（不做网络校验），过期后重新 code 登录。
     """
+    SESSION_ID_BY_SERVER.pop("_current", None)
     cache_token = get_cached_token(server)
     if cache_token:
         cached = load_token_cache().get(server) or {}
@@ -595,18 +608,23 @@ def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str |
     return token, raw_login
 
 
-def do_checkin(server: str, token: str, proxies: Dict[str, str] | None) -> Tuple[str, str]:
-    resp = api_get(server, CHECKIN_URL, token, proxies)
-    if isinstance(resp.get("code"), int) or "code" in resp:
-        if resp.get("code") == 0 or resp.get("code") == 121300002:
-            points = resp.get("results")
-            msg = f"签到成功，获得 {points} 积分"
-            print(f"✅ [签到] {msg}")
-            return msg, str(points if points is not None else "-")
+def do_checkin(server: str, token: str, proxies: Dict[str, str] | None) -> Tuple[bool, str, str]:
+    resp = api_get(server, CHECKIN_URL, token, proxies, params={"blackbox": BLACKBOX} if BLACKBOX else None)
+    code = resp.get("code")
+    if type(code) in (int, str) and code in (121300002, "121300002"):
+        msg = "签到接口返回兼容状态（code=121300002，新增积分未确认）"
+        print(f"✅ [签到] {msg}")
+        return True, msg, "-"
+    if type(code) in (int, str) and code in (0, "0"):
+        points = resp.get("results")
+        msg = f"签到成功，积分：{points if type(points) in (int, float) else '未返回'}"
+        print(f"✅ [签到] {msg}")
+        return True, msg, str(points if type(points) in (int, float) else "-")
 
-    msg = f"签到失败: {json_preview(resp)}"
+    status = str(code) if type(code) is int or (isinstance(code, str) and len(code) <= 10 and code.isdigit()) else "缺失或异常"
+    msg = f"签到失败：商户状态 code={status}（不输出原始响应）"
     print(f"❌ [签到] {msg}")
-    return msg, "-"
+    return False, msg, "-"
 
 
 def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
@@ -638,17 +656,19 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
 
     token, raw_login = login_with_cache(server, proxies)
     if not token:
-        result["error"] = f"登录失败: {json_preview(raw_login)}"
+        result["error"] = f"登录失败: {(raw_login or {}).get('msg') or '未取得有效商户 token'}"
         return result
 
     result["token"] = mask(token)
 
     try:
-        sign_msg, points = do_checkin(server, token, proxies)
+        signed, sign_msg, points = do_checkin(server, token, proxies)
         result["signMsg"] = sign_msg
         result["points"] = points
 
-        result["success"] = True
+        result["success"] = signed
+        if not signed:
+            result["error"] = sign_msg
         return result
 
     except Exception as exc:
@@ -725,6 +745,8 @@ def main() -> None:
     print("╚" + "═" * 50 + "╝")
 
     send_pushplus("🏨 东呈酒店任务完成", build_notify(results))
+    if fail_count:
+        raise SystemExit(1)
 
 
 # --- YYB compatibility layer (managed) ---

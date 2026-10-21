@@ -133,8 +133,47 @@ def to_float(value: Any) -> float:
 
 
 def safe_data(resp: Dict[str, Any]) -> Dict[str, Any]:
-    """Safely extract 'data' from an API response, handling null/missing."""
-    return resp.get("data") or {}
+    data = resp.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def business_succeeded(resp: Any) -> bool:
+    """兼容旧 error_code=0 和实测新格式；矛盾或缺失状态不视为成功。"""
+    if not isinstance(resp, dict):
+        return False
+    if "success" in resp and resp["success"] is not True:
+        return False
+    if "failed" in resp and resp["failed"] is not False:
+        return False
+    legacy = type(resp.get("error_code")) in (int, str) and resp["error_code"] in (0, "0")
+    modern = (
+        type(resp.get("code")) in (int, str) and resp["code"] in (1, "1")
+        and resp.get("success") is True and resp.get("failed") is False
+    )
+    if "error_code" in resp and not legacy:
+        return False
+    if "code" in resp and not modern:
+        return False
+    return legacy or modern
+
+
+def business_status_summary(resp: Dict[str, Any]) -> str:
+    """仅输出有限的状态字段，不回显业务消息、身份或原始响应。"""
+    fields = []
+    for key in ("error_code", "code", "success", "failed", "http_status"):
+        if key not in resp:
+            continue
+        value = resp[key]
+        if key in ("success", "failed") and type(value) is bool:
+            text = str(value).lower()
+        elif type(value) is int and abs(value) <= 10**10:
+            text = str(value)
+        elif type(value) is str and len(value) <= 10 and value.lstrip("-").isdigit():
+            text = value
+        else:
+            text = "空或异常"
+        fields.append(f"{key}={text}")
+    return ", ".join(fields) or "缺少业务状态字段"
 
 
 def log_title() -> None:
@@ -511,7 +550,7 @@ def api_post(server: str, url: str, token: str, proxies: Dict[str, str] | None, 
         server=server,
     )
     if not 200 <= response.status_code < 300:
-        return {"error_code": -1, "error_msg": f"商户接口 HTTP {response.status_code}"}
+        return {"error_code": -1, "http_status": response.status_code, "error_msg": f"商户接口 HTTP {response.status_code}"}
     try:
         data = response.json()
     except ValueError:
@@ -568,7 +607,7 @@ def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str |
         print("🔍 [缓存] 验证 userid")
         try:
             asset_resp = api_post(server, ASSET_URL, cache_token, proxies, {"user_id": cache_token})
-            if isinstance(asset_resp, dict) and asset_resp.get("error_code") in (0, "0") and isinstance(asset_resp.get("data"), dict):
+            if business_succeeded(asset_resp) and safe_data(asset_resp).get("gold") is not None:
                 print("✅ [缓存] userid 有效")
                 return cache_token, None
             if not isinstance(asset_resp, dict) or asset_resp.get("error_code") in (None, -1, "-1", 0, "0"):
@@ -648,12 +687,14 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
             proxies,
             {"sourcechannel": "Mina", "user_id": token},
         )
-        if sign_list_resp.get("error_code") not in (0, "0"):
-            result["error"] = "获取签到列表失败，未确认业务成功状态"
+        if not business_succeeded(sign_list_resp):
+            result["error"] = f"获取签到列表失败（{business_status_summary(sign_list_resp)}），未确认业务成功状态"
             print(f"❌ [签到] {result['error']}")
             return result
 
-        today_info = safe_data(sign_list_resp).get("todaySignInfo") or {}
+        today_info = safe_data(sign_list_resp).get("todaySignInfo")
+        if not isinstance(today_info, dict):
+            today_info = {}
         is_sign = str(today_info.get("isSign", ""))
         sign_msg = today_info.get("msg", "") or ""
         if is_sign not in ("0", "1"):
@@ -674,14 +715,14 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
                 proxies,
                 {"user_id": token, "source_channel": "Mina"},
             )
-            if sign_resp.get("error_code") not in (0, "0"):
-                result["signMsg"] = "签到执行失败，未确认业务成功状态"
+            if not business_succeeded(sign_resp):
+                result["signMsg"] = f"签到执行失败（{business_status_summary(sign_resp)}），未确认业务成功状态"
                 result["error"] = result["signMsg"]
                 print(f"❌ [签到] {result['signMsg']}")
                 return result
             verified = api_post(server, SIGN_LIST_URL, token, proxies, {"sourcechannel": "Mina", "user_id": token})
-            verified_today = safe_data(verified).get("todaySignInfo") or {}
-            if verified.get("error_code") not in (0, "0") or str(verified_today.get("isSign", "")) != "1":
+            verified_today = safe_data(verified).get("todaySignInfo")
+            if not business_succeeded(verified) or not isinstance(verified_today, dict) or str(verified_today.get("isSign", "")) != "1":
                 result["error"] = "签到提交后未确认今日已签到，本轮不重复提交"
                 print(f"⚠️ [签到] {result['error']}")
                 return result
@@ -692,12 +733,12 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
             print(f"✅ [签到] {result['signMsg']}")
 
         asset_resp = api_post(server, ASSET_URL, token, proxies, {"user_id": token})
-        if asset_resp.get("error_code") in (0, "0"):
-            gold = safe_data(asset_resp).get("gold", "未知")
+        if business_succeeded(asset_resp) and safe_data(asset_resp).get("gold") is not None:
+            gold = safe_data(asset_resp)["gold"]
             result["goldMsg"] = str(gold)
             print(f"💰 [金币] 当前总金币: {gold}")
         else:
-            result["goldMsg"] = "获取失败：未确认资产接口业务成功状态"
+            result["goldMsg"] = f"获取失败：资产接口状态或金币字段未确认（{business_status_summary(asset_resp)}）"
             result["error"] = result["goldMsg"]
             print(f"⚠️ [金币] {result['goldMsg']}")
             return result
@@ -779,6 +820,8 @@ def main() -> None:
     print("╚" + "═" * 50 + "╝")
 
     send_pushplus("👓 爱隐形任务完成", build_notify(results))
+    if fail_count:
+        raise SystemExit(1)
 
 
 # --- YYB compatibility layer (managed) ---

@@ -109,6 +109,13 @@ class LoginTests(unittest.TestCase):
         code.assert_not_called()
         self.assertIn("保留缓存", error["error_msg"])
 
+    def test_new_asset_envelope_reuses_cache_without_requesting_another_code(self):
+        with patch.object(aiyx, "get_cached_token", return_value="cached"), patch.object(aiyx, "api_post", return_value={"code": 1, "success": True, "failed": False, "data": {"gold": 100}}), patch.object(aiyx, "get_code") as code, contextlib.redirect_stdout(io.StringIO()):
+            userid, error = aiyx.login_with_cache("example@1", None)
+        self.assertEqual(userid, "cached")
+        self.assertIsNone(error)
+        code.assert_not_called()
+
 
 class SignTests(unittest.TestCase):
     def run_account(self, responses):
@@ -165,6 +172,74 @@ class SignTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(post.call_count, 2)
         self.assertFalse(any(call.args[1] == aiyx.SIGN_IN_URL for call in post.call_args_list))
+
+    def test_live_query_envelope_can_complete_and_verify_sign_in(self):
+        def envelope(data):
+            return {"code": 1, "success": True, "failed": False, "data": data}
+
+        result, post, _ = self.run_account([
+            envelope({"todaySignInfo": {"isSign": 0}}),
+            envelope(None),
+            envelope({"todaySignInfo": {"isSign": 1}}),
+            envelope({"gold": 100}),
+        ])
+        self.assertTrue(result["success"])
+        self.assertEqual(result["goldMsg"], "100")
+        self.assertIn("已复查", result["signMsg"])
+        self.assertEqual([call.args[1] for call in post.call_args_list].count(aiyx.SIGN_IN_URL), 1)
+
+    def test_partial_or_contradictory_envelopes_never_submit(self):
+        cases = [
+            {"code": 1},
+            {"code": 1, "success": True},
+            {"code": 1, "success": True, "failed": True},
+            {"code": 1, "success": False, "failed": False},
+            {"code": 40001, "success": True, "failed": False},
+            {"code": 1, "success": "true", "failed": False},
+            {"error_code": 40001, "code": 1, "success": True, "failed": False},
+            {"error_code": 0, "success": False},
+            {"error_code": False},
+        ]
+        for status in cases:
+            with self.subTest(status=status):
+                result, post, _ = self.run_account([{**status, "data": {"todaySignInfo": {"isSign": 0}}}])
+                self.assertFalse(result["success"])
+                self.assertEqual(post.call_count, 1)
+
+    def test_response_data_with_wrong_types_stops_without_signing(self):
+        for data in ([1], {"todaySignInfo": [1]}):
+            with self.subTest(data=data):
+                result, post, _ = self.run_account([{"code": 1, "success": True, "failed": False, "data": data}])
+                self.assertFalse(result["success"])
+                self.assertEqual(post.call_count, 1)
+
+    def test_failure_summary_exposes_status_fields_but_not_identity_or_raw_message(self):
+        result, post, output = self.run_account([{
+            "code": 40001, "success": False, "failed": True,
+            "msg": "private-token", "user_id": "private-user", "data": {},
+        }])
+        self.assertFalse(result["success"])
+        self.assertIn("code=40001", output)
+        self.assertIn("success=false", result["error"])
+        self.assertNotIn("private-token", output)
+        self.assertNotIn("private-user", output)
+
+    def test_success_envelope_with_no_gold_does_not_report_asset_success(self):
+        result, _, _ = self.run_account([
+            {"error_code": 0, "data": {"todaySignInfo": {"isSign": 1}}},
+            {"code": 1, "success": True, "failed": False, "data": {}},
+        ])
+        self.assertFalse(result["success"])
+
+
+class ExitTests(unittest.TestCase):
+    def test_business_failure_exits_nonzero_after_notifying(self):
+        result = {"success": False, "signMsg": "-", "goldMsg": "-", "error": "业务未成功"}
+        with patch.object(aiyx, "SERVERS", ["example@1"]), patch.object(aiyx, "run_account", return_value=result), patch.object(aiyx, "send_pushplus") as notify, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                aiyx.main()
+        self.assertEqual(error.exception.code, 1)
+        notify.assert_called_once()
 
 
 if __name__ == "__main__":
