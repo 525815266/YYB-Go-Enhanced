@@ -102,11 +102,11 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 当前转发 `mpGetA8Key` 的实测结果为内层 `-12003 / invalid api_name`，外层 `code=0` 只说明兼容转发已完成，不能当作公众号授权成功。现有 HAR 可以导入业务网站已下发的登录态（例如寻星网页积分），未实现无感续期公众号 OAuth。
 
-做对照时需使用相同公众号 AppID、相同回调地址及 scope；#75 的两组示例 AppID 不同，不能直接把授权结果互换。继续适配需要取得授权发起、确认或 A8Key 的公开实现/协议结构，不应公开真实 `full_url` 会话票据、Cookie 或一次性 code。
+做对照时需使用相同公众号 AppID、相同回调地址及 scope；#75 的两组示例 AppID 不同，不能直接把授权结果互换。不应公开真实 `full_url` 会话票据、Cookie 或一次性 code。2026-10-22 收到镜像后的独立 A8Key 验证已取得进一步结果，见下方补充；这与现有 `operateWxData` 转发入口是不同链路。
 
 ### 自动授权补丁说明的评估（#75，2026-10-22）
 
-反馈者补充了[变更说明](https://github.com/525815266/YYB-Go-Enhanced/issues/75#issuecomment-6332952610)，但后续 diff 附件显示上传失败。说明提出在现有 `js-login` 请求的字段 3 写入公众号授权 URL，并将 URL、query 或裸字符串都作为 OAuth code 接受；文档本身注明尚待真机验证，因此编译和模拟测试通过不等于网页授权已经跑通。
+反馈者先补充了[变更说明](https://github.com/525815266/YYB-Go-Enhanced/issues/75#issuecomment-6332952610)，当时 diff 附件显示上传失败；同日稍后已通过维护者收到完整 diff 和镜像。说明提出在现有 `js-login` 请求的字段 3 写入公众号授权 URL，并将 URL、query 或裸字符串都作为 OAuth code 接受；文档本身注明尚待真机验证，因此编译和模拟测试通过不等于网页授权已经跑通。
 
 字段有一处可核对的偏差：[Rprop/ipad 的协议定义](https://github.com/Rprop/ipad/blob/0278be2947eef98cb73f46579bce4428f7e93b96/protobuf/wechat_proto/applet.proto)和[nsky99/wechatclient 的协议定义](https://github.com/nsky99/wechatclient/blob/e1344339139a8a8a0b961ad3ee04c156ec23d8fb/pkg/wechat_sdk/mmpb/pb/JsLogin.proto)都将字段 3 定义为 `scope`、字段 5 为 `url`、字段 6 为 `state`。这些公开定义可用于检查字段，不能单凭它们证明当前 YYB 会话支持公众号自动授权。
 
@@ -121,7 +121,11 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 上述失败响应的外层状态仍为 0，传输成功不能覆盖内层错误。探测只读生产数据库，不修改账号、代理或会话缓存，不自动重试，不输出真实 code、OpenID、密钥或 login_buffer；测试进程正常完成也不代表授权成功。
 
-当前不合入这份未经验证的自动授权方案，`/wx/oauth` 保持生成授权链接的行为。这不是认定所有公众号授权方案都不可行。继续评审需要实际 diff/PR、对应版本与完整脱敏调用过程；需证明返回值与目标公众号、回调地址、scope/state 对应并能完成业务交换，不能只凭裸字符串或拼出的回调 URL 宣称成功。拿到明确业务拒绝时，也不应一律清除会话重试或擅自更换代理出口。
+当前不原样合入这份 js-login 补丁，`/wx/oauth` 保持生成授权链接的行为。拿到明确业务拒绝时，不应一律清除会话重试或擅自更换代理出口。
+
+**收到镜像后的验证补充（同日）**：已确认其 OAuth 分支实际使用 `GetA8Key`（cmd `5112`、`/ilink/ilinkapp/mm/ilinkgeta8key`），说明中被认作 js-login 的函数实际是 `extractA8KeyFullURL`。维护者独立编写诊断程序，复用现有 YYB 会话，实测拿到带票据的微信授权 URL；请求授权页并按其表单确认后，微信返回 HTTP 301，Location 带有非空 code，回调域名、路径和 state 匹配本次请求。未访问业务回调或兑换业务 token，未将第三方程序接入生产。
+
+这证明独立 A8Key 路线有实际可行性，前面 js-login 写法的失败不代表 YYB 无法完成公众号授权。详细证据、附件偏差和正式接入所需工作见[公众号自动授权附件评估](oauth-a8key-review.md)。当前结果属于隔离验证，尚未接入正式 API，不能据此认为 v0.2.33 已支持自动返回 code。
 
 ## 能力边界
 
