@@ -104,6 +104,25 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 做对照时需使用相同公众号 AppID、相同回调地址及 scope；#75 的两组示例 AppID 不同，不能直接把授权结果互换。继续适配需要取得授权发起、确认或 A8Key 的公开实现/协议结构，不应公开真实 `full_url` 会话票据、Cookie 或一次性 code。
 
+### 自动授权补丁说明的评估（#75，2026-10-22）
+
+反馈者补充了[变更说明](https://github.com/525815266/YYB-Go-Enhanced/issues/75#issuecomment-6332952610)，但后续 diff 附件显示上传失败。说明提出在现有 `js-login` 请求的字段 3 写入公众号授权 URL，并将 URL、query 或裸字符串都作为 OAuth code 接受；文档本身注明尚待真机验证，因此编译和模拟测试通过不等于网页授权已经跑通。
+
+字段有一处可核对的偏差：[Rprop/ipad 的协议定义](https://github.com/Rprop/ipad/blob/0278be2947eef98cb73f46579bce4428f7e93b96/protobuf/wechat_proto/applet.proto)和[nsky99/wechatclient 的协议定义](https://github.com/nsky99/wechatclient/blob/e1344339139a8a8a0b961ad3ee04c156ec23d8fb/pkg/wechat_sdk/mmpb/pb/JsLogin.proto)都将字段 3 定义为 `scope`、字段 5 为 `url`、字段 6 为 `state`。这些公开定义可用于检查字段，不能单凭它们证明当前 YYB 会话支持公众号自动授权。
+
+维护者在飞牛使用一个自有账号做了隔离对照，复用同一有效会话与出口；公众号参数取自此前本人授权的 HAR，未访问业务回调：
+
+| 请求 | 实测结果 | 能确认的范围 |
+| --- | --- | --- |
+| 原小程序 `js-login` | 业务状态 0，返回 32 字节值 | 基础协议通道可用 |
+| 公众号 AppID，不加 URL | 业务状态 0，返回 32 字节裸值 | 无回调 URL，也未验证业务交换，不能将裸值认定为网页 OAuth code |
+| 按附件将授权 URL 写入字段 3 | 内层状态 `-12000`，无 code | 附件所述关键请求在该环境未跑通 |
+| 字段 3 改为 `snsapi_userinfo`，字段 5 写 URL，字段 6 写 state，保留原 loginType=1 | 内层状态 `-12000`，无 code | 仅调整这几个字段仍不足以完成授权 |
+
+上述失败响应的外层状态仍为 0，传输成功不能覆盖内层错误。探测只读生产数据库，不修改账号、代理或会话缓存，不自动重试，不输出真实 code、OpenID、密钥或 login_buffer；测试进程正常完成也不代表授权成功。
+
+当前不合入这份未经验证的自动授权方案，`/wx/oauth` 保持生成授权链接的行为。这不是认定所有公众号授权方案都不可行。继续评审需要实际 diff/PR、对应版本与完整脱敏调用过程；需证明返回值与目标公众号、回调地址、scope/state 对应并能完成业务交换，不能只凭裸字符串或拼出的回调 URL 宣称成功。拿到明确业务拒绝时，也不应一律清除会话重试或擅自更换代理出口。
+
 ## 能力边界
 
 服务不会：
