@@ -78,6 +78,26 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 微信客户端的 `wx.getUserCryptoManager().getLatestUserKey()` 在 `operateWxData` 协议层对应 `webapi_getuserencryptkey`。兼容入口会把 payload 中的 `api_name: "getLatestUserKey"` 或历史名称 `getUserEncryptKey` 规范为该协议名，其他字段保持不变。成功结果通常包含 `encrypt_key`、`iv`、`version` 和 `expire_in`，取决于账号、目标小程序和基础库；`expire_in` 是短时效，应该现取现用。
 
+### 加密密钥调用与旧帖更正（#8 / #79，2026-10-23）
+
+v0.2.27 已修复操作名错误，当前版本包含修复。早期 #8 中缺少调用依据的判断不代表此能力一直不可用；#79 提供了正确操作名和成功响应。可以向 `POST /wx/getlatestuserkey` 或 `POST /wx/encryptkey` 提交：
+
+```json
+{
+  "ref": "1",
+  "app_id": "目标小程序的实际AppID",
+  "payload": {
+    "api_name": "webapi_getuserencryptkey",
+    "data": {},
+    "env": 1
+  }
+}
+```
+
+启用 `YYB_PROTOCOL_TOKEN` 时仍需提供 Bearer 鉴权。兼容入口要求显式 `payload`；未提供时返回 400，不代表微信拒绝了完整的密钥请求。`data: {}` 与整个 `payload` 缺失也不是同一种情况。
+
+以微信返回的内层 `err_no` 等业务状态判断是否成功；外层 `code=0` 仅代表转发完成。`result.data` 可能是 JSON 字符串，需要再解析。真实返回的密钥仅用于对应账号和目标小程序的加密协议，不等于任意商家接口的 `encryptData`、活动签名或业务 token。旧版 `invalid api_name` 不能再统一解释为缺少本地运行时，应先核对版本和操作名；不要在公开 issue 贴出密钥、iv、code 或账号凭据。
+
 ## 用户信息与手机号
 
 `/wx/getuserinfo` 读取 YYB 已保存的微信账号资料，不会生成目标业务所需的 `encryptedData`、`iv` 或签名。
