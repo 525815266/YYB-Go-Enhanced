@@ -611,6 +611,11 @@
       font-weight: 680;
     }
 
+    .protocol-token-control { display: flex; gap: 8px; }
+    .protocol-token-control .input { min-width: 0; }
+    .protocol-token-control .btn { flex-shrink: 0; }
+    #protocolTokenInput[aria-invalid="true"] { border-color: var(--danger); }
+
     .input,
     .select,
     .textarea {
@@ -1036,6 +1041,14 @@
             </div>
             <div class="form-grid">
               <div class="field">
+                <label for="protocolTokenInput">协议令牌（可选）</label>
+                <div class="protocol-token-control">
+                  <input class="input" id="protocolTokenInput" type="password" placeholder="已配置 YYB_PROTOCOL_TOKEN 时填写" autocomplete="off" spellcheck="false" aria-describedby="protocolTokenHelp">
+                  <button class="btn secondary" id="clearProtocolTokenBtn" type="button">清除令牌</button>
+                </div>
+                <span class="field-note" id="protocolTokenHelp">仅用于接口测试，刷新后清空。</span>
+              </div>
+              <div class="field">
                 <label for="featureSel">能力</label>
                 <select class="select" id="featureSel"></select>
               </div>
@@ -1276,8 +1289,8 @@
       return true;
     }
 
-    async function api(method, url, body) {
-      const options = { method, headers: { "Content-Type": "application/json" } };
+    async function api(method, url, body, headers = {}) {
+      const options = { method, headers: { "Content-Type": "application/json", ...headers } };
       if (body !== undefined) options.body = JSON.stringify(body);
       const response = await fetch(url, options);
       const text = await response.text();
@@ -2093,12 +2106,21 @@
       setActivity(`正在调用 ${endpoint}${account ? `：${accountName(account)}` : ""}`);
 
       try {
-        const result = await api("POST", feature?.route || (isOAuth ? "/wx/oauth" : `/wxapp/${endpoint}`), body);
+        const token = $("protocolTokenInput").value.trim().replace(/^Bearer\s+/i, "").trim();
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const result = await api("POST", feature?.route || (isOAuth ? "/wx/oauth" : `/wxapp/${endpoint}`), body, headers);
+        $("protocolTokenInput").removeAttribute("aria-invalid");
         const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
         setResult(result, `调用完成，用时 ${seconds}s`, false);
         await loadAccounts();
       } catch (error) {
-        setResult(error.data || error.message, `调用失败 ${error.status || ""}`.trim(), true);
+        if (error.status === 401) {
+          $("protocolTokenInput").setAttribute("aria-invalid", "true");
+          $("protocolTokenInput").focus();
+          setResult("协议令牌缺失或错误，请填写 YYB_PROTOCOL_TOKEN 后重试。", "调用失败 401", true);
+        } else {
+          setResult(error.data || error.message, `调用失败 ${error.status || ""}`.trim(), true);
+        }
       } finally {
         button.disabled = false;
       }
@@ -2129,6 +2151,13 @@
     $("saveQingLongBtn").addEventListener("click", saveQingLongConfig);
     $("clearQingLongBtn").addEventListener("click", clearQingLongConfig);
     $("featureSel").addEventListener("change", togglePayload);
+    $("protocolTokenInput").addEventListener("input", () => $("protocolTokenInput").removeAttribute("aria-invalid"));
+    $("clearProtocolTokenBtn").addEventListener("click", () => {
+      $("protocolTokenInput").value = "";
+      $("protocolTokenInput").removeAttribute("aria-invalid");
+      $("protocolTokenInput").focus();
+    });
+    window.addEventListener("pagehide", () => { $("protocolTokenInput").value = ""; });
     $("callBtn").addEventListener("click", callFeature);
     $("clearResultBtn").addEventListener("click", () => setResult("结果已清空。", "等待调用", false));
     $("copyResultBtn").addEventListener("click", async () => {

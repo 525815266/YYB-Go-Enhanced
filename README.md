@@ -154,6 +154,8 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 如果配置了 `YYB_PROTOCOL_TOKEN`，请求还需携带 `Authorization: Bearer <token>`。接口清单、公众号 OAuth 边界和 `operateWxData` 参数说明见 [协议接口说明](docs/protocol-api.md)，运行中的服务也提供 OpenAPI 页面。
 
+控制台可在「接口测试 → 协议令牌」填写；接口文档使用 `Authorize → ProtocolBearer`（只填令牌值）。控制台输入仅用于当前页面，刷新后清空，不影响账号管理和青龙配置。
+
 v0.2.34 修复了 #101 的协议令牌校验遗漏，统一保护资料查询等所有协议入口。旧版本仅配置令牌不足以修复此问题，需要更新服务；正确令牌仍可直接用于青龙等自动化调用，无需网页登录。
 
 ## 账号代理与保活
