@@ -134,20 +134,21 @@ type DB struct {
 }
 
 type WechatAccount struct {
-	ID            int64          `json:"id"`
-	OpenID        string         `json:"openid"`
-	UIN           *int64         `json:"uin,omitempty"`
-	Alias         *string        `json:"alias,omitempty"`
-	Nickname      *string        `json:"nickname,omitempty"`
-	Remark        *string        `json:"remark,omitempty"`
-	Avatar        *string        `json:"avatar,omitempty"`
-	UserInfo      map[string]any `json:"user_info,omitempty"`
-	LoginBuffer   string         `json:"login_buffer,omitempty"`
-	Credentials   map[string]any `json:"credentials,omitempty"`
-	Status        *string        `json:"status,omitempty"`
-	LastCheckedAt *int64         `json:"last_checked_at,omitempty"`
-	CreatedAt     int64          `json:"created_at"`
-	UpdatedAt     int64          `json:"updated_at"`
+	ID             int64          `json:"id"`
+	OpenID         string         `json:"openid"`
+	UIN            *int64         `json:"uin,omitempty"`
+	Alias          *string        `json:"alias,omitempty"`
+	Nickname       *string        `json:"nickname,omitempty"`
+	Remark         *string        `json:"remark,omitempty"`
+	Avatar         *string        `json:"avatar,omitempty"`
+	UserInfo       map[string]any `json:"user_info,omitempty"`
+	LoginBuffer    string         `json:"login_buffer,omitempty"`
+	Credentials    map[string]any `json:"credentials,omitempty"`
+	Status         *string        `json:"status,omitempty"`
+	LastCheckedAt  *int64         `json:"last_checked_at,omitempty"`
+	CreatedAt      int64          `json:"created_at"`
+	UpdatedAt      int64          `json:"updated_at"`
+	credentialJSON sql.NullString
 }
 
 type AccountPublic struct {
@@ -733,6 +734,42 @@ func (db *DB) SetAccountCredentialStatus(ctx context.Context, id int64, loginBuf
 	return err
 }
 
+// ApplyCredentialRefresh rejects results from requests that started before a
+// rescan, manual status change, deletion or ID compaction. Keep the exact JSON
+// read from SQLite: reserializing an imported record may change whitespace/order.
+func (db *DB) ApplyCredentialRefresh(ctx context.Context, expected *WechatAccount, loginBuffer string, credentials map[string]any, status string) (bool, error) {
+	if status == "expired" {
+		loginBuffer, credentials = "", nil
+	}
+	encoded, err := marshalNullable(credentials)
+	if err != nil {
+		return false, err
+	}
+	now := time.Now().Unix()
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx,
+		`UPDATE wechat_accounts SET login_buffer=?, credentials=?, status=?, last_checked_at=?, updated_at=?
+WHERE id=? AND openid=? AND credentials IS ? AND login_buffer=? AND status IS ?`,
+		loginBuffer, encoded, status, now, now, expected.ID, expected.OpenID, expected.credentialJSON, expected.LoginBuffer, nullableString(expected.Status))
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if count == 1 && status == "expired" {
+		if _, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE wechat_account_id=?", expected.ID); err != nil {
+			return false, err
+		}
+	}
+	return count == 1, tx.Commit()
+}
+
 func (db *DB) SetAccountStatus(ctx context.Context, id int64, status string) error {
 	now := time.Now().Unix()
 	if status == "expired" {
@@ -972,6 +1009,7 @@ func scanAccountRows(row accountScanner) (*WechatAccount, error) {
 	if credJSON.Valid && credJSON.String != "" {
 		_ = json.Unmarshal([]byte(credJSON.String), &a.Credentials)
 	}
+	a.credentialJSON = credJSON
 	return &a, nil
 }
 

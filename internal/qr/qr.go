@@ -361,13 +361,14 @@ func credentialsFromJar(jar http.CookieJar, rawURL string) (protocol.LoginBuffer
 		}
 	}
 	return protocol.LoginBufferCredentials{
-		OpenID:       openid,
-		AccessToken:  accessToken,
-		RefreshToken: values["refreshtoken"],
-		LoginType:    defaultString(values["logintype"], "WX"),
-		Nickname:     values["nickname"],
-		ExpiresAt:    time.Now().Unix() + expiresIn,
-		ExpiresIn:    expiresIn,
+		OpenID:            openid,
+		AccessToken:       accessToken,
+		RefreshToken:      values["refreshtoken"],
+		RefreshBusinessID: "pc_yyb",
+		LoginType:         defaultString(values["logintype"], "WX"),
+		Nickname:          values["nickname"],
+		ExpiresAt:         time.Now().Unix() + expiresIn,
+		ExpiresIn:         expiresIn,
 	}, nil
 }
 

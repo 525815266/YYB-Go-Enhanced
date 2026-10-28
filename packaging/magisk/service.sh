@@ -33,8 +33,8 @@ fi
 
 : "${HOST:=127.0.0.1}"
 : "${PORT:=8000}"
-: "${KEEPALIVE_INTERVAL:=1m}"
-: "${KEEPALIVE_AHEAD:=45m}"
+: "${KEEPALIVE_INTERVAL:=2m}"
+: "${KEEPALIVE_AHEAD:=4m}"
 : "${YYB_DNS_SERVERS:=223.5.5.5:53,119.29.29.29:53}"
 : "${YYB_AUTH_DRIVER:=sqlite}"
 

@@ -14,9 +14,9 @@ services:
       - -resource-root
       - /app/resource
       - -keepalive-interval
-      - ${YYB_KEEPALIVE_INTERVAL:-1m}
+      - ${YYB_KEEPALIVE_INTERVAL:-2m}
       - -keepalive-ahead
-      - ${YYB_KEEPALIVE_AHEAD:-45m}
+      - ${YYB_KEEPALIVE_AHEAD:-4m}
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PANEL_TYPE: ${PANEL_TYPE:-qinglong}

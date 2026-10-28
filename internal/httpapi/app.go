@@ -70,7 +70,7 @@ type App struct {
 	db                 *store.DB
 	pool               *protocol.Pool
 	qr                 *qr.Client
-	refreshLoginBuffer func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error)
+	refreshCredentials func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
 	fetchLoginBuffer   func(context.Context, protocol.LoginBufferCredentials) (string, error)
 	exchangeAuthCode   func(context.Context, string) (protocol.LoginBufferResult, error)
 	fetchUserInfo      func(context.Context, protocol.LoginBufferCredentials) (map[string]any, error)
@@ -126,7 +126,7 @@ func NewApp(cfg Config) (*App, error) {
 		cfg.QRSessionTTL = 5 * time.Minute
 	}
 	if cfg.KeepAliveInterval > 0 && cfg.KeepAliveAhead <= 0 {
-		cfg.KeepAliveAhead = 45 * time.Minute
+		cfg.KeepAliveAhead = 4 * time.Minute
 	}
 	if cfg.QingLongServer == "" {
 		cfg.QingLongServer = "yyb-go:8000"
@@ -182,7 +182,7 @@ func NewApp(cfg Config) (*App, error) {
 		db:                 db,
 		pool:               pool,
 		qr:                 qrClient,
-		refreshLoginBuffer: qrClient.RefreshLoginBuffer,
+		refreshCredentials: qrClient.LoginBuffers().RefreshCredentials,
 		fetchLoginBuffer:   qrClient.LoginBuffers().FetchLoginBuffer,
 		exchangeAuthCode:   qrClient.GetLoginBufferFromCode,
 		fetchUserInfo:      qrClient.LoginBuffers().FetchUserInfo,
@@ -1316,6 +1316,10 @@ func (a *App) fetchAccountLoginBuffer(ctx context.Context, acc *store.WechatAcco
 		return "", err
 	}
 	creds := protocol.CredentialsFromMap(acc.Credentials)
+	return a.fetchLoginBufferWithProxy(ctx, creds, proxyValue, fallbackDirect)
+}
+
+func (a *App) fetchLoginBufferWithProxy(ctx context.Context, creds protocol.LoginBufferCredentials, proxyValue string, fallbackDirect bool) (string, error) {
 	if proxyValue == "" {
 		return a.fetchLoginBuffer(ctx, creds)
 	}

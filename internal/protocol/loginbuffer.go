@@ -40,6 +40,8 @@ const (
 	yybHost         = "https://yybadaccess.3g.qq.com"
 	loginBufferURL  = yybHost + "/pc_yyb_auth/pcyyb_get_wx_login_buffer_auth"
 	refreshTokenURL = yybHost + "/pc_yyb_auth/pcyyb_refresh_token_auth"
+	mainRefreshURL  = yybHost + "/pc_yyb/pcyyb_refresh_token"
+	checkLoginURL   = yybHost + "/pc_yyb/pcyyb_check_login"
 	userInfoURL     = yybHost + "/pc_yyb/pcyyb_get_user_info"
 	loginBusinessID = "pc_yyb_auth"
 	loginAccessKey  = "wgrdg373hy26ww2"
@@ -50,6 +52,7 @@ type LoginBufferCredentials struct {
 	AccessToken            string `json:"accesstoken"`
 	RefreshToken           string `json:"refreshtoken"`
 	RefreshTokenObservedAt int64  `json:"refresh_token_observed_at"`
+	RefreshBusinessID      string `json:"refresh_business_id"`
 	LoginType              string `json:"logintype"`
 	Nickname               string `json:"nickname"`
 	ExpiresAt              int64  `json:"expires_at"`
@@ -69,6 +72,7 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 		AccessToken:            stringFromMap(m, "accesstoken"),
 		RefreshToken:           stringFromMap(m, "refreshtoken"),
 		RefreshTokenObservedAt: int64FromMap(m, "refresh_token_observed_at"),
+		RefreshBusinessID:      stringFromMap(m, "refresh_business_id"),
 		LoginType:              defaultString(stringFromMap(m, "logintype"), "WX"),
 		Nickname:               stringFromMap(m, "nickname"),
 		ExpiresAt:              expiresAt,
@@ -82,6 +86,7 @@ func (c LoginBufferCredentials) ToMap() map[string]any {
 		"accesstoken":               c.AccessToken,
 		"refreshtoken":              c.RefreshToken,
 		"refresh_token_observed_at": c.RefreshTokenObservedAt,
+		"refresh_business_id":       c.RefreshBusinessID,
 		"logintype":                 defaultString(c.LoginType, "WX"),
 		"nickname":                  c.Nickname,
 		"expires_at":                c.ExpiresAt,
@@ -168,6 +173,33 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 }
 
 func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginBufferCredentials) (LoginBufferCredentials, error) {
+	// QR credentials come from /pc_yyb/pcyyb_oauth, including legacy records
+	// without a source marker. wxapp's separate authorization uses _auth.
+	business, endpoint, key := "pc_yyb", mainRefreshURL, ""
+	if creds.RefreshBusinessID == loginBusinessID {
+		business, endpoint, key = loginBusinessID, refreshTokenURL, loginAccessKey
+	} else if creds.RefreshBusinessID != "" && creds.RefreshBusinessID != business {
+		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential refresh business")
+	}
+	refreshed, err := c.requestCredentials(ctx, creds, endpoint, business, key)
+	var rejected *RefreshRejectedError
+	if business == "pc_yyb" && errors.As(err, &rejected) && rejected.Code == -109 && ctx.Err() == nil {
+		// -109 is a wrapper, not proof of revocation. Official check-login may
+		// recover/rotate credentials or expose the underlying WeChat rejection.
+		checked, checkErr := c.CheckLogin(ctx, creds)
+		if checkErr == nil {
+			return checked, nil
+		}
+		return LoginBufferCredentials{}, fmt.Errorf("%v; check login: %w", err, checkErr)
+	}
+	return refreshed, err
+}
+
+func (c *LoginBufferClient) CheckLogin(ctx context.Context, creds LoginBufferCredentials) (LoginBufferCredentials, error) {
+	return c.requestCredentials(ctx, creds, checkLoginURL, "pc_yyb", "")
+}
+
+func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginBufferCredentials, endpoint, business, key string) (LoginBufferCredentials, error) {
 	if creds.RefreshToken == "" {
 		return LoginBufferCredentials{}, ErrMissingRefreshToken
 	}
@@ -182,12 +214,12 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 	}
 	ts, nonce := timestampMS(), nonce4()
 	var data map[string]any
-	if err = c.requestJSON(ctx, http.MethodPost, refreshTokenURL, body, map[string]string{
+	if err = c.requestJSON(ctx, http.MethodPost, endpoint, body, map[string]string{
 		"Content-Type":          "application/json",
-		"Ual-Access-Businessid": loginBusinessID,
+		"Ual-Access-Businessid": business,
 		"Ual-Access-Timestamp":  ts,
 		"Ual-Access-Nonce":      nonce,
-		"Ual-Access-Signature":  sign(string(body), nonce, ts, loginAccessKey),
+		"Ual-Access-Signature":  sign(string(body), nonce, ts, key),
 	}, &data); err != nil {
 		return LoginBufferCredentials{}, err
 	}
@@ -195,8 +227,16 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: fmt.Sprint(data["msg"])}
 	}
 	info, _ := data["user_info"].(map[string]any)
+	if openID := stringFromMap(info, "open_id"); openID != "" && openID != creds.OpenID {
+		return LoginBufferCredentials{}, fmt.Errorf("credential response account mismatch")
+	}
+	if loginType := stringFromMap(info, "login_type"); loginType != "" && loginType != defaultString(creds.LoginType, "WX") {
+		return LoginBufferCredentials{}, fmt.Errorf("credential response login type mismatch")
+	}
 	expiresIn := defaultInt64(int64FromMap(info, "expires_in"), 7200)
 	refreshed := creds
+	refreshed.RefreshBusinessID = business
+	refreshed.LoginType = defaultString(creds.LoginType, "WX")
 	refreshed.AccessToken = stringFromMap(info, "access_token")
 	if rt := stringFromMap(info, "refresh_token"); rt != "" && rt != refreshed.RefreshToken {
 		refreshed.RefreshToken = rt
@@ -216,7 +256,7 @@ func (c *LoginBufferClient) RefreshLoginBuffer(ctx context.Context, creds LoginB
 	}
 	lb, err := c.FetchLoginBuffer(ctx, refreshed)
 	if err != nil {
-		return LoginBufferResult{}, err
+		return LoginBufferResult{Credentials: refreshed, Refreshed: true}, err
 	}
 	return LoginBufferResult{LoginBuffer: lb, Credentials: refreshed, Refreshed: true}, nil
 }

@@ -31,9 +31,9 @@ func TestManualAuthRejectionRecoversBufferWithoutTokenRotation(t *testing.T) {
 		}
 		return "fresh-buffer", nil
 	}
-	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 		refreshes++
-		return protocol.LoginBufferResult{}, errors.New("must not rotate token")
+		return protocol.LoginBufferCredentials{}, errors.New("must not rotate token")
 	}
 	result, err := app.invokeWXApp(ctx, acc, "wx-test", nil, func(_ context.Context, used *store.WechatAccount, _ string, _ map[string]any, _ string, _ bool) (map[string]any, error) {
 		calls++
@@ -63,9 +63,9 @@ func TestBufferRecoveryNetworkErrorKeepsOriginalDiagnostic(t *testing.T) {
 	acc := insertKeepAliveTestAccount(t, app, "buffer-network", time.Now().Add(time.Hour))
 	want := &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}
 	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) { return "", want }
-	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 		t.Fatal("must not rotate token after transport error")
-		return protocol.LoginBufferResult{}, nil
+		return protocol.LoginBufferCredentials{}, nil
 	}
 	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
 		return nil, &protocol.ManualAuthRejectedError{Code: -10}
@@ -84,8 +84,8 @@ func TestFailedCredentialRecoveryKeepsProtocolFailure(t *testing.T) {
 		return "", &protocol.LoginBufferRejectedError{Code: -101, Message: "access rejected"}
 	}
 	refreshErr := &protocol.RefreshRejectedError{Code: -109, Message: "RC_PARAMS_INVALID"}
-	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
-		return protocol.LoginBufferResult{}, refreshErr
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		return protocol.LoginBufferCredentials{}, refreshErr
 	}
 	calls := 0
 	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
@@ -118,9 +118,9 @@ func TestBufferRecoveryKeepsAccountProxyWhenProtocolUsesDirect(t *testing.T) {
 		t.Error("buffer fetch bypassed account proxy")
 		return "", errors.New("unexpected direct fetch")
 	}
-	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 		t.Error("refresh bypassed account proxy")
-		return protocol.LoginBufferResult{}, errors.New("unexpected direct refresh")
+		return protocol.LoginBufferCredentials{}, errors.New("unexpected direct refresh")
 	}
 	calls := 0
 	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(_ context.Context, _ *store.WechatAccount, _ string, _ map[string]any, route string, fallback bool) (map[string]any, error) {

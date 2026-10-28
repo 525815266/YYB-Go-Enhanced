@@ -101,9 +101,9 @@ func TestSplitProxyKeepsCredentialRefreshOnAccountProxy(t *testing.T) {
 			if _, err := app.db.UpsertAccountProxySetting(context.Background(), acc.ID, "static", "http", strings.Replace(proxy.URL, "http://", "http-connect://", 1), "", nil, "", "", "", 300, &policy); err != nil {
 				t.Fatal(err)
 			}
-			app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+			app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 				t.Error("credential refresh unexpectedly used direct egress")
-				return protocol.LoginBufferResult{}, errors.New("unexpected direct refresh")
+				return protocol.LoginBufferCredentials{}, errors.New("unexpected direct refresh")
 			}
 			if action == "protocol-recovery" {
 				calls := 0

@@ -353,9 +353,9 @@ func TestWXAppCallUsesExistingLoginBufferBeforeRefreshing(t *testing.T) {
 		t.Fatalf("UpsertAccount() error = %v", err)
 	}
 	refreshCalls := 0
-	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 		refreshCalls++
-		return protocol.LoginBufferResult{}, errors.New("refresh should not run")
+		return protocol.LoginBufferCredentials{}, errors.New("refresh should not run")
 	}
 	callCount := 0
 	result, err := app.invokeWXApp(context.Background(), account, "wx0000000000000000", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
@@ -383,9 +383,9 @@ func TestProtocolNetworkFailureDoesNotRefreshOrDiscardSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	refreshes := 0
-	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 		refreshes++
-		return protocol.LoginBufferResult{}, errors.New("unexpected refresh")
+		return protocol.LoginBufferCredentials{}, errors.New("unexpected refresh")
 	}
 	calls := 0
 	want := &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}
