@@ -18,6 +18,11 @@ const (
 	clientVersion = 524545
 	appVersion    = 1901
 
+	// clientVersionDefault mirrors clientVersion for HTTPDNS queries; kept as a
+	// separate name to document that the newdns client version must track the
+	// ilink client version used in the wpkg headers.
+	clientVersionDefault = clientVersion
+
 	transferCmd  = 0x0b41
 	jsLoginCmdID = 1029
 	phoneCmdID   = 1020

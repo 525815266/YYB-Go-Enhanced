@@ -459,7 +459,7 @@ func sessionFromBlob(blob map[string]any) (WmpfSession, error) {
 		CreatedAt:        time.Now(),
 	}
 	if len(st.ShortlinkTargets) == 0 {
-		st.ShortlinkTargets = []Target{{IP: "120.241.131.173", Port: 80}}
+		st.ShortlinkTargets = append([]Target(nil), shortlinkFallbackTargets...)
 	}
 	if len(st.Session.SendKey) == 0 || len(st.Session.RecvKey) == 0 || st.Session.UIN == 0 {
 		return WmpfSession{}, fmt.Errorf("session_blob incomplete")

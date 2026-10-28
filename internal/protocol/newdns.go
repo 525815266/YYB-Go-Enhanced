@@ -20,8 +20,20 @@ const (
 	longlinkDomain  = "longcloud.weixin.com"
 	shortlinkDomain = "shortcloud.weixin.com"
 	protoMMTLS      = "mmtlsovertcp"
+	protoHTTP       = "http"
 	defaultUA       = "MicroMessenger Client"
 )
+
+// shortlinkFallbackTargets are reachable shortlink endpoints returned by the
+// official HTTPDNS (shortcloud.weixin.com -> aewebproxy.weixin.qq.com) as of
+// the 2026-10 domain migration. The previous fallback 120.241.131.173 was
+// decommissioned by WeChat and is no longer reachable.
+var shortlinkFallbackTargets = []Target{
+	{IP: "116.128.171.253", Port: 80},
+	{IP: "140.207.120.146", Port: 80},
+	{IP: "182.50.15.223", Port: 80},
+	{IP: "182.50.15.171", Port: 80},
+}
 
 type Target struct {
 	IP   string `json:"ip"`
@@ -45,6 +57,12 @@ var dnsCache = struct {
 }{entries: map[string]dnsCacheEntry{}}
 
 func buildDNSQuery(clientVersion int, deviceType string, uin int) string {
+	if clientVersion == 0 {
+		clientVersion = clientVersionDefault
+	}
+	if deviceType == "" {
+		deviceType = "Windows"
+	}
 	v := url.Values{}
 	v.Set("clientversion", strconv.Itoa(clientVersion))
 	v.Set("devicetype", deviceType)
@@ -218,21 +236,30 @@ func getLonglinkTargets(ctx context.Context, timeout, cacheTTL time.Duration) ([
 
 func getShortlinkTargets(ctx context.Context, timeout, cacheTTL time.Duration) []Target {
 	parsed, err := getDNSParsed(ctx, timeout, cacheTTL, false)
-	if err != nil {
-		return []Target{{IP: "120.241.131.173", Port: 80}}
-	}
-	targets := serversFor(parsed, shortlinkDomain, "http")
-	seen := map[string]bool{}
-	var out []Target
-	for _, t := range targets {
-		if t.Port == 80 && !seen[t.IP] {
-			seen[t.IP] = true
-			out = append(out, t)
+	if err == nil {
+		// Prefer the "mmtlsoverhttp" protocol when advertised (the current
+		// backend uses it), falling back to plain "http".
+		for _, proto := range []string{"mmtlsoverhttp", protoHTTP} {
+			targets := serversFor(parsed, shortlinkDomain, proto)
+			seen := map[string]bool{}
+			var out []Target
+			for _, t := range targets {
+				if t.Port == 80 && !seen[t.IP] {
+					seen[t.IP] = true
+					out = append(out, t)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
 		}
 	}
-	if len(out) == 0 {
-		return []Target{{IP: "120.241.131.173", Port: 80}}
-	}
+	// HTTPDNS is unavailable on some networks. Fall back to the reachable
+	// official endpoints rather than the decommissioned legacy IP, and also
+	// allow normal DNS to resolve the official hostname (its CNAME now points
+	// to aewebproxy.weixin.qq.com) when a TCP proxy performs name resolution.
+	out := append([]Target(nil), shortlinkFallbackTargets...)
+	out = append(out, Target{IP: shortlinkDomain, Port: 80})
 	return out
 }
 
