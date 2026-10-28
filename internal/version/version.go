@@ -10,7 +10,7 @@ import (
 // These values are replaced by -ldflags in release builds. Keeping useful
 // defaults makes source builds and locally copied binaries identifiable too.
 var (
-	Version   = "0.2.35"
+	Version   = "0.2.36"
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )

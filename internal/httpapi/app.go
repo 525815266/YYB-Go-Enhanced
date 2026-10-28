@@ -71,6 +71,7 @@ type App struct {
 	pool               *protocol.Pool
 	qr                 *qr.Client
 	refreshLoginBuffer func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error)
+	fetchLoginBuffer   func(context.Context, protocol.LoginBufferCredentials) (string, error)
 	exchangeAuthCode   func(context.Context, string) (protocol.LoginBufferResult, error)
 	fetchUserInfo      func(context.Context, protocol.LoginBufferCredentials) (map[string]any, error)
 	qinglong           *qingLongClient
@@ -182,6 +183,7 @@ func NewApp(cfg Config) (*App, error) {
 		pool:               pool,
 		qr:                 qrClient,
 		refreshLoginBuffer: qrClient.RefreshLoginBuffer,
+		fetchLoginBuffer:   qrClient.LoginBuffers().FetchLoginBuffer,
 		exchangeAuthCode:   qrClient.GetLoginBufferFromCode,
 		fetchUserInfo:      qrClient.LoginBuffers().FetchUserInfo,
 		qinglong:           newQingLongClient(cfg.QingLongType, cfg.QingLongURL, cfg.QingLongClientID, cfg.QingLongSecret, cfg.RequestTimeout),
@@ -1257,11 +1259,33 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if callErr == nil {
 		return result, nil
 	}
+	var rejected *protocol.ManualAuthRejectedError
+	bufferRejected := errors.As(callErr, &rejected) && rejected.Code == -10
 	var networkErr net.Error
-	if ctx.Err() != nil || errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded) || errors.As(callErr, &networkErr) || errors.Is(callErr, io.EOF) || errors.Is(callErr, io.ErrUnexpectedEOF) {
+	if ctx.Err() != nil || (!bufferRejected && (errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded) || errors.As(callErr, &networkErr) || errors.Is(callErr, io.EOF) || errors.Is(callErr, io.ErrUnexpectedEOF))) {
 		// A failed transport does not establish that saved credentials expired.
 		// Preserve the session and original diagnostic; do not repeat a slow call.
 		return nil, callErr
+	}
+	if bufferRejected {
+		// ManualAuth rejected the saved buffer before sending the operation.
+		// The access token may still be usable: fetch a fresh buffer without
+		// rotating tokens or changing scan/expiry timestamps. Pool persists the
+		// replacement protocol session, so no account credential write is needed.
+		buffer, bufferErr := a.fetchAccountLoginBuffer(ctx, acc)
+		if bufferErr == nil {
+			fresh := *acc
+			fresh.LoginBuffer = buffer
+			result, retryErr := call(ctx, &fresh, appID, payload, proxyValue, fallbackDirect)
+			if retryErr != nil {
+				return nil, errors.Join(callErr, fmt.Errorf("retry with fresh login buffer: %w", retryErr))
+			}
+			return result, nil
+		}
+		callErr = errors.Join(callErr, fmt.Errorf("fetch fresh login buffer: %w", bufferErr))
+		if ctx.Err() != nil || errors.Is(bufferErr, context.Canceled) || errors.Is(bufferErr, context.DeadlineExceeded) || errors.As(bufferErr, &networkErr) || errors.Is(bufferErr, io.EOF) || errors.Is(bufferErr, io.ErrUnexpectedEOF) {
+			return nil, callErr
+		}
 	}
 	_ = a.db.InvalidateSession(ctx, acc.ID, proxyValue)
 	// Credential recovery always uses the account's refresh route, even when
@@ -1272,16 +1296,34 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		if status == "expired" {
 			return nil, accountExpiredError{openid: acc.OpenID}
 		}
-		return nil, fmt.Errorf("refresh account credentials: %w", refreshErr)
+		return nil, errors.Join(callErr, fmt.Errorf("refresh account credentials: %w", refreshErr))
 	}
 	if refreshErr != nil {
-		return nil, fmt.Errorf("refresh account credentials: %w", refreshErr)
+		return nil, errors.Join(callErr, fmt.Errorf("refresh account credentials: %w", refreshErr))
 	}
 	fresh, err := a.db.GetAccount(ctx, acc.ID)
 	if err == nil && fresh != nil {
 		acc = fresh
 	}
 	return call(ctx, acc, appID, payload, proxyValue, fallbackDirect)
+}
+
+func (a *App) fetchAccountLoginBuffer(ctx context.Context, acc *store.WechatAccount) (string, error) {
+	// Credential requests follow the account's configured egress, even when
+	// protocol calls explicitly use direct networking.
+	proxyValue, fallbackDirect, err := a.resolveAccountProxy(ctx, acc.ID)
+	if err != nil {
+		return "", err
+	}
+	creds := protocol.CredentialsFromMap(acc.Credentials)
+	if proxyValue == "" {
+		return a.fetchLoginBuffer(ctx, creds)
+	}
+	client, err := qr.NewClientWithProxy(a.cfg.RequestTimeout, proxyValue, fallbackDirect)
+	if err != nil {
+		return "", err
+	}
+	return client.LoginBuffers().FetchLoginBuffer(ctx, creds)
 }
 
 // accountNeedsRescan covers accounts whose refresh attempt was inconclusive

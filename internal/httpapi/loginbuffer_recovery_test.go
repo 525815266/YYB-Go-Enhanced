@@ -1,0 +1,136 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"yyb_go/internal/protocol"
+	"yyb_go/internal/store"
+)
+
+func TestManualAuthRejectionRecoversBufferWithoutTokenRotation(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	ctx := context.Background()
+	acc := insertKeepAliveTestAccount(t, app, "buffer-recovery", time.Now().Add(time.Hour))
+	before, _ := json.Marshal(acc.Credentials)
+	fetches, refreshes, calls := 0, 0, 0
+	app.fetchLoginBuffer = func(_ context.Context, creds protocol.LoginBufferCredentials) (string, error) {
+		fetches++
+		if creds.AccessToken != protocol.CredentialsFromMap(acc.Credentials).AccessToken {
+			t.Fatal("wrong access token")
+		}
+		return "fresh-buffer", nil
+	}
+	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		refreshes++
+		return protocol.LoginBufferResult{}, errors.New("must not rotate token")
+	}
+	result, err := app.invokeWXApp(ctx, acc, "wx-test", nil, func(_ context.Context, used *store.WechatAccount, _ string, _ map[string]any, _ string, _ bool) (map[string]any, error) {
+		calls++
+		if calls == 1 {
+			// One candidate timed out, another returned a real business rejection.
+			// The transport failure must not hide the actionable rejection.
+			return nil, fmt.Errorf("login candidates: %w", errors.Join(&protocol.ManualAuthRejectedError{Code: -10}, &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}))
+		}
+		if used.LoginBuffer != "fresh-buffer" {
+			t.Fatal("did not use fresh buffer")
+		}
+		return map[string]any{"code": "test-code"}, nil
+	})
+	if err != nil || result["code"] != "test-code" || calls != 2 || fetches != 1 || refreshes != 0 {
+		t.Fatalf("calls=%d fetches=%d refreshes=%d err=%v", calls, fetches, refreshes, err)
+	}
+	afterAcc, _ := app.db.GetAccount(ctx, acc.ID)
+	after, _ := json.Marshal(afterAcc.Credentials)
+	if string(before) != string(after) || acc.LoginBuffer == "fresh-buffer" {
+		t.Fatal("buffer recovery changed stored credentials or shared account")
+	}
+}
+
+func TestBufferRecoveryNetworkErrorKeepsOriginalDiagnostic(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "buffer-network", time.Now().Add(time.Hour))
+	want := &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) { return "", want }
+	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		t.Fatal("must not rotate token after transport error")
+		return protocol.LoginBufferResult{}, nil
+	}
+	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		return nil, &protocol.ManualAuthRejectedError{Code: -10}
+	})
+	var rejected *protocol.ManualAuthRejectedError
+	if !errors.Is(err, want) || !errors.As(err, &rejected) {
+		t.Fatalf("lost original error: %v", err)
+	}
+}
+
+func TestFailedCredentialRecoveryKeepsProtocolFailure(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "buffer-rejected", time.Now().Add(time.Hour))
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+		return "", &protocol.LoginBufferRejectedError{Code: -101, Message: "access rejected"}
+	}
+	refreshErr := &protocol.RefreshRejectedError{Code: -109, Message: "RC_PARAMS_INVALID"}
+	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		return protocol.LoginBufferResult{}, refreshErr
+	}
+	calls := 0
+	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		calls++
+		return nil, &protocol.ManualAuthRejectedError{Code: -10}
+	})
+	var rejected *protocol.ManualAuthRejectedError
+	if calls != 1 || !errors.As(err, &rejected) || !errors.Is(err, refreshErr) || !strings.Contains(err.Error(), "fetch fresh login buffer") {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
+
+func TestBufferRecoveryKeepsAccountProxyWhenProtocolUsesDirect(t *testing.T) {
+	var connects atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodConnect {
+			connects.Add(1)
+		}
+		http.Error(w, "test proxy unavailable", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "buffer-split-proxy", time.Now().Add(time.Hour))
+	policy := "direct"
+	if _, err := app.db.UpsertAccountProxySetting(context.Background(), acc.ID, "static", "http", strings.Replace(proxy.URL, "http://", "http-connect://", 1), "", nil, "", "", "", 300, &policy); err != nil {
+		t.Fatal(err)
+	}
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+		t.Error("buffer fetch bypassed account proxy")
+		return "", errors.New("unexpected direct fetch")
+	}
+	app.refreshLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferResult, error) {
+		t.Error("refresh bypassed account proxy")
+		return protocol.LoginBufferResult{}, errors.New("unexpected direct refresh")
+	}
+	calls := 0
+	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(_ context.Context, _ *store.WechatAccount, _ string, _ map[string]any, route string, fallback bool) (map[string]any, error) {
+		calls++
+		if route != "" || fallback {
+			t.Fatal("protocol request did not use direct egress")
+		}
+		return nil, &protocol.ManualAuthRejectedError{Code: -10}
+	})
+	if err == nil || calls != 1 || connects.Load() == 0 {
+		t.Fatalf("calls=%d connects=%d err=%v", calls, connects.Load(), err)
+	}
+}
