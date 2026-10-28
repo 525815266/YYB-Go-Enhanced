@@ -2,6 +2,13 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.36 - 2026-10-28
+
+- 修复协议短链 fallback：微信近期完成接入域名迁移，`shortcloud.weixin.com` 已 CNAME 到 `aewebproxy.weixin.qq.com`，原硬编码的短链兜底 IP `120.241.131.173` 已被下线（实测不通）。改用 HTTPDNS 实测可用的新短链 IP 列表，并在 HTTPDNS 不可用时回退到官方域名解析（其 CNAME 现指向 aewebproxy），避免旧 IP 导致的取码/保活失败。
+- `getShortlinkTargets` 优先匹配 `mmtlsoverhttp` 协议，回退 `http`，取 80 端口；`sessionFromBlob` 恢复会话时同样改用新的 fallback 列表。
+- HTTPDNS 查询参数修正：`clientversion` 不再固定传 0，改用与 ilink 客户端一致的 `clientVersion`（新增 `clientVersionDefault` 常量对齐），`devicetype` 缺省补 `Windows`，提升部分网络下域名列表获取成功率。
+- 协议密钥、签名、`loginType=WX`、`hostAppID`、`ilinkDevice` 等核心常量经最新应用宝 5.10.7600.6722 客户端与实测接口双重确认未变；本次仅调整 DNS/短链兜底逻辑，加密与握手流程无改动。
+
 ## v0.2.35 - 2026-10-27
 
 - #102：控制台「接口测试」增加可选的协议令牌输入框，填写后仅向本次协议调用发送 Bearer 请求头，兼容直接粘贴 `Bearer ...`；缺失或错误令牌时显示中文提示并定位输入框。
