@@ -8,6 +8,7 @@
 - LongLink 已完成握手但票据被 `ManualAuth -10` 拒绝时，立即进入新票据恢复，不再把同一无效票据重复提交到其余节点。网络和握手失败仍保留域名与其他节点回退。
 - 登录票据、刷新与 check-login 的业务错误剔除请求中的 token 与 OpenID；HTTP / JSON 错误不再附带可能回显凭据的响应正文。保留错误码、业务类型和原始错误链，账号失效包装也保留内部诊断原因。
 - 补充 v0.2.37 / v0.2.38 发布、默认间隔、两阶段凭据保存与验证范围。生产复测未全部通过：部署前备份中账号 2、9 已失效；账号 1 的同份凭据在容器和宿主机官方接口均被拒绝，不能归因为新容器网络或宣称全部恢复。详见[生产复测记录](docs/native-keepalive-audit-20261028.md#2026-10-29-生产复测与后续修补)。
+- Windows 全量 Go 测试、静态检查、Release 说明测试通过；GitHub 原生七架构、Docker 双架构与 Magisk 构建全部成功，Release 共 16 项资产。实际启动校验过 SHA256 的 Windows 发布文件，飞牛部署保持原配置并验证明确拒绝后返回 409、释放旧凭据。该验证不代表持续保活恢复。
 
 ## v0.2.38 - 2026-10-28
 
@@ -30,7 +31,7 @@
 - 修复协议短链 fallback：微信近期完成接入域名迁移，`shortcloud.weixin.com` 已 CNAME 到 `aewebproxy.weixin.qq.com`，原硬编码的短链兜底 IP `120.241.131.173` 已被下线（实测不通）。改用 HTTPDNS 实测可用的新短链 IP 列表，并在 HTTPDNS 不可用时回退到官方域名解析（其 CNAME 现指向 aewebproxy），避免旧 IP 导致的取码/保活失败。
 - `getShortlinkTargets` 优先匹配 `mmtlsoverhttp` 协议，回退 `http`，取 80 端口；`sessionFromBlob` 恢复会话时同样改用新的 fallback 列表。
 - HTTPDNS 查询参数修正：`clientversion` 不再固定传 0，改用与 ilink 客户端一致的 `clientVersion`（新增 `clientVersionDefault` 常量对齐），`devicetype` 缺省补 `Windows`，提升部分网络下域名列表获取成功率。
-- 协议密钥、签名、`loginType=WX`、`hostAppID`、`ilinkDevice` 等核心常量经最新应用宝 5.10.7600.6722 客户端与实测接口双重确认未变；本次仅调整 DNS/短链兜底逻辑，加密与握手流程无改动。
+- 保留原有协议密钥、签名、`loginType=WX`、`hostAppID`、`ilinkDevice` 等配置；静态文件中可见部分相同常量，短时取码存在可用路径，但未逐项证明所有常量与最新客户端一致，也不能据此证明长期保活。此次代码仅调整 DNS/短链兜底逻辑，加密与握手流程无改动。
 
 ## v0.2.35 - 2026-10-27
 
