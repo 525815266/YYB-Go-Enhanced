@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -163,7 +164,7 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 		return "", err
 	}
 	if code := intFromAny(data["code"]); code != 0 {
-		return "", &LoginBufferRejectedError{Code: code, Message: fmt.Sprint(data["msg"])}
+		return "", &LoginBufferRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data["msg"]), creds)}
 	}
 	values := stringSlicePath(data, "ext_info", "list_s", "login_buffer", "value")
 	if len(values) == 0 || values[0] == "" {
@@ -224,7 +225,7 @@ func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginB
 		return LoginBufferCredentials{}, err
 	}
 	if code := intFromAny(data["code"]); code != 0 {
-		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: fmt.Sprint(data["msg"])}
+		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data["msg"]), creds)}
 	}
 	info, _ := data["user_info"].(map[string]any)
 	if openID := stringFromMap(info, "open_id"); openID != "" && openID != creds.OpenID {
@@ -304,12 +305,23 @@ func (c *LoginBufferClient) requestJSON(ctx context.Context, method, url string,
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data[:min(len(data), 200)]))
+		// Error bodies can echo the submitted access/refresh tokens. Keep the
+		// HTTP status without copying an untrusted response into logs or APIs.
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	if err = json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("decode JSON: %w: %s", err, string(data[:min(len(data), 200)]))
+		return fmt.Errorf("decode JSON: %w", err)
 	}
 	return nil
+}
+
+func redactCredentials(message string, creds LoginBufferCredentials) string {
+	for _, secret := range []string{creds.AccessToken, creds.RefreshToken, creds.OpenID} {
+		if secret != "" {
+			message = strings.ReplaceAll(message, secret, "[redacted]")
+		}
+	}
+	return message
 }
 
 type loginBufferRequest struct {

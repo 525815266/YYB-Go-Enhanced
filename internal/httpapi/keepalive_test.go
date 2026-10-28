@@ -295,6 +295,27 @@ func TestTencent42007ExpiresAccount(t *testing.T) {
 	}
 }
 
+func TestOfficialNumericRefreshRejectionsExpireAccount(t *testing.T) {
+	for _, message := range []string{
+		"CheckWXToken wx refresh return error 42007 | 42007",
+		"CheckWXToken wx refresh return error 42002 | 42002",
+		"CheckWXToken wx refresh return error 40030 | 40030",
+	} {
+		err := &protocol.RefreshRejectedError{Code: -109, Message: message}
+		if !definitiveCredentialFailure(err) {
+			t.Errorf("known WeChat rejection left account alive: %s", message)
+		}
+		if definitiveCredentialFailure(errors.New(message)) {
+			t.Fatal("untyped transport error expired account")
+		}
+	}
+	for _, message := range []string{"error 142007 | 142007", "error 420070 | 420070", "access_token expired 42001", "RC_PARAMS_INVALID rid=abc42007def", "RC_PARAMS_INVALID rid: 42007"} {
+		if definitiveCredentialFailure(&protocol.RefreshRejectedError{Code: -109, Message: message}) {
+			t.Errorf("unrecognized rejection expired account: %s", message)
+		}
+	}
+}
+
 func TestTencent40188ExpiresAccount(t *testing.T) {
 	err := &protocol.LoginBufferRejectedError{Code: -101, Message: "GetLoginBuffer error [40188] [invalid scope]"}
 	if !definitiveCredentialFailure(err) {

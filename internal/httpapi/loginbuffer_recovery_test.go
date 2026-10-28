@@ -98,6 +98,31 @@ func TestFailedCredentialRecoveryKeepsProtocolFailure(t *testing.T) {
 	}
 }
 
+func TestExpiredRecoveryPreservesTypedCauses(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "buffer-terminal", time.Now().Add(time.Hour))
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+		return "", &protocol.LoginBufferRejectedError{Code: -101, Message: "upstream rejected access"}
+	}
+	refreshErr := &protocol.RefreshRejectedError{Code: -109, Message: "CheckWXToken wx refresh return error 42007 | 42007"}
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		return protocol.LoginBufferCredentials{}, refreshErr
+	}
+	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		return nil, &protocol.ManualAuthRejectedError{Code: -10}
+	})
+	var expired accountExpiredError
+	var auth *protocol.ManualAuthRejectedError
+	if !errors.As(err, &expired) || !errors.As(err, &auth) || !errors.Is(err, refreshErr) {
+		t.Fatalf("terminal recovery lost error types: %v", err)
+	}
+	stored, getErr := app.db.GetAccount(context.Background(), acc.ID)
+	if getErr != nil || accountStatus(stored) != "expired" || stored.Credentials != nil {
+		t.Fatal("rejected credentials remained callable")
+	}
+}
+
 func TestBufferRecoveryKeepsAccountProxyWhenProtocolUsesDirect(t *testing.T) {
 	var connects atomic.Int32
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

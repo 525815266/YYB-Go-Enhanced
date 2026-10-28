@@ -315,6 +315,13 @@ func tryLonglinkCandidates(ctx context.Context, targets []Target, timeout time.D
 			return st, nil
 		}
 		failures = append(failures, fmt.Errorf("candidate %d/%d %s: %w", i+1, len(targets), net.JoinHostPort(t.IP, strconv.Itoa(t.Port)), err))
+		var rejected *ManualAuthRejectedError
+		if errors.As(err, &rejected) && rejected.Code == -10 {
+			// The endpoint accepted the handshake and rejected this ticket.
+			// Trying the same ticket on every IP cannot repair it; let the
+			// caller obtain a new login buffer within the remaining budget.
+			return WmpfSession{}, fmt.Errorf("LongLink login rejected: %w", errors.Join(failures...))
+		}
 	}
 	if len(failures) == 0 {
 		failures = append(failures, fmt.Errorf("no LongLink candidates"))

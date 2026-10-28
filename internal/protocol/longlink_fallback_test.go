@@ -147,3 +147,20 @@ func TestLonglinkFailureIncludesAllEndpointStages(t *testing.T) {
 		t.Fatalf("error causes lost: %v", err)
 	}
 }
+
+func TestLonglinkTicketRejectionStopsEndpointRetries(t *testing.T) {
+	rejected := &ManualAuthRejectedError{Code: -10}
+	calls := 0
+	_, err := tryLonglinkCandidates(context.Background(), []Target{
+		{IP: "first", Port: 443}, {IP: "second", Port: 443}, {IP: "third", Port: 443},
+	}, time.Second, func(context.Context, Target) (WmpfSession, error) {
+		calls++
+		if calls == 1 {
+			return WmpfSession{}, errors.New("dial refused")
+		}
+		return WmpfSession{}, rejected
+	})
+	if calls != 2 || !errors.Is(err, rejected) || !strings.Contains(err.Error(), "dial refused") {
+		t.Fatalf("ticket rejection retried or prior diagnostic lost: calls=%d err=%v", calls, err)
+	}
+}

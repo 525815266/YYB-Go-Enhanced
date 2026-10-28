@@ -1237,9 +1237,14 @@ func (a *App) resyncProfile(ctx context.Context, acc *store.WechatAccount) (*sto
 	return a.db.GetAccount(ctx, acc.ID)
 }
 
-type accountExpiredError struct{ openid string }
+type accountExpiredError struct {
+	openid string
+	cause  error
+}
 
 func (e accountExpiredError) Error() string { return "account expired: " + e.openid }
+
+func (e accountExpiredError) Unwrap() error { return e.cause }
 
 func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, call wxappCall) (map[string]any, error) {
 	// Bound queueing, protocol login and any credential recovery together.
@@ -1294,7 +1299,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	status = a.finishLivenessRefresh(ctx, acc, status)
 	if status != "alive" {
 		if status == "expired" {
-			return nil, accountExpiredError{openid: acc.OpenID}
+			return nil, accountExpiredError{openid: acc.OpenID, cause: errors.Join(callErr, refreshErr)}
 		}
 		return nil, errors.Join(callErr, fmt.Errorf("refresh account credentials: %w", refreshErr))
 	}

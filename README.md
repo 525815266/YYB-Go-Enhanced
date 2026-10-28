@@ -38,7 +38,9 @@
 | 脚本管理 | 统一收录审核后的 YYB 多账号脚本；支持整库同步、单脚本拉取、拉取并创建任务 |
 | 部署维护 | Docker Compose、Android ARM64 Magisk、跨平台内嵌资源二进制；按运行平台提供更新入口 |
 
-v0.2.38 对齐官方主登录刷新路径与业务签名，默认每两分钟检查、提前四分钟续期；token 先保存，登录票据按需获取，避免失败或并发重扫丢失新凭据。v0.2.37 的旧票据恢复与版本号同步修复继续保留，多架构原生 Release 和 Magisk 已恢复发布。这些修补不能恢复已被微信撤销的 refresh token，也不代表已验证 30 天保活。实测范围见[协议复核](docs/protocol-audit-20261028.md)和[官方客户端续期对照](docs/native-keepalive-audit-20261028.md)。
+v0.2.39 补齐上游纯数字拒绝的失效判定、无效票据停止重复节点尝试，以及错误中的凭据脱敏。v0.2.38 对齐官方主登录刷新路径与业务签名，默认每两分钟检查、提前四分钟续期；token 先保存，登录票据按需获取，避免失败或并发重扫丢失新凭据。v0.2.37 的旧票据恢复与版本号同步修复继续保留，多架构原生 Release 和 Magisk 已恢复发布。
+
+近期生产复测仍有凭据被上游明确拒绝；此前三个账号的短时取码通过不代表持续保活已恢复。这些修补不能恢复已被微信撤销的 refresh token，也未验证 30 天保活。实际结果与限制见[协议复核](docs/protocol-audit-20261028.md)和[官方客户端续期对照](docs/native-keepalive-audit-20261028.md)。
 
 此前的[失效误判修复](docs/proxy-keepalive.md#约两小时后失效的排查96)、[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)、[管理员密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)与[面板变量原位更新](docs/panel-integration.md#重复变量处理)继续保留。
 

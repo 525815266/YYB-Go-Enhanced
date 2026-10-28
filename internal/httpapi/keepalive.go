@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -324,13 +325,19 @@ func definitiveCredentialFailure(err error) bool {
 	return false
 }
 
+var rejectedRefreshCode = regexp.MustCompile(`(?i)(?:^|(?:\berror\b|\bcode\b)\s*[:=]?\s*|\[)(?:40030|42002|42007)(?:$|[\s\]|,;])`)
+
 func definitiveRefreshMessage(code int, raw string) bool {
+	// Official check-login sometimes returns only "error 42007 | 42007"
+	// without spelling out refresh_token. These known WeChat business codes
+	// are conclusive, but only inside a typed credential rejection, never
+	// in an HTTP/proxy response or transport error.
+	if code == 40030 || code == 42002 || code == 42007 || rejectedRefreshCode.MatchString(raw) {
+		return true
+	}
 	message := strings.ToLower(strings.TrimSpace(raw))
 	message = strings.NewReplacer("_", " ", "-", " ", "refreshtoken", "refresh token").Replace(message)
 	refreshToken := strings.Contains(message, "refresh token") || strings.Contains(message, "刷新令牌")
-	if (code == 42007 || strings.Contains(message, "42007")) && refreshToken {
-		return true
-	}
 	if (code == 40188 || strings.Contains(message, "40188")) && strings.Contains(message, "invalid scope") {
 		return true
 	}
