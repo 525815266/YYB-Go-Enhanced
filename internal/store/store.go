@@ -817,6 +817,16 @@ func (db *DB) GetSession(ctx context.Context, accountID int64, tcpProxy string) 
 	return scanSession(row)
 }
 
+// GetSessionForRecovery also reads a legacy local-cache deadline. The caller
+// must validate the issued PSK deadline before attempting to reuse the state.
+func (db *DB) GetSessionForRecovery(ctx context.Context, accountID int64, tcpProxy string) (*SessionRow, error) {
+	row := db.sql.QueryRowContext(ctx,
+		"SELECT id, wechat_account_id, uin, tcp_proxy, session_blob, expires_at, created_at, updated_at FROM sessions WHERE wechat_account_id=? AND tcp_proxy=?",
+		accountID, tcpProxy,
+	)
+	return scanSession(row)
+}
+
 func (db *DB) PutSession(ctx context.Context, accountID int64, uin *int64, sessionBlob map[string]any, expiresAt int64, tcpProxy string) error {
 	now := time.Now().Unix()
 	blob, err := json.Marshal(sessionBlob)

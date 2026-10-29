@@ -226,8 +226,8 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	// Include the queue wait in the login budget, not just the socket work.
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.LoginTimeout)
 	defer cancel()
-	if row, err := p.db.GetSession(ctx, accountID, tcpProxy); err == nil {
-		return sessionFromBlob(row.SessionBlob)
+	if st, err := p.cachedSession(ctx, accountID, tcpProxy); err == nil {
+		return st, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return WmpfSession{}, err
 	}
@@ -236,8 +236,8 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 		return WmpfSession{}, err
 	}
 	defer release(lock)
-	if row, err := p.db.GetSession(ctx, accountID, tcpProxy); err == nil {
-		return sessionFromBlob(row.SessionBlob)
+	if st, err := p.cachedSession(ctx, accountID, tcpProxy); err == nil {
+		return st, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return WmpfSession{}, err
 	}
@@ -259,6 +259,36 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	blob := st.toBlob()
 	if err = p.db.PutSession(ctx, accountID, &uin, blob, expiresAt, tcpProxy); err != nil {
 		return WmpfSession{}, err
+	}
+	return st, nil
+}
+
+func (p *Pool) cachedSession(ctx context.Context, accountID int64, tcpProxy string) (WmpfSession, error) {
+	row, err := p.db.GetSession(ctx, accountID, tcpProxy)
+	legacyDeadline := errors.Is(err, sql.ErrNoRows)
+	if legacyDeadline {
+		row, err = p.db.GetSessionForRecovery(ctx, accountID, tcpProxy)
+	}
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	st, err := sessionFromBlob(row.SessionBlob)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	if st.PSK.ExpiredAt > 0 && st.PSK.ExpiredAt <= time.Now().Unix() {
+		return WmpfSession{}, sql.ErrNoRows
+	}
+	if legacyDeadline {
+		// Older releases capped the cache at 30 minutes even when the issued
+		// PSK remained valid. Reuse that existing state without rewriting its
+		// deadline or doing ManualAuth/OAuth; genuine rejection still rebuilds.
+		key, keyErr := hex.DecodeString(st.PSK.PreSharedKey)
+		ticket, ticketErr := hex.DecodeString(st.PSK.TicketEntry)
+		if st.PSK.PSKType != 1 || st.PSK.ExpiredAt <= time.Now().Unix() ||
+			keyErr != nil || len(key) == 0 || ticketErr != nil || len(ticket) == 0 || st.TCPProxy != tcpProxy {
+			return WmpfSession{}, sql.ErrNoRows
+		}
 	}
 	return st, nil
 }
@@ -421,13 +451,10 @@ func release(sem chan struct{}) {
 }
 
 func sessionExpiresAt(st WmpfSession, ttl time.Duration) int64 {
-	now := time.Now().Unix()
-	exp := st.PSK.ExpiredAt
-	ttlExp := now + int64(ttl.Seconds())
-	if exp == 0 || exp > ttlExp {
-		exp = ttlExp
+	if st.PSK.ExpiredAt > 0 {
+		return st.PSK.ExpiredAt
 	}
-	return exp
+	return time.Now().Unix() + int64(ttl.Seconds())
 }
 
 func (st WmpfSession) toBlob() map[string]any {
