@@ -87,6 +87,23 @@ python tools/inspect_native_auth_schema.py --binary /path/to/ilink2.dll
 
 工具同样校验样本 SHA256，只输出静态字段号、类型、索引和偏移，不读取官方配置中的真实密钥。项目 `extractSession` 当前仅提取收发密钥、部分会话字段和身份，没有保存认证段字段 3 / 4 或发送 AutoAuth。这是已确认的功能差异，但目前没有证据说明补齐它会使已撤销的 OAuth refresh token 恢复，也没有完成自动恢复请求的端到端验证。
 
+### AutoAuth 的网络会话上下文
+
+继续从请求构造追到网络层，确认 AutoAuth 不只是 ManualAuth 换一个 URL：
+
+| 位置 | 已确认内容 |
+| --- | --- |
+| `0x78210` 构造；`0x7826c`、`0x78291` | RTTI 对应 `pb_export::IlinkRequestInfo`，字段 1 命令号为 `0xc7e`（3198），字段 2 是 `/ilink/ilinkapp/sys/ilinkapp_autoauth` |
+| `0x78327`–`0x78336`；字段表 `0x9ec810` | 明确设置字段 4 为 0、字段 6 为 1、字段 7 为 2；后两者是 enum。这里仅记录数值，不猜枚举名称或直接把它们等同于自定义包头字段 |
+| `0x7383c`、`0x73849`、`0x7387c`、`0x7398b` | 创建上述请求描述，序列化 AutoAuth 消息并放入描述字段 3，再交给 Tdi 网络发送 |
+| `0x3e95e`、`0x3ecad`、`0x3ee18`、`0x3ee4a` | 读取 AutoAuth enc key，构造 RTTI 为 `pb_export::IlinkAppCommSessionInfo` 的对象，把该 key 写入其字段 3；该消息不同于线上 `AutoAuthRequest` |
+| `0x3ee4f`–`0x3eebd` | 网络会话信息字段 4 为保存的身份值，字段 5 为保存的用户名；序列化后传给 `UpdateSession`（`0x7eb90`） |
+| `0x7ec64`–`0x7ec82` | `UpdateSession` 将序列化的会话信息和会话类型交给网络对象虚表方法；最终封包、加密模式及重定向仍需继续复核 |
+| 登录上下文表 `0x9eb318`；`0x3efaf`–`0x3efee` | 条件读取的是 `pb_export::IlinkLoginRequest` 字段 8（bytes，偏移 `0x50`），复制到 AutoAuth 请求字段 4；并非直接复制 enc key |
+| ManualAuth / AutoAuth 响应表 `0x9f0430` / `0x9f0560` | 前者的统一认证响应在字段 3，后者在字段 2。恢复响应不能直接交给当前按 ManualAuth 字段 3 解包的 `extractSession` |
+
+静态工具现包含上述请求描述、网络会话信息及两种认证响应的字段表。项目目前既没有保存 AutoAuth 密钥，也没有对应网络会话更新与恢复响应解析；这些差异可作为后续隔离实现的依据，但本次没有给生产账号添加未经端到端验证的自动恢复。
+
 ## v0.2.42 发布与现场结果
 
 - 全量 Go 测试、`go vet ./...`、5 项 Release 说明测试和原生字段模拟通过；main / tag 原生、main / tag Docker 和 Magisk 五个工作流均成功。
@@ -96,3 +113,13 @@ python tools/inspect_native_auth_schema.py --binary /path/to/ilink2.dll
 - 用户重新扫码后，第二轮新授权在 v0.2.42 的真实取码为 HTTP 200、非空 32 字符 code。新基准扫码时间为北京时间 10:10:28，凭据原到期为 12:10:27，后台正常刷新窗口从 12:06:27 开始。旧观察完整保留，新观察单独建档，不覆盖或混合两次授权的数据。
 
 当前能够确认字段修正通过真实新授权取码；快速失效根因、后台自然续期与 30 天保活均未据此宣告解决。
+
+## v0.2.43 诊断修补与验证
+
+#105 最新首次 409 仅显示 `check_login / -109 / 42007`。继续检查发现 `RefreshCredentials` 用 `%v` 拼接主刷新错误，只用 `%w` 保留 check-login，因此主刷新虽实际执行，诊断却无法识别其类型。v0.2.43 改为保留两个实际原因；同时修正失效判断遍历完整错误链，避免第一个含义不明的 `-109` 遮住后面的明确拒绝。
+
+- 最小回归先在旧实现确认错误链丢失，以及直接改为双原因后首个模糊错误会遮住明确拒绝；两处修补后通过。HTTP 409 回归同时验证四阶段诊断、脱敏、凭据清理与重复调用不再请求上游；网络超时和仅 access token 到期仍可重试。
+- Windows 全量 Go 测试、静态检查、5 项 Release 说明测试通过；原生 main / tag、Docker main / tag、Magisk 五个工作流均成功。[v0.2.43 Release](https://github.com/525815266/YYB-Go-Enhanced/releases/tag/v0.2.43) 包含 16 项资产。
+- 正式 Windows amd64 发布文件完成 SHA256 校验并实际隔离启动，内嵌模板、版本、协议令牌输入框和匿名拒绝通过。
+- 飞牛精确版本镜像先隔离验证，再保留配置部署；健康正常，21 个账号身份一致并保留回滚备份。10:35 的只读观察显示 ID1 仍 alive，扫码 10:10:28、原到期 12:10:27、凭据摘要未变，观察单独记录部署版本变化。没有提前请求 OAuth 刷新。
+- 已回复 #105 / #109，保持开放。此次诊断修补不能恢复已被上游拒绝的 token，也不等于快速失效根因已解决。

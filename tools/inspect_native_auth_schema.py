@@ -15,10 +15,15 @@ import pefile
 SAMPLE_SHA256 = '8b69772a79e5892ab48aff13a096a1a806219061a17395d14f311305d4a74d7a'
 SCHEMAS = {
     'AppBaseRequest': (0x7e5520, 0x9efcf8),
+    'ManualAuthRequest': (0x7d91c8, 0x9f03c8),
+    'ManualAuthResponse': (0x7d9df0, 0x9f0430),
     'AutoAuthRequest': (0x7d4110, 0x9f04f0),
     'AutoAuthResponse': (0x7d9e60, 0x9f0560),
     'UnifyAuthResponse': (0x7da560, 0x9f01b0),
     'AuthSectResp': (0x7e5600, 0x9effc8),
+    'IlinkAppCommSessionInfo': (0x7d4088, 0x9ec4b8),
+    'IlinkRequestInfo': (0x7d4f50, 0x9ec810),
+    'IlinkLoginRequest': (0x7dae98, 0x9eb318),
 }
 TYPES = {
     1: 'double', 2: 'float', 3: 'int64', 4: 'uint64', 5: 'int32',
