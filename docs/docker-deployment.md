@@ -8,6 +8,28 @@ v0.2.26 起，仓库 `compose.yaml` 的默认镜像为 `ghcr.io/525815266/yyb-go
 
 这是应用镜像选择，不能修复 Docker daemon 本身访问 GHCR 的网络问题。32 位 ARM 系统不在 Docker 镜像矩阵内，可使用 Release 中的 Linux ARMv7 原生程序；查看 `uname -m` 与 `getconf LONG_BIT` 确认实际系统。
 
+## 更新后页面仍旧：整套 resource 挂载覆盖镜像
+
+如果旧部署使用 `-v /root/yyb/resource:/app/resource`，宿主机的旧 `templates/` 和 `static/` 会覆盖新镜像中的页面，单独拉镜像或强刷浏览器不能更新这些文件。Issue #108 中缺少协议令牌输入框即需先排查此项；无需关闭鉴权。
+
+下面按该 issue 的实际挂载路径举例，将 `yyb-go` 换成自己的容器名，并使用**当前运行版本对应**的镜像。先备份网页文件，只复制两类界面资源，不删除或覆盖 `db/`、`avatars/`、`qr/`：
+
+```bash
+yyb_web_image=ghcr.io/525815266/yyb-go-enhanced:0.2.46
+docker pull "$yyb_web_image"
+tar -czf "/root/yyb/web-before-update-$(date +%Y%m%d-%H%M%S).tar.gz" \
+  -C /root/yyb/resource templates static
+yyb_web_copy=$(docker create "$yyb_web_image")
+docker cp "$yyb_web_copy:/app/resource/templates/." /root/yyb/resource/templates/
+docker cp "$yyb_web_copy:/app/resource/static/." /root/yyb/resource/static/
+docker rm "$yyb_web_copy"
+docker restart yyb-go
+```
+
+逐行执行，任何备份或复制失败先停止排查；重启后再强制刷新浏览器。该操作只解决旧页面覆盖，服务端程序也需要按正常步骤更新到对应版本。若本来只挂载三个数据子目录，则不需要复制网页。
+
+后续建议按仓库 Compose 只持久化 `db`、`avatars`、`qr` 三个子目录，让网页随镜像更新。迁移时保持它们现有的宿主机路径，例如 `/root/yyb/resource/db:/app/resource/db`，不要直接切换到全新的空数据目录。
+
 ## 青龙容器名与网络名不同
 
 查看青龙加入的网络（将 `qinglong` 换成实际容器名）：
