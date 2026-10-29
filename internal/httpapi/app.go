@@ -21,6 +21,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	"yyb_go/internal/auth"
+	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/proxysource"
 	"yyb_go/internal/qr"
@@ -1302,6 +1303,13 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 			return result, nil
 		}
 		callErr = errors.Join(callErr, fmt.Errorf("fetch fresh login buffer: %w", bufferErr))
+		var pcRejected *pcmgr.BufferRejectedError
+		if errors.As(bufferErr, &pcRejected) && pcRejected.Code == 1 {
+			// Native DLL and Go both return this generic ticket refusal even
+			// when renewing the account key succeeds. Do not rotate a key on
+			// every API test or misclassify it as a revoked account credential.
+			return nil, callErr
+		}
 		if ctx.Err() != nil || errors.Is(bufferErr, context.Canceled) || errors.Is(bufferErr, context.DeadlineExceeded) || errors.As(bufferErr, &networkErr) || errors.Is(bufferErr, io.EOF) || errors.Is(bufferErr, io.ErrUnexpectedEOF) {
 			return nil, callErr
 		}

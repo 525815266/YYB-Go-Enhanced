@@ -436,15 +436,15 @@ func newOpenAPISpec() map[string]any {
 			},
 			"/wx/encryptkey":       wxAliasOperation("加密能力兼容转发（需要真实 payload）", "OperateWXDataRequest", "WxappResponse"),
 			"/wx/getlatestuserkey": wxAliasOperation("webapi_getuserencryptkey 加密密钥转发（需要真实 payload）", "OperateWXDataRequest", "WxappResponse"),
-			"/wx/getphonenumber":   wxAliasOperation("获取手机号（兼容入口）", "WxappRequest", "WxappResponse"),
+			"/wx/getphonenumber":   wxAliasOperation("手机号能力（按账号渠道构造，需真实授权）", "WxappRequest", "WxappResponse"),
 			"/wx/cloud":            wxAliasOperation("云函数/通用 operateWxData 兼容入口", "OperateWXDataRequest", "WxappResponse"),
 			"/wx/qrcodeauth": map[string]any{
 				"post": openAPIOperation([]string{"qr"}, "创建二维码授权会话", nil, jsonOptionalRequestBody(refSchema("ProxySpec")),
 					defaulted(map[string]any{"200": jsonResponse("二维码授权会话。", refSchema("QRCreateResponse"))})),
 			},
 			"/wx/mpgeta8key": wxAliasOperation("文章会话兼容入口", "OperateWXDataRequest", "WxappResponse"),
-			"/wx/appmsgext":  wxAliasOperation("文章扩展数据兼容入口", "OperateWXDataRequest", "WxappResponse"),
-			"/wx/appmsglike": wxAliasOperation("文章点赞兼容入口", "OperateWXDataRequest", "WxappResponse"),
+			"/wx/appmsgext":  wxAliasOperation("文章扩展数据兼容转发（未验证）", "OperateWXDataRequest", "WxappResponse"),
+			"/wx/appmsglike": wxAliasOperation("文章点赞兼容转发（未验证）", "OperateWXDataRequest", "WxappResponse"),
 			"/wxapp/getCode": map[string]any{
 				"post": openAPIOperation(
 					[]string{"wxapp"},

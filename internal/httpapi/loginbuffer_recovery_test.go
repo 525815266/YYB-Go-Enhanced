@@ -13,9 +13,37 @@ import (
 	"testing"
 	"time"
 
+	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/store"
 )
+
+func TestPCMgrTicketRefusalDoesNotRotateKeyOnEveryCall(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "pcmgr-ticket-refusal", time.Now().Add(time.Hour))
+	before, _ := json.Marshal(acc.Credentials)
+	refusal := &pcmgr.BufferRejectedError{Code: 1}
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) { return "", refusal }
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		t.Fatal("ticket refusal must not trigger key rotation")
+		return protocol.LoginBufferCredentials{}, nil
+	}
+	for i := 0; i < 2; i++ {
+		_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+			return nil, &protocol.ManualAuthRejectedError{Code: -10}
+		})
+		var auth *protocol.ManualAuthRejectedError
+		if !errors.Is(err, refusal) || !errors.As(err, &auth) {
+			t.Fatal("ticket failure lost its stage or native code")
+		}
+	}
+	stored, err := app.db.GetAccount(context.Background(), acc.ID)
+	after, _ := json.Marshal(stored.Credentials)
+	if err != nil || accountStatus(stored) != "alive" || string(before) != string(after) || stored.LoginBuffer != acc.LoginBuffer {
+		t.Fatal("ticket failure changed account authorization")
+	}
+}
 
 func TestApplicationEmptyCodeDoesNotRecoverAccountCredentials(t *testing.T) {
 	app := newKeepAliveTestApp(t)

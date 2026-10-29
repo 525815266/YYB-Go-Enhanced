@@ -167,7 +167,7 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 
 func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
-		plain := buildPhoneRequest(st.Session.UIN, appID)
+		plain := buildPhoneRequest(st.Session.UIN, appID, st.Session.HostAppID)
 		envelope, err := buildTransferPacket(st.Session, plain)
 		if err != nil {
 			return nil, err
@@ -182,7 +182,7 @@ func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, ac
 
 func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, payload map[string]any, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
-		plain, err := buildOperateRequest(st.Session.UIN, appID, payload)
+		plain, err := buildOperateRequest(st.Session.UIN, appID, payload, st.Session.HostAppID)
 		if err != nil {
 			return nil, err
 		}

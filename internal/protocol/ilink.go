@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+
+	"yyb_go/internal/pcmgr"
 )
 
 const (
@@ -512,20 +514,26 @@ func parseRawResponse(codeOrJSON, resp []byte) map[string]any {
 	return protobufToMap(resp)
 }
 
-func buildPhoneRequest(uin int64, appID string) []byte {
+func buildPhoneRequest(uin int64, appID string, hostAppID []byte) []byte {
 	sessDevice := randomSessDevice()
 	aid := []byte(appID)
 	body := make([]byte, 0, 140)
 	body = append(body, pbLen(1, sessionInfo(uint32(uin), unifiedPCWindows, sessDevice))...)
 	body = append(body, pbLen(2, aid)...)
+	if string(hostAppID) == pcmgr.HostAppID {
+		// PCMgr WMPF 14673 flue.dll: 0x12bc1f0 builds the shared
+		// JSOperateWxDataRequest (appid=2, JSON=3), then sends 1141.
+		body = append(body, pbLen(3, []byte(`{"api_name":"webapi_getuserwxphone","data":{},"env":1}`))...)
+		return buildJSAPIPlaintext(uin, appID, phoneURL, 1141, body, hostAppID, sessDevice)
+	}
 	body = append(body, pbVar(4, 1)...)
 	body = append(body, pbLen(5, nil)...)
 	body = append(body, pbLen(6, nil)...)
 	body = append(body, pbVar(7, 1)...)
-	return buildJSAPIPlaintext(uin, appID, phoneURL, phoneCmdID, body, nil, sessDevice)
+	return buildJSAPIPlaintext(uin, appID, phoneURL, phoneCmdID, body, hostAppID, sessDevice)
 }
 
-func buildOperateRequest(uin int64, appID string, payload map[string]any) ([]byte, error) {
+func buildOperateRequest(uin int64, appID string, payload map[string]any, hostAppID []byte) ([]byte, error) {
 	payload = extractOperatePayload(payload)
 	sessDevice := randomSessDevice()
 	aid := []byte(appID)
@@ -539,8 +547,13 @@ func buildOperateRequest(uin int64, appID string, payload map[string]any) ([]byt
 	body = append(body, pbLen(3, f3)...)
 	body = append(body, pbLen(4, nil)...)
 	body = append(body, pbVar(5, 0)...)
-	body = append(body, pbVar(6, 0)...)
-	return buildJSAPIPlaintext(uin, appID, operateURL, operateCmdID, body, nil, sessDevice), nil
+	versionType := uint64(0)
+	if string(hostAppID) == pcmgr.HostAppID {
+		// Native PCMgr operate builder defaults versionType to release (1).
+		versionType = 1
+	}
+	body = append(body, pbVar(6, versionType)...)
+	return buildJSAPIPlaintext(uin, appID, operateURL, operateCmdID, body, hostAppID, sessDevice), nil
 }
 
 func extractOperatePayload(raw map[string]any) map[string]any {
