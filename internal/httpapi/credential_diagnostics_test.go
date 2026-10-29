@@ -34,7 +34,7 @@ func TestRecovery409IncludesSafeTypedDiagnostics(t *testing.T) {
 		return protocol.LoginBufferCredentials{}, fmt.Errorf("%w; check login: %w", primary, checked)
 	}
 	call := func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
-		return nil, &protocol.ManualAuthRejectedError{Code: -10}
+		return nil, errors.Join(&protocol.ShortlinkRejectedError{Code: -14}, &protocol.ManualAuthRejectedError{Code: -10})
 	}
 	request := func() *httptest.ResponseRecorder {
 		out := httptest.NewRecorder()
@@ -61,7 +61,8 @@ func TestRecovery409IncludesSafeTypedDiagnostics(t *testing.T) {
 	if err := json.Unmarshal(out.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	want := []upstreamDiagnostic{{Stage: "manual_auth", UpstreamCode: -10},
+	want := []upstreamDiagnostic{{Stage: "shortlink_application", UpstreamCode: -14},
+		{Stage: "manual_auth", UpstreamCode: -10},
 		{Stage: "login_buffer", UpstreamCode: -101},
 		{Stage: "refresh_token", UpstreamCode: -109},
 		{Stage: "check_login", UpstreamCode: -109, WeChatCode: 42007}}

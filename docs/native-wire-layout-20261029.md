@@ -184,3 +184,25 @@ python tools/inspect_native_autoauth.py --binary /path/to/ilink2.dll
 `inspect_native_autoauth.py` 现用虚构输入分别验证字段 25 固定为 17、字段 7 取 0 / 16 / 17，以及上述三个原生跳转分支。此前只改字段 18 的候选没有验证网络账号、字段 7 和实际请求体完整一致；该负结果不能证明 AutoAuth 本身不可行。当前仍未确定应该在此环境选择哪一网络账号初始化路径，不能猜一个加密枚举后接入生产。
 
 同一隔离测试文件还提供显式私有会话输入的 `TestNativeCachedSessionCodeAudit`：不创建握手、不调用 OAuth、不删除生产会话，按控制应用 / 京东应用 / 控制应用交替取码。2026-10-29 12:18 的空 code 复现及 v0.2.44 修补边界见[第三轮记录](native-keepalive-audit-20261028.md#第三轮授权与空-code-复现2026-10-29-1218)。
+
+### 官方网络会话更新的独立验证
+
+继续把 TDI 的虚调用解析到真实实现，避免仅根据请求消息里的密钥推断完整网络登录：
+
+| 位置 | 已确认行为 |
+| --- | --- |
+| `0x7ec82`；`IlinkNetworkImpl` 主虚表 `0x7e5a18` 第 9 项 | TDI `UpdateSession` 调入 `0x100c40`，原生日志名称为 `UpdateAppSession` |
+| `0x100d5b`–`0x100d62` | 用网络实例 `+0xd8` 的独立应用会话对象调用 `0x170a00` 解析会话数据和类型 |
+| `0x3eb70`–`0x3eb9e`、`0x3eebd` | AutoAuth 读取持久配置 `kTdiKeyIlinkAppSessionType`，把实际类型一起交给网络层，不能省略类型或任意猜值 |
+| `0x100f62`、`0x173220` | 应用会话更新写入 `NetCoreBridgeAccount` 的应用区域，和网络账号的密钥 / UIN 分开 |
+| 构造 `0x171d03`、getter `0x172390` | 网络桥账号缺省应用账号标记为 true；完整线上分支还取决于后续初始化，不能只靠构造缺省值就改所有请求 |
+
+新增工具执行原生 `0x1732f9`–`0x1733dd` 的实际复制指令，只替代标准字符串赋值原语；五组虚构应用字符串、两组数值和存在标记均进入应用区域，网络密钥区与网络 UIN 的哨兵数据保持不变：
+
+```bash
+python tools/inspect_native_session_update.py --binary /path/to/ilink2.dll
+```
+
+工具验证样本哈希，不读取配置 / 数据库 / 进程，也不联网。它进一步确认应用与网络会话并非同一组字段；没有据此猜测外层网络账号的真实初始化值，完整 AutoAuth 封包仍待端到端通过。
+
+另增加只在 `protocolaudit` 构建存在的 `TestNativeCachedSessionWireAudit`：针对显式提供的私有缓存会话，仅记录 MMTLS 认证结果、固定数字码和长度，不输出密钥、请求和业务正文。12:38 的真实请求确认 MMTLS 认证成功后，应用头为 `-14`、无正文；v0.2.45 因此保留此类真实拒绝及首次重建错误。它与凭据恢复时另收到的 OAuth `42007` 是不同阶段，不能合并解释为同一个错误码。

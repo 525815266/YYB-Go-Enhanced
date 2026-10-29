@@ -152,14 +152,15 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 		return nil, ctx.Err()
 	}
 	if resetErr := invalidate(); resetErr != nil {
-		return nil, fmt.Errorf("reset code session: %w", resetErr)
+		return nil, errors.Join(err, fmt.Errorf("reset code session: %w", resetErr))
 	}
+	firstErr := err
 	result, err = call()
 	if err != nil {
-		return nil, fmt.Errorf("code retry after session rebuild failed: %w", err)
+		return nil, errors.Join(firstErr, fmt.Errorf("code retry after session rebuild failed: %w", err))
 	}
 	if result == nil || result["code"] == nil || result["code"] == "" {
-		return nil, fmt.Errorf("code retry after session rebuild: %w", ErrLoginCodeUnavailable)
+		return nil, errors.Join(firstErr, fmt.Errorf("code retry after session rebuild: %w", ErrLoginCodeUnavailable))
 	}
 	return result, nil
 }

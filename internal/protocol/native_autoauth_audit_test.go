@@ -64,7 +64,17 @@ func TestNativeCachedSessionCodeAudit(t *testing.T) {
 	pool := NewPool(DefaultConfig(), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	for _, appID := range []string{"wx3bb18aff4f2fe45f", "wx91d27dbf599dff74", "wx3bb18aff4f2fe45f", "wx2f5d8f9715c59d10", "wx3bb18aff4f2fe45f"} {
+	apps := []string{"wx3bb18aff4f2fe45f", "wx91d27dbf599dff74", "wx3bb18aff4f2fe45f", "wx2f5d8f9715c59d10", "wx3bb18aff4f2fe45f"}
+	if appID := os.Getenv("YYB_CODE_SESSION_AUDIT_APPID"); appID != "" {
+		if len(appID) != 18 || appID[:2] != "wx" {
+			t.Fatal("audit application ID malformed")
+		}
+		if _, err := hex.DecodeString(appID[2:]); err != nil {
+			t.Fatal("audit application ID malformed")
+		}
+		apps = []string{"wx3bb18aff4f2fe45f", appID, "wx3bb18aff4f2fe45f"}
+	}
+	for _, appID := range apps {
 		plain := buildJSAPIPlaintext(st.Session.UIN, appID, jsLoginURL, jsLoginCmdID, nil, st.Session.HostAppID, nil)
 		envelope, err := buildTransferPacket(st.Session, plain)
 		if err != nil {

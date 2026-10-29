@@ -19,6 +19,24 @@ var (
 	earlyAlert          = []byte{0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x01}
 )
 
+// ShortlinkRejectedError is an authenticated header rejection without an
+// encrypted application body. The fixed code carries no request material.
+type ShortlinkRejectedError struct {
+	Code      int64
+	Transport bool
+}
+
+func (e *ShortlinkRejectedError) Error() string {
+	layer := "application"
+	if e.Transport {
+		layer = "transport"
+	}
+	return fmt.Sprintf("shortlink %s rejected: code=%d", layer, e.Code)
+}
+
+// Preserve the existing one-rebuild policy while retaining the actual code.
+func (e *ShortlinkRejectedError) Unwrap() error { return ErrShortlinkPayload }
+
 func build0RTTRequest(entry pskEntry, envelope []byte) ([]byte, []byte, []byte, []byte, error) {
 	psk, err := hex.DecodeString(entry.PreSharedKey)
 	if err != nil {
@@ -157,9 +175,15 @@ func parse0RTTResponse(rbody, psk, pskCH, type8, recvKey []byte) ([]byte, []byte
 				continue
 			}
 			if sl, err := parseShortlink(ad); err == nil {
+				if rejection := shortlinkHeaderRejection(sl.Body); rejection != nil {
+					return nil, nil, rejection
+				}
 				if resp, err := sessionDecrypt(sl.Body, recvKey); err == nil {
 					return extractCode(resp), resp, nil
 				}
+			}
+			if rejection := shortlinkHeaderRejection(ad); rejection != nil {
+				return nil, nil, rejection
 			}
 			if resp, err := sessionDecrypt(ad, recvKey); err == nil {
 				return extractCode(resp), resp, nil
@@ -167,4 +191,19 @@ func parse0RTTResponse(rbody, psk, pskCH, type8, recvKey []byte) ([]byte, []byte
 		}
 	}
 	return nil, nil, ErrShortlinkPayload
+}
+
+func shortlinkHeaderRejection(body []byte) error {
+	fields, _, size, err := decodeWpkgHead(body)
+	if err != nil || size != len(body) {
+		return nil
+	}
+	var causes []error
+	if code := int64(fields[4]); code != 0 {
+		causes = append(causes, &ShortlinkRejectedError{Code: code, Transport: true})
+	}
+	if code := int64(fields[23]); code != 0 {
+		causes = append(causes, &ShortlinkRejectedError{Code: code})
+	}
+	return errors.Join(causes...)
 }

@@ -40,6 +40,11 @@ func credentialDiagnostics(err error) []upstreamDiagnostic {
 			item.Stage, item.UpstreamCode, message = "login_buffer", int64(e.Code), e.Message
 		case *protocol.ManualAuthRejectedError:
 			item.Stage, item.UpstreamCode = "manual_auth", e.Code
+		case *protocol.ShortlinkRejectedError:
+			item.Stage, item.UpstreamCode = "shortlink_application", e.Code
+			if e.Transport {
+				item.Stage = "shortlink_transport"
+			}
 		}
 		if item.Stage != "" {
 			if match := diagnosticWeChatCode.FindStringSubmatch(message); len(match) > 1 {

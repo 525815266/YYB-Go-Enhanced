@@ -306,7 +306,7 @@ func parseShortlink(pkt []byte) (shortlinkPacket, error) {
 		return shortlinkPacket{}, fmt.Errorf("shortlink packet too short")
 	}
 	total := int(binary.BigEndian.Uint32(pkt[:4]))
-	if total > len(pkt) {
+	if total < 16 || total > len(pkt) {
 		return shortlinkPacket{}, fmt.Errorf("shortlink packet truncated")
 	}
 	return shortlinkPacket{
