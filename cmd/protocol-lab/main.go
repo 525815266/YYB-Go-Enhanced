@@ -9,8 +9,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"yyb_go/internal/pcmgr"
@@ -20,6 +22,9 @@ import (
 func main() {
 	if err := run(); err != nil {
 		fields := map[string]any{"success": false, "error_type": fmt.Sprintf("%T", err)}
+		if strings.HasPrefix(err.Error(), "PCMgr ") || strings.HasPrefix(err.Error(), "invalid PCMgr ") {
+			fields["stage_error"] = err.Error()
+		}
 		var manual *protocol.ManualAuthRejectedError
 		var buffer *pcmgr.BufferRejectedError
 		var short *protocol.ShortlinkRejectedError
@@ -41,6 +46,8 @@ func run() error {
 	provider := flag.String("provider", "", "required: yyb or pcmgr")
 	root := flag.String("state-root", "", "absolute private lab directory; each provider has a separate subdirectory")
 	inputPath := flag.String("ticket-file", "", "fresh YYB base64 ticket or PCMgr native protobuf response; omitted to reuse a session")
+	pcProfile := flag.String("pcmgr-profile", "", "private PCMgr profile for the independent Go transport")
+	pcRenew := flag.Bool("renew-pcmgr", false, "rotate the isolated PCMgr profile and persist before fetching a ticket")
 	flag.Parse()
 	if (*provider != "yyb" && *provider != "pcmgr") || !filepath.IsAbs(*root) || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "requires --provider yyb|pcmgr --state-root ABSOLUTE_PATH [--ticket-file ABSOLUTE_PATH]")
@@ -50,7 +57,42 @@ func run() error {
 	statePath := filepath.Join(dir, "session.json")
 	var input, saved []byte
 	var err error
-	if *inputPath != "" {
+	if *pcProfile != "" {
+		if *provider != "pcmgr" || !filepath.IsAbs(*pcProfile) || *inputPath != "" {
+			return errors.New("invalid PCMgr profile arguments")
+		}
+		raw, readErr := os.ReadFile(*pcProfile)
+		if readErr != nil {
+			return errors.New("private profile unavailable")
+		}
+		var creds pcmgr.Credentials
+		if json.Unmarshal(raw, &creds) != nil {
+			return errors.New("invalid private profile")
+		}
+		hc := &http.Client{Timeout: 20 * time.Second}
+		if *pcRenew {
+			creds, err = pcmgr.Renew(context.Background(), hc, creds)
+			if err != nil {
+				return err
+			}
+			updated, _ := json.Marshal(creds)
+			file, err := os.CreateTemp(filepath.Dir(*pcProfile), ".renew-*")
+			if err != nil {
+				return err
+			}
+			defer os.Remove(file.Name())
+			_, writeErr := file.Write(updated)
+			closeErr := file.Close()
+			if writeErr != nil || closeErr != nil || os.Rename(file.Name(), *pcProfile) != nil {
+				return errors.New("rotated profile save failed")
+			}
+		}
+		buffer, fetchErr := pcmgr.FetchBuffer(context.Background(), hc, creds)
+		if fetchErr != nil {
+			return fetchErr
+		}
+		input = pcmgr.PBBytes(nil, 3, []byte(buffer))
+	} else if *inputPath != "" {
 		if !filepath.IsAbs(*inputPath) {
 			return errors.New("ticket file must be absolute")
 		}

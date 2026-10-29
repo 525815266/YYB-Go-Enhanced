@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 )
 
@@ -50,6 +51,8 @@ var (
 )
 
 type Session struct {
+	Product       string
+	ClientGUID    string
 	ID            string
 	WXUUID        string
 	QRCodeURL     string
@@ -105,7 +108,11 @@ func NewClientWithProxy(timeout time.Duration, proxyValue string, fallbackDirect
 func (c *Client) LoginBuffers() *protocol.LoginBufferClient { return c.loginBuffers }
 
 func (c *Client) GetQRCodeImage(ctx context.Context) (ImageResult, error) {
-	sess, err := c.CreateSession(ctx)
+	return c.GetQRCodeImageForProduct(ctx, "appstore")
+}
+
+func (c *Client) GetQRCodeImageForProduct(ctx context.Context, product string) (ImageResult, error) {
+	sess, err := c.CreateSessionForProduct(ctx, product)
 	if err != nil {
 		return ImageResult{}, err
 	}
@@ -117,12 +124,31 @@ func (c *Client) GetQRCodeImage(ctx context.Context) (ImageResult, error) {
 }
 
 func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
+	return c.CreateSessionForProduct(ctx, "appstore")
+}
+
+func OAuthURL(product string) (string, error) {
+	switch product {
+	case "", "appstore":
+		return oauthURL, nil
+	case "pcmgr":
+		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{"appid": {pcmgr.HostAppID}, "redirect_uri": {"https://security.guanjia.qq.com/login"}, "response_type": {"code"}, "scope": {"snsapi_login,snsapi_runtime_pcsdk"}, "state": {"233"}, "self_redirect": {"true"}}.Encode(), nil
+	default:
+		return "", fmt.Errorf("unsupported scan channel")
+	}
+}
+
+func (c *Client) CreateSessionForProduct(ctx context.Context, product string) (*Session, error) {
+	oauth, err := OAuthURL(product)
+	if err != nil {
+		return nil, err
+	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
 	hc := &http.Client{Timeout: c.timeout, Jar: jar, Transport: c.transport}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, oauthURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, oauth, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +168,12 @@ func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
 		return nil, err
 	}
 	wxuuid := m[1]
+	guid, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
 	return &Session{
+		Product: product, ClientGUID: guid,
 		ID:         id,
 		WXUUID:     wxuuid,
 		QRCodeURL:  qrBase + wxuuid,
@@ -248,6 +279,22 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 	}
 	if sess.AuthorizeCode == "" {
 		return protocol.LoginBufferResult{}, fmt.Errorf("QR session is not authorized yet")
+	}
+	if sess.Product == "pcmgr" {
+		if sess.Credentials == nil {
+			pc, err := pcmgr.ExchangeCode(ctx, sess.HTTPClient, sess.AuthorizeCode, sess.ClientGUID)
+			if err != nil {
+				return protocol.LoginBufferResult{}, err
+			}
+			sess.Credentials = &protocol.LoginBufferCredentials{Provider: "pcmgr", PCMgr: pc, OpenID: pc.Identity(), Nickname: pc.Nickname, ExpiresAt: pc.NextRenewAt(), ExpiresIn: pc.NextRenewAt() - pc.RenewedAt, RefreshTokenObservedAt: time.Now().Unix()}
+		}
+		buffer, err := c.loginBuffers.FetchLoginBuffer(ctx, *sess.Credentials)
+		if err != nil {
+			return protocol.LoginBufferResult{}, err
+		}
+		sess.LoginBuffer = buffer
+		sess.Status = "confirmed"
+		return protocol.LoginBufferResult{LoginBuffer: buffer, Credentials: *sess.Credentials}, nil
 	}
 	cb := callbackURL + "?" + url.Values{
 		"login_type": {"WX"},

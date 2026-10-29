@@ -310,6 +310,7 @@ func (a *App) Handler() http.Handler {
 	router.GET("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.POST("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.Any("/api/auth/profile", gin.WrapF(a.handleProfile))
+	router.Any("/api/scan-settings", gin.WrapF(a.handleScanSettings))
 	router.Any("/api/auth/password", gin.WrapF(a.handlePassword))
 	router.Any("/api/auth/sessions", gin.WrapF(a.handleSessions))
 	router.Any("/api/auth/users", gin.WrapF(a.handleUsers))
@@ -443,7 +444,8 @@ func (a *App) handleQRRoot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if _, err := normalizeLoginProduct(body.Product); err != nil {
+	product, err := a.scanProduct(r, body.Product)
+	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
@@ -459,7 +461,7 @@ func (a *App) handleQRRoot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	img, err := client.GetQRCodeImage(ctx)
+	img, err := client.GetQRCodeImageForProduct(ctx, product)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -484,6 +486,7 @@ func (a *App) handleQRRoot(w http.ResponseWriter, r *http.Request) {
 		basePath = "/wx/qrcodeauth"
 	}
 	out := map[string]any{
+		"product":    product,
 		"session_id": img.Session.ID,
 		"status":     img.Session.Status,
 		"image_url":  basePath + "/" + img.Session.ID + "/image",
@@ -1349,6 +1352,9 @@ func accountNeedsRescan(acc *store.WechatAccount) bool {
 		return false
 	}
 	expiresAt := protocol.CredentialsFromMap(acc.Credentials).ExpiresAt
+	if protocol.CredentialsFromMap(acc.Credentials).Provider == "pcmgr" {
+		return false
+	}
 	return expiresAt > 0 && expiresAt <= time.Now().Unix()
 }
 

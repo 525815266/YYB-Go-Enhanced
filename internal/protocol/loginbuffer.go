@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yyb_go/internal/pcmgr"
 )
 
 var ErrMissingRefreshToken = errors.New("missing refresh token")
@@ -51,15 +53,17 @@ const (
 )
 
 type LoginBufferCredentials struct {
-	OpenID                 string `json:"openid"`
-	AccessToken            string `json:"accesstoken"`
-	RefreshToken           string `json:"refreshtoken"`
-	RefreshTokenObservedAt int64  `json:"refresh_token_observed_at"`
-	RefreshBusinessID      string `json:"refresh_business_id"`
-	LoginType              string `json:"logintype"`
-	Nickname               string `json:"nickname"`
-	ExpiresAt              int64  `json:"expires_at"`
-	ExpiresIn              int64  `json:"expires_in"`
+	Provider               string            `json:"provider,omitempty"`
+	PCMgr                  pcmgr.Credentials `json:"pcmgr,omitempty"`
+	OpenID                 string            `json:"openid"`
+	AccessToken            string            `json:"accesstoken"`
+	RefreshToken           string            `json:"refreshtoken"`
+	RefreshTokenObservedAt int64             `json:"refresh_token_observed_at"`
+	RefreshBusinessID      string            `json:"refresh_business_id"`
+	LoginType              string            `json:"logintype"`
+	Nickname               string            `json:"nickname"`
+	ExpiresAt              int64             `json:"expires_at"`
+	ExpiresIn              int64             `json:"expires_in"`
 }
 
 func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
@@ -70,7 +74,13 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 			expiresAt = refreshedAt + expiresIn
 		}
 	}
+	var pc pcmgr.Credentials
+	if value, ok := m["pcmgr"]; ok {
+		raw, _ := json.Marshal(value)
+		_ = json.Unmarshal(raw, &pc)
+	}
 	return LoginBufferCredentials{
+		Provider: stringFromMap(m, "provider"), PCMgr: pc,
 		OpenID:                 stringFromMap(m, "openid"),
 		AccessToken:            stringFromMap(m, "accesstoken"),
 		RefreshToken:           stringFromMap(m, "refreshtoken"),
@@ -84,7 +94,7 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 }
 
 func (c LoginBufferCredentials) ToMap() map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"openid":                    c.OpenID,
 		"accesstoken":               c.AccessToken,
 		"refreshtoken":              c.RefreshToken,
@@ -96,6 +106,13 @@ func (c LoginBufferCredentials) ToMap() map[string]any {
 		"expires_in":                defaultInt64(c.ExpiresIn, 7200),
 		"refresh_refreshed_at":      time.Now().Unix(),
 	}
+	if c.Provider != "" {
+		result["provider"] = c.Provider
+	}
+	if c.Provider == "pcmgr" {
+		result["pcmgr"] = c.PCMgr
+	}
+	return result
 }
 
 // ToMapForScan serializes credentials captured from a successful QR scan.
@@ -111,6 +128,9 @@ func (c LoginBufferCredentials) ToMapForScan() map[string]any {
 }
 
 func (c LoginBufferCredentials) Expired(skew time.Duration) bool {
+	if c.Provider == "pcmgr" {
+		return c.PCMgr.Validate() != nil
+	}
 	return time.Now().Add(skew).Unix() >= c.ExpiresAt
 }
 
@@ -140,6 +160,12 @@ func NewLoginBufferClientWithHTTPClient(httpClient *http.Client, timeout time.Du
 }
 
 func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBufferCredentials) (string, error) {
+	if creds.Provider == "pcmgr" {
+		return pcmgr.FetchBuffer(ctx, c.httpClient, creds.PCMgr)
+	}
+	if creds.Provider != "" && creds.Provider != "appstore" {
+		return "", fmt.Errorf("unsupported credential provider")
+	}
 	body, err := json.Marshal(loginBufferRequest{
 		ExtInfo: loginExtInfo{
 			ListS: loginListS{
@@ -180,6 +206,19 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 }
 
 func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginBufferCredentials) (LoginBufferCredentials, error) {
+	if creds.Provider == "pcmgr" {
+		pc, err := pcmgr.Renew(ctx, c.httpClient, creds.PCMgr)
+		if err != nil {
+			return LoginBufferCredentials{}, err
+		}
+		creds.PCMgr = pc
+		creds.ExpiresAt = pc.NextRenewAt()
+		creds.ExpiresIn = creds.ExpiresAt - pc.RenewedAt
+		return creds, nil
+	}
+	if creds.Provider != "" && creds.Provider != "appstore" {
+		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential provider")
+	}
 	// QR credentials come from /pc_yyb/pcyyb_oauth, including legacy records
 	// without a source marker. wxapp's separate authorization uses _auth.
 	business, endpoint, key := "pc_yyb", mainRefreshURL, ""
@@ -277,6 +316,9 @@ func (c *LoginBufferClient) RefreshLoginBuffer(ctx context.Context, creds LoginB
 }
 
 func (c *LoginBufferClient) FetchUserInfo(ctx context.Context, creds LoginBufferCredentials) (map[string]any, error) {
+	if creds.Provider == "pcmgr" {
+		return map[string]any{"nickname": creds.PCMgr.Nickname, "headimgurl": creds.PCMgr.Avatar, "unionid": creds.PCMgr.UnionID}, nil
+	}
 	ts, nonce := timestampMS(), nonce4()
 	var data map[string]any
 	err := c.requestJSON(ctx, http.MethodGet, userInfoURL, nil, map[string]string{

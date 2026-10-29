@@ -140,6 +140,9 @@ func (a *App) clearKeepAliveRetry(accountID int64) {
 }
 
 func keepAliveFailureBackoff(creds protocol.LoginBufferCredentials, now time.Time) time.Duration {
+	if creds.Provider == "pcmgr" {
+		return keepAliveRetryBackoff
+	}
 	// A five-minute delay would skip the entire official four-minute window.
 	remaining := time.Unix(creds.ExpiresAt, 0).Sub(now)
 	return min(keepAliveRetryBackoff, max(30*time.Second, remaining/2))
@@ -395,6 +398,11 @@ func (a *App) fetchUserInfoWithProxy(ctx context.Context, creds protocol.LoginBu
 }
 
 func credentialsDueForRefresh(creds protocol.LoginBufferCredentials, now time.Time, ahead time.Duration) bool {
+	if creds.Provider == "pcmgr" {
+		// This is the native key's next renewal schedule, not an OAuth expiry.
+		// Applying the OAuth lead time would repeatedly rotate short intervals.
+		return now.Unix() >= creds.PCMgr.NextRenewAt()
+	}
 	return creds.ExpiresAt <= 0 || now.Add(ahead).Unix() >= creds.ExpiresAt
 }
 

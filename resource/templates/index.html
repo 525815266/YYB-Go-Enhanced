@@ -1389,6 +1389,10 @@
     function lifecycleMarkup(account) {
       if (account.status === "expired") return '<span class="account-lifecycle lifecycle-inactive">保活已停止 · 重新扫码后恢复</span>';
       const now = Math.floor(Date.now() / 1000);
+	  if(account.scan_product==='pcmgr'){
+		const due=Number(account.credential_expires_at||0),remaining=Math.max(0,due-now),interval=Number(account.credential_expires_in||86400),ratio=Math.min(1,remaining/interval);
+		return `<span class="account-lifecycle" aria-label="电脑管家续期计划"><span class="lifecycle-row"><span class="lifecycle-label">管家续期</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(ratio)};width:${(ratio*100).toFixed(1)}%"></span></span><span class="lifecycle-value">${due?remaining?lifecycleDuration(remaining):'待续期':'未记录'}</span></span><span class="lifecycle-note">腾讯电脑管家 · 下次续期时间，不代表凭据实际有效期</span></span>`;
+	  }
       const observed = Number(account.refresh_token_observed_at || 0);
       const scanWindow = 30 * 86400;
       const scanRemaining = observed ? Math.max(0, scanWindow - (now - observed)) : 0;

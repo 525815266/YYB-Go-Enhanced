@@ -152,6 +152,7 @@ type WechatAccount struct {
 }
 
 type AccountPublic struct {
+	ScanProduct            string  `json:"scan_product"`
 	ID                     int64   `json:"id"`
 	OpenID                 string  `json:"openid"`
 	UIN                    *int64  `json:"uin"`
@@ -921,6 +922,10 @@ func (db *DB) GetFeatureByName(ctx context.Context, name string) (*Feature, erro
 }
 
 func (a *WechatAccount) Public() AccountPublic {
+	product := "appstore"
+	if strings.HasPrefix(a.OpenID, "pcmgr:") {
+		product = "pcmgr"
+	}
 	var refreshTokenObservedAt *int64
 	rescanRecommended := false
 	var credentialExpiresAt *int64
@@ -947,11 +952,12 @@ func (a *WechatAccount) Public() AccountPublic {
 		// A transient refresh failure is kept as unknown for retry purposes, but
 		// once the cached credential is past its expiry the UI should still guide
 		// the operator to rescan instead of leaving the account looking healthy.
-		if !rescanRecommended && (a.Status == nil || strings.EqualFold(strings.TrimSpace(*a.Status), "unknown")) && expiresAt <= time.Now().Unix() {
+		if product != "pcmgr" && !rescanRecommended && (a.Status == nil || strings.EqualFold(strings.TrimSpace(*a.Status), "unknown")) && expiresAt <= time.Now().Unix() {
 			rescanRecommended = true
 		}
 	}
 	return AccountPublic{
+		ScanProduct:            product,
 		ID:                     a.ID,
 		OpenID:                 a.OpenID,
 		UIN:                    a.UIN,

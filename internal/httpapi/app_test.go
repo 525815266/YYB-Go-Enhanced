@@ -302,7 +302,7 @@ func TestAuthMeWithoutConfiguredAuthentication(t *testing.T) {
 	if response.Code != 0 || response.Data.AuthEnabled || response.Data.User.Username != "local" || response.Data.User.DisplayName == "" || response.Data.User.Role != "admin" {
 		t.Fatalf("GET /api/auth/me body = %#v", response)
 	}
-	for _, path := range []string{"/settings", "/users"} {
+	for _, path := range []string{"/users"} {
 		page := httptest.NewRecorder()
 		app.Handler().ServeHTTP(page, httptest.NewRequest(http.MethodGet, path, nil))
 		if page.Code != http.StatusSeeOther || page.Header().Get("Location") != "/" {

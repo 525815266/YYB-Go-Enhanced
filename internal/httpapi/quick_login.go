@@ -44,8 +44,8 @@ func (a *App) handleQuickLoginRoot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if _, err := normalizeLoginProduct(proxyBody.Product); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
+	if product, err := normalizeLoginProduct(proxyBody.Product); err != nil || product != "appstore" {
+		writeError(w, http.StatusUnprocessableEntity, "本机微信快捷授权仅支持应用宝，请使用扫码切换渠道")
 		return
 	}
 	normalizedBody, proxySpec, err := a.normalizeAccountProxyInput(r.Context(), proxyBody)

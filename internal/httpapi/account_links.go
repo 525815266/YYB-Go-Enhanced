@@ -469,6 +469,20 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 		a.handleAccountLinkQRCreate(w, r, link)
 		return
 	}
+	if parts[1] == "meta" && len(parts) == 2 && r.Method == http.MethodGet {
+		base, err := a.db.GetAccount(r.Context(), link.AccountID)
+		if err != nil {
+			writeError(w, 410, "基础账号已不存在")
+			return
+		}
+		product, err := a.linkScanProduct(r.Context(), link, base, "")
+		if err != nil {
+			writeError(w, 500, "读取扫码渠道失败")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"product": product, "locked": link.Kind == accountLinkKindUpdate, "kind": link.Kind, "target": deref(base.Remark), "account_id": base.ID, "expires_at": link.ExpiresAt})
+		return
+	}
 	if len(parts) != 4 || parts[1] != "qr" {
 		writeError(w, http.StatusNotFound, "account link route not found")
 		return
@@ -480,6 +494,16 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
+	case "cancel":
+		if r.Method != http.MethodPost {
+			writeError(w, 405, "method not allowed")
+			return
+		}
+		login.mu.Lock()
+		login.cancelled = true
+		login.mu.Unlock()
+		a.dropQRSession(sessionID)
+		writeJSON(w, 200, map[string]any{"cancelled": true})
 	case "image":
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -523,6 +547,19 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusGone, "基础账号已不存在")
 		return
 	}
+	var body struct {
+		Product string `json:"product"`
+	}
+	if err := decodeOptionalJSON(r, &body); err != nil {
+		writeError(w, 400, "请求格式错误")
+		return
+	}
+	product, err := a.linkScanProduct(r.Context(), link, base, body.Product)
+	if err != nil {
+		writeError(w, 422, err.Error())
+		return
+	}
+	a.pruneQR()
 	proxyValue, fallbackDirect, err := a.resolveAccountProxy(r.Context(), base.ID)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "解析账号代理失败："+err.Error())
@@ -536,7 +573,7 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 	}
-	img, err := client.GetQRCodeImage(r.Context())
+	img, err := client.GetQRCodeImageForProduct(r.Context(), product)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -550,6 +587,7 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 	path := a.resources.qrPath(img.Session.ID)
 	_ = os.WriteFile(path, img.ImageBytes, 0o644)
 	writeJSON(w, http.StatusOK, map[string]any{
+		"product":    product,
 		"session_id": img.Session.ID, "status": img.Session.Status,
 		"image_url":       "/account-link/" + tokenForLinkPath(r.URL.Path) + "/qr/" + img.Session.ID + "/image",
 		"expires_in":      int64(a.cfg.QRSessionTTL.Seconds()),
@@ -557,6 +595,37 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 		"link_expires_at": link.ExpiresAt,
 		"mode":            link.Kind,
 	})
+}
+
+func (a *App) linkScanProduct(ctx context.Context, link *store.AccountLink, base *store.WechatAccount, explicit string) (string, error) {
+	if link.Kind == accountLinkKindUpdate {
+		product := base.Public().ScanProduct
+		if explicit != "" {
+			selected, err := normalizeLoginProduct(explicit)
+			if err != nil {
+				return "", err
+			}
+			if selected != product {
+				return "", fmt.Errorf("更新链接请使用账号原扫码渠道")
+			}
+		}
+		return product, nil
+	}
+	if explicit != "" {
+		return normalizeLoginProduct(explicit)
+	}
+	var owner int64
+	if link.OwnerUserID != nil {
+		owner = *link.OwnerUserID
+	}
+	global, personal, err := a.scanDefaults(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+	if personal != "" {
+		return personal, nil
+	}
+	return global, nil
 }
 
 func tokenForLinkPath(path string) string {

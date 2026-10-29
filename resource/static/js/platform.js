@@ -47,7 +47,7 @@
       ["/account-links", "link", "已激活短链接", true, true],
       ["/users", "users", "用户管理", false, true],
       ["/maintenance", "settings", "系统维护", false, true],
-      ["/settings", "settings", "个人设置", true, true]
+      ["/settings", "settings", "个人设置", true, false]
     ]}
   ];
   const isActive = href => {
