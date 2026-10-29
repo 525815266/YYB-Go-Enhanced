@@ -93,17 +93,17 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 	}
 }
 
-func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool) (map[string]any, error) {
+func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	codeLock := p.codeLockFor(accountID)
 	if err := acquire(ctx, codeLock); err != nil {
 		return nil, err
 	}
 	defer release(codeLock)
 
-	return p.getCode(ctx, loginBuffer, appID, accountID, tcpProxy, fallbackDirect)
+	return p.getCode(ctx, loginBuffer, appID, accountID, tcpProxy, fallbackDirect, expected...)
 }
 
-func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool) (map[string]any, error) {
+func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	call := func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 		hostAppID := st.Session.HostAppID
 		if len(hostAppID) == 0 {
@@ -121,13 +121,13 @@ func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID
 		return map[string]any{"code": string(code), "errMsg": "login:ok"}, nil
 	}
 	return retryLoginCode(ctx, func() (map[string]any, error) {
-		return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, call)
+		return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, call, expected...)
 	}, func() error {
-		if err := p.Invalidate(ctx, accountID, tcpProxy); err != nil {
+		if err := p.invalidateExpected(ctx, accountID, tcpProxy, expected...); err != nil {
 			return err
 		}
 		if tcpProxy != "" && fallbackDirect {
-			return p.Invalidate(ctx, accountID, "")
+			return p.invalidateExpected(ctx, accountID, "", expected...)
 		}
 		return nil
 	})
@@ -165,7 +165,7 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 	return result, nil
 }
 
-func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool) (map[string]any, error) {
+func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 		plain := buildPhoneRequest(st.Session.UIN, appID)
 		envelope, err := buildTransferPacket(st.Session, plain)
@@ -177,10 +177,10 @@ func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, ac
 			return nil, err
 		}
 		return parseRawResponse(code, resp), nil
-	})
+	}, expected...)
 }
 
-func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, payload map[string]any, accountID int64, tcpProxy string, fallbackDirect bool) (map[string]any, error) {
+func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, payload map[string]any, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 		plain, err := buildOperateRequest(st.Session.UIN, appID, payload)
 		if err != nil {
@@ -195,25 +195,32 @@ func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, pay
 			return nil, err
 		}
 		return parseRawResponse(code, resp), nil
-	})
+	}, expected...)
 }
 
 func (p *Pool) Invalidate(ctx context.Context, accountID int64, tcpProxy string) error {
 	return p.db.InvalidateSession(ctx, accountID, tcpProxy)
 }
 
-func (p *Pool) run(ctx context.Context, loginBuffer string, accountID int64, tcpProxy string, fallbackDirect bool, op func(context.Context, WmpfSession) (map[string]any, error)) (map[string]any, error) {
-	st, err := p.state(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect)
+func (p *Pool) invalidateExpected(ctx context.Context, accountID int64, proxy string, expected ...*store.WechatAccount) error {
+	if len(expected) > 0 {
+		return p.db.InvalidateSessionForAccount(ctx, expected[0], proxy)
+	}
+	return p.Invalidate(ctx, accountID, proxy)
+}
+
+func (p *Pool) run(ctx context.Context, loginBuffer string, accountID int64, tcpProxy string, fallbackDirect bool, op func(context.Context, WmpfSession) (map[string]any, error), expected ...*store.WechatAccount) (map[string]any, error) {
+	st, err := p.state(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, expected...)
 	if err == nil {
 		st.FallbackDirect = fallbackDirect
 		res, err := op(ctx, st)
 		if err == nil || tcpProxy == "" || !fallbackDirect {
 			return res, err
 		}
-		_ = p.Invalidate(ctx, accountID, tcpProxy)
+		_ = p.invalidateExpected(ctx, accountID, tcpProxy, expected...)
 	}
 	if tcpProxy != "" && fallbackDirect {
-		st, err = p.state(ctx, loginBuffer, accountID, "", false)
+		st, err = p.state(ctx, loginBuffer, accountID, "", false, expected...)
 		if err != nil {
 			return nil, err
 		}
@@ -222,10 +229,17 @@ func (p *Pool) run(ctx context.Context, loginBuffer string, accountID int64, tcp
 	return nil, err
 }
 
-func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, tcpProxy string, fallbackDirect bool) (WmpfSession, error) {
+func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (WmpfSession, error) {
 	// Include the queue wait in the login budget, not just the socket work.
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.LoginTimeout)
 	defer cancel()
+	acc, err := p.db.GetAccount(ctx, accountID)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	if len(expected) > 0 && !acc.SameAuthorization(expected[0]) {
+		return WmpfSession{}, store.ErrAccountAuthorizationChanged
+	}
 	if st, err := p.cachedSession(ctx, accountID, tcpProxy); err == nil {
 		return st, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -241,9 +255,12 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return WmpfSession{}, err
 	}
-	acc, err := p.db.GetAccount(ctx, accountID)
+	acc, err = p.db.GetAccount(ctx, accountID)
 	if err != nil {
 		return WmpfSession{}, err
+	}
+	if len(expected) > 0 && !acc.SameAuthorization(expected[0]) {
+		return WmpfSession{}, store.ErrAccountAuthorizationChanged
 	}
 	if err = acquire(ctx, p.loginSem); err != nil {
 		return WmpfSession{}, err
@@ -254,10 +271,9 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 		return WmpfSession{}, err
 	}
 	uin := st.Session.UIN
-	_ = p.db.SetAccountUIN(ctx, acc.ID, uin)
 	expiresAt := sessionExpiresAt(st, p.cfg.SessionTTL)
 	blob := st.toBlob()
-	if err = p.db.PutSession(ctx, accountID, &uin, blob, expiresAt, tcpProxy); err != nil {
+	if err = p.db.PutSessionForAccount(ctx, acc, uin, blob, expiresAt, tcpProxy); err != nil {
 		return WmpfSession{}, err
 	}
 	return st, nil

@@ -334,6 +334,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/accounts", gin.WrapF(a.handleAccountsRoot))
 	router.Any("/accounts/repair", gin.WrapF(a.handleAccountRepair))
 	router.Any("/accounts/compact", gin.WrapF(a.handleAccountCompact))
+	router.Any("/accounts/merge", gin.WrapF(a.handleAccountMerge))
 	router.Any("/accounts/avatar", gin.WrapF(a.handleAccountAvatar))
 	router.Any("/accounts/refresh", gin.WrapF(a.handleAccountRefresh))
 	router.Any("/accounts/resync", gin.WrapF(a.handleAccountResync))
@@ -1268,6 +1269,10 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if callErr == nil {
 		return result, nil
 	}
+	current, snapshotErr := a.db.GetAccount(ctx, acc.ID)
+	if errors.Is(callErr, store.ErrAccountAuthorizationChanged) || snapshotErr == nil && !current.SameAuthorization(acc) {
+		return nil, store.ErrAccountAuthorizationChanged
+	}
 	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) {
 		// A successful decryption without an application code does not prove
 		// the account expired. Other apps can still use this same session.
@@ -1301,7 +1306,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 			return nil, callErr
 		}
 	}
-	_ = a.db.InvalidateSession(ctx, acc.ID, proxyValue)
+	_ = a.db.InvalidateSessionForAccount(ctx, acc, proxyValue)
 	// Credential recovery always uses the account's refresh route, even when
 	// this protocol call explicitly selected direct egress.
 	status, _, refreshErr := a.refreshAccount(ctx, acc, true)
@@ -1359,15 +1364,15 @@ func accountNeedsRescan(acc *store.WechatAccount) bool {
 }
 
 func (a *App) invokeGetCode(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
-	return a.pool.GetCode(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect)
+	return a.pool.GetCode(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
 }
 
 func (a *App) invokeGetPhoneNumber(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
-	return a.pool.GetPhoneNumber(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect)
+	return a.pool.GetPhoneNumber(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
 }
 
 func (a *App) invokeOperateWXData(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
-	return a.pool.OperateWXData(ctx, acc.LoginBuffer, appID, payload, acc.ID, proxyValue, fallbackDirect)
+	return a.pool.OperateWXData(ctx, acc.LoginBuffer, appID, payload, acc.ID, proxyValue, fallbackDirect, acc)
 }
 
 func refreshOut(acc *store.WechatAccount, status string, refreshErr error) map[string]any {

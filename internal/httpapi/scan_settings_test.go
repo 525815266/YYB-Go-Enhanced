@@ -96,7 +96,7 @@ func TestScanDefaultsPriorityAndPermissions(t *testing.T) {
 	}
 }
 
-func TestUpdateLinkCannotSwitchProductOrAllocateQR(t *testing.T) {
+func TestUpdateLinkCannotSwitchProductWithoutConsentOrAllocateQR(t *testing.T) {
 	a, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)

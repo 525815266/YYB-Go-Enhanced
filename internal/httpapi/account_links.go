@@ -140,9 +140,11 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Kind       string `json:"kind"`
-		Ref        string `json:"ref"`
-		TTLSeconds int64  `json:"ttl_seconds"`
+		Kind          string `json:"kind"`
+		Ref           string `json:"ref"`
+		TTLSeconds    int64  `json:"ttl_seconds"`
+		Product       string `json:"product"`
+		ConfirmSwitch bool   `json:"confirm_switch"`
 	}
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -166,6 +168,19 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	account, ok := a.resolveAccountRef(w, r, body.Ref)
 	if !ok {
+		return
+	}
+	product := body.Product
+	if product == "" && body.Kind == accountLinkKindUpdate {
+		product = account.Public().ScanProduct
+	}
+	product, err := a.scanProduct(r, product)
+	if err != nil {
+		writeError(w, 422, err.Error())
+		return
+	}
+	if body.Kind == accountLinkKindUpdate && product != account.Public().ScanProduct && !body.ConfirmSwitch {
+		writeError(w, 422, "请确认切换渠道：将保留账号 ID，并替换 OpenID、凭据和会话")
 		return
 	}
 	var ownerUserID *int64
@@ -220,13 +235,14 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	link, err := a.db.CreateAccountLinkWithCiphertext(r.Context(), tokenHash, a.encryptAccountLinkToken(rawToken), body.Kind, account.ID, ownerUserID, expectedOpenID, time.Now().Add(time.Duration(body.TTLSeconds)*time.Second).Unix())
+	link, err := a.db.CreateAccountLinkForProduct(r.Context(), tokenHash, a.encryptAccountLinkToken(rawToken), body.Kind, account.ID, ownerUserID, expectedOpenID, time.Now().Add(time.Duration(body.TTLSeconds)*time.Second).Unix(), product, body.ConfirmSwitch)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"kind":           link.Kind,
+		"product":        product,
 		"url":            a.accountLinkURL(r, rawToken),
 		"expires_at":     link.ExpiresAt,
 		"one_time":       true,
@@ -285,7 +301,7 @@ func (a *App) decryptAccountLinkToken(value string) (string, error) {
 }
 
 func (a *App) accountLinkManagementJSON(r *http.Request, item store.AccountLinkRecord) map[string]any {
-	entry := map[string]any{"id": item.ID, "kind": item.Kind, "account_id": item.AccountID, "owner_user_id": item.OwnerUserID, "expires_at": item.ExpiresAt, "created_at": item.CreatedAt, "status": item.Status, "used_at": item.UsedAt, "revoked_at": item.RevokedAt, "url": ""}
+	entry := map[string]any{"id": item.ID, "kind": item.Kind, "account_id": item.AccountID, "owner_user_id": item.OwnerUserID, "expires_at": item.ExpiresAt, "created_at": item.CreatedAt, "status": item.Status, "used_at": item.UsedAt, "revoked_at": item.RevokedAt, "url": "", "product": item.TargetProduct}
 	if item.TokenCiphertext != "" {
 		if token, err := a.decryptAccountLinkToken(item.TokenCiphertext); err == nil && validAccountLinkToken(token) {
 			entry["url"] = a.accountLinkURL(r, token)
@@ -480,7 +496,7 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "读取扫码渠道失败")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"product": product, "locked": link.Kind == accountLinkKindUpdate, "kind": link.Kind, "target": deref(base.Remark), "account_id": base.ID, "expires_at": link.ExpiresAt})
+		writeJSON(w, 200, map[string]any{"product": product, "source_product": base.Public().ScanProduct, "switch_confirmed": link.SwitchConfirmed, "locked": false, "kind": link.Kind, "target": firstAccountLabel(base.Remark, base.Nickname), "account_id": base.ID, "expires_at": link.ExpiresAt})
 		return
 	}
 	if len(parts) != 4 || parts[1] != "qr" {
@@ -489,7 +505,7 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID, action := parts[2], parts[3]
 	login := a.getQRSession(sessionID)
-	if login == nil || login.AccountLinkID != link.ID {
+	if login == nil || login.AccountLinkID != link.ID || login.AccountLinkHash != link.TokenHash {
 		writeError(w, http.StatusNotFound, "二维码会话不存在或不属于此链接")
 		return
 	}
@@ -548,7 +564,8 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	var body struct {
-		Product string `json:"product"`
+		Product       string `json:"product"`
+		ConfirmSwitch bool   `json:"confirm_switch"`
 	}
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		writeError(w, 400, "请求格式错误")
@@ -557,6 +574,12 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 	product, err := a.linkScanProduct(r.Context(), link, base, body.Product)
 	if err != nil {
 		writeError(w, 422, err.Error())
+		return
+	}
+	switching := link.Kind == accountLinkKindUpdate && product != base.Public().ScanProduct
+	confirmed := body.ConfirmSwitch || (link.SwitchConfirmed && link.TargetProduct == product)
+	if switching && !confirmed {
+		writeError(w, 422, "请先确认切换渠道后再生成二维码")
 		return
 	}
 	a.pruneQR()
@@ -582,6 +605,8 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 	a.qrSessions[img.Session.ID] = &qrLoginSession{
 		Session: img.Session, Client: client, ImageBytes: append([]byte(nil), img.ImageBytes...),
 		AccountLinkID: link.ID, AccountLinkMode: link.Kind, BaseAccountID: link.AccountID,
+		AccountLinkHash: link.TokenHash,
+		SwitchConfirmed: switching && confirmed,
 	}
 	a.mu.Unlock()
 	path := a.resources.qrPath(img.Session.ID)
@@ -598,21 +623,14 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 }
 
 func (a *App) linkScanProduct(ctx context.Context, link *store.AccountLink, base *store.WechatAccount, explicit string) (string, error) {
-	if link.Kind == accountLinkKindUpdate {
-		product := base.Public().ScanProduct
-		if explicit != "" {
-			selected, err := normalizeLoginProduct(explicit)
-			if err != nil {
-				return "", err
-			}
-			if selected != product {
-				return "", fmt.Errorf("更新链接请使用账号原扫码渠道")
-			}
-		}
-		return product, nil
-	}
 	if explicit != "" {
 		return normalizeLoginProduct(explicit)
+	}
+	if link.TargetProduct != "" {
+		return normalizeLoginProduct(link.TargetProduct)
+	}
+	if link.Kind == accountLinkKindUpdate {
+		return base.Public().ScanProduct, nil
 	}
 	var owner int64
 	if link.OwnerUserID != nil {
@@ -658,10 +676,15 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 		writeError(w, http.StatusGone, "账号授权链接已失效或已使用")
 		return
 	}
-	if link.Kind == accountLinkKindUpdate && result.Credentials.OpenID != link.ExpectedOpenID {
+	if link.Kind == accountLinkKindUpdate && !login.SwitchConfirmed && result.Credentials.OpenID != link.ExpectedOpenID {
 		// Keep the QR session and one-time link alive: the operator may have
 		// opened the link on another phone or scanned with the wrong account.
 		writeError(w, http.StatusConflict, "请使用目标账号扫码：该链接仅限指定账号更新，当前账号未被修改")
+		return
+	}
+	product, err := normalizeLoginProduct(result.Credentials.Provider)
+	if err != nil || product != login.Session.Product {
+		writeError(w, 409, "授权渠道与二维码不一致，请重新生成二维码")
 		return
 	}
 	if link.Kind == accountLinkKindAdd {
@@ -679,6 +702,53 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 	var userInfo map[string]any
 	if ui, err := login.Client.LoginBuffers().FetchUserInfo(r.Context(), result.Credentials); err == nil {
 		userInfo = ui
+	}
+	if link.Kind == accountLinkKindUpdate {
+		before, err := a.db.GetAccount(r.Context(), link.AccountID)
+		if err != nil {
+			writeError(w, 410, "目标账号已不存在")
+			return
+		}
+		if before.OpenID != link.ExpectedOpenID {
+			writeError(w, 410, "账号授权已更新，请重新生成链接")
+			return
+		}
+		if login.SwitchConfirmed && login.Session.Product == before.Public().ScanProduct {
+			writeError(w, 409, "账号渠道已变化，请重新生成二维码")
+			return
+		}
+		// Share the lock with keepalive. Its CAS also rejects any older snapshot.
+		lock := a.refreshLockFor(before.ID)
+		select {
+		case lock <- struct{}{}:
+		case <-r.Context().Done():
+			return
+		}
+		nick := pickNickname(userInfo, result.Credentials.Nickname)
+		avatar := a.resolveAvatar(r.Context(), result.Credentials.OpenID, userInfo)
+		acc, err := a.db.UpdateAccountFromLink(r.Context(), link, result.Credentials.OpenID, result.LoginBuffer, stringPtrMaybe(nick), stringPtrMaybe(avatar), userInfo, result.Credentials.ToMapForScan())
+		<-lock
+		if errors.Is(err, store.ErrAccountIdentityConflict) {
+			writeError(w, 409, "该渠道身份已属于其他账号，请先处理重复账号；原账号未修改")
+			return
+		}
+		if errors.Is(err, store.ErrAccountLinkChanged) {
+			writeError(w, 410, "授权链接已消费或目标账号已更新")
+			return
+		}
+		if err != nil {
+			writeError(w, 500, "保存账号更新失败")
+			return
+		}
+		a.invalidateProxyLease(acc.ID)
+		a.clearKeepAliveRetry(acc.ID)
+		warning := a.syncUpdatedAccountReferences(acc)
+		dropAfterConfirm = true
+		writeJSON(w, 200, struct {
+			store.AccountPublic
+			Warning string `json:"warning,omitempty"`
+		}{acc.Public(), warning})
+		return
 	}
 	consumed, err := a.db.ConsumeAccountLink(r.Context(), link.ID)
 	if err != nil {

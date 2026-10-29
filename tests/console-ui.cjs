@@ -17,7 +17,7 @@ const path = require('node:path');
       assert.equal((await result.json()).data.ok, true);
     }
     const now = Math.floor(Date.now()/1000);
-    const accounts = ['晨风','山岚','星河','听雨','远舟','拾光'].map((nickname,i) => ({id:i+1, nickname, remark:'', openid:`demo-account-${i+1}`, status:['alive','unknown','expired'][i%3], refresh_token_observed_at:now-(i*4+1)*86400, credential_expires_at:now+5820, credential_expires_in:7200}));
+    const accounts = ['晨风','山岚','星河','听雨','远舟','拾光'].map((nickname,i) => ({id:i+1, nickname, remark:'', openid:`demo-account-${i+1}`, scan_product:i===1?'pcmgr':'appstore', status:['alive','unknown','expired'][i%3], refresh_token_observed_at:now-(i*4+1)*86400, credential_expires_at:now+5820, credential_expires_in:7200}));
     const envelope = data => ({status:200,contentType:'application/json',body:JSON.stringify({code:0,msg:'success',data})});
     await context.route('**/api/auth/me',route=>route.fulfill(envelope({auth_enabled:true,user:{username:'demo',display_name:'演示管理员',role:'admin'}})));
     await context.route('**/api/version',route=>route.fulfill(envelope({version:require('node:fs').readFileSync(path.join(__dirname,'../VERSION'),'utf8').trim()})));
@@ -54,6 +54,9 @@ const path = require('node:path');
       await page.setViewportSize({width,height:1000});
       await page.goto(base + '/');
       await page.locator('.account-card').first().waitFor();
+      assert.equal(await page.locator('.scan-channel-badge').count(),accounts.length);
+      assert.equal(await page.locator('.account-card').nth(1).locator('.lifecycle-row').count(),1);
+      assert.match(await page.locator('.account-card').nth(1).innerText(),/续期计划，非实际有效期/);
       await page.locator('#accountProxyStatus').filter({hasText:'直连'}).waitFor();
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth > innerWidth+1),false,`overflow ${width}`);
       assert.equal(await page.locator('button button').count(),0);
@@ -90,7 +93,7 @@ const path = require('node:path');
         assert.equal(await page.locator('#mobileProxySettingsLink').getAttribute('href'),'/proxies?ref=6');
         assert.equal(await page.locator('#mobileAccountActions .btn').evaluateAll(buttons=>buttons.every(btn=>btn.getBoundingClientRect().height>=44)),true);
         await page.locator('#mobileUpdateAccountBtn').click();
-        assert.match(await page.locator('#accountLinkDialogDescription').innerText(),/仅限 拾光/);
+        assert.match(await page.locator('#accountLinkDialogDescription').innerText(),/更新 拾光/);
         await page.locator('#accountLinkGenerateBtn').click();
         await page.locator('#accountLinkResultPane').waitFor({state:'visible'});
         assert.equal(linkRequests.at(-1).ref,'6');
@@ -113,8 +116,19 @@ const path = require('node:path');
       } else {
         assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);
         await page.locator('.account-card').nth(3).locator('[data-update-account]').click();
-        assert.match(await page.locator('#accountLinkDialogDescription').innerText(),/仅限 听雨/);
-        await page.locator('#accountLinkCancelBtn').click();
+        assert.match(await page.locator('#accountLinkDialogDescription').innerText(),/更新 听雨/);
+        if(width===1440){
+          await page.selectOption('#accountLinkProduct','pcmgr');
+          await page.getByRole('button',{name:'保留原渠道',exact:true}).click();
+          assert.equal(await page.locator('#accountLinkProduct').inputValue(),'appstore');
+          await page.selectOption('#accountLinkProduct','pcmgr');
+          await page.getByRole('button',{name:'确认切换',exact:true}).click();
+          await page.locator('#accountLinkGenerateBtn').click();
+          await page.locator('#accountLinkResultPane').waitFor({state:'visible'});
+          assert.equal(linkRequests.at(-1).product,'pcmgr');
+          assert.equal(linkRequests.at(-1).confirm_switch,true);
+        }
+        await page.locator('#accountLinkDialogClose').click();
         await page.locator('.account-card').first().locator('.account-select').click();
         if (width === 1440) {
           const cards = await page.locator('.account-card').evaluateAll(elements=>elements.slice(0,2).map(e=>{const r=e.getBoundingClientRect();return {top:r.top,left:r.left,height:r.height};}));

@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS account_links (
     owner_user_id   INTEGER,
     expected_openid TEXT    NOT NULL DEFAULT '',
     token_ciphertext TEXT   NOT NULL DEFAULT '',
+    target_product TEXT    NOT NULL DEFAULT '',
+    switch_confirmed INTEGER NOT NULL DEFAULT 0,
     expires_at      INTEGER NOT NULL,
     used_at         INTEGER,
     revoked_at      INTEGER,
@@ -243,6 +245,8 @@ func migrateAccountLinks(ctx context.Context, db *sql.DB) error {
 	for _, column := range []struct{ name, definition string }{
 		{"token_ciphertext", "TEXT NOT NULL DEFAULT ''"},
 		{"revoked_at", "INTEGER"},
+		{"target_product", "TEXT NOT NULL DEFAULT ''"},
+		{"switch_confirmed", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		exists, err := sqliteColumnExists(ctx, db, "account_links", column.name)
 		if err != nil {
@@ -669,6 +673,9 @@ func (db *DB) CompactAccountIDs(ctx context.Context) (map[int64]int64, error) {
 				return nil, err
 			}
 		}
+		if _, err = tx.ExecContext(ctx, "UPDATE app_settings SET key=? WHERE key=?", accountReferenceKey(-oldID), accountReferenceKey(oldID)); err != nil {
+			return nil, err
+		}
 	}
 	for oldID, newID := range mapping {
 		if _, err = tx.ExecContext(ctx, "UPDATE wechat_accounts SET id=? WHERE id=?", newID, -oldID); err != nil {
@@ -678,6 +685,9 @@ func (db *DB) CompactAccountIDs(ctx context.Context) (map[int64]int64, error) {
 			if _, err = tx.ExecContext(ctx, "UPDATE "+child.table+" SET "+child.column+"=? WHERE "+child.column+"=?", newID, -oldID); err != nil {
 				return nil, err
 			}
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE app_settings SET key=? WHERE key=?", accountReferenceKey(newID), accountReferenceKey(-oldID)); err != nil {
+			return nil, err
 		}
 	}
 	// Keep SQLite's AUTOINCREMENT metadata aligned for any external inserts.
@@ -806,8 +816,18 @@ func (db *DB) SetAccountStatus(ctx context.Context, id int64, status string) err
 }
 
 func (db *DB) DeleteAccount(ctx context.Context, id int64) error {
-	_, err := db.sql.ExecContext(ctx, "DELETE FROM wechat_accounts WHERE id=?", id)
-	return err
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM wechat_accounts WHERE id=?", id); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM app_settings WHERE key=?", accountReferenceKey(id)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) GetSession(ctx context.Context, accountID int64, tcpProxy string) (*SessionRow, error) {

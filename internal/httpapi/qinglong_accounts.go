@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 	"net/http"
@@ -378,7 +379,14 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 	remarks = managedYYBServerRemarks(remarks, accounts)
 	value := currentValue
 	added := 0
+	pending := map[int64]string{}
 	for _, acc := range accounts {
+		var migrationErr error
+		value, pending[acc.ID], migrationErr = a.migratePendingAccountReferences(r.Context(), value, acc)
+		if migrationErr != nil {
+			writeError(w, 500, "读取待同步引用失败")
+			return
+		}
 		var changed bool
 		value, changed = mergeYYBServerValue(value, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
 		if changed {
@@ -389,6 +397,9 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	for id, snapshot := range pending {
+		_ = a.db.CompleteAccountReferences(r.Context(), id, snapshot)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name": "YYB_SERVER", "value": value, "accounts": len(accounts), "added": added,
 	})
@@ -397,6 +408,10 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccount) (string, bool, error) {
 	a.panelSyncMu.Lock()
 	defer a.panelSyncMu.Unlock()
+	acc, err := a.db.GetAccount(ctx, acc.ID)
+	if err != nil {
+		return "", false, err
+	}
 	envs, err := a.qinglong.listEnvs(ctx, "YYB_SERVER")
 	if err != nil {
 		return "", false, err
@@ -414,11 +429,96 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 		return "", false, err
 	}
 	remarks = managedYYBServerRemarks(remarks, accounts)
+	currentValue, pending, err := a.migratePendingAccountReferences(ctx, currentValue, acc)
+	if err != nil {
+		return "", false, err
+	}
 	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
 	if err := a.saveYYBServerEnv(ctx, env, value, remarks); err != nil {
 		return "", false, err
 	}
+	_ = a.db.CompleteAccountReferences(ctx, acc.ID, pending)
 	return value, added, nil
+}
+
+func (a *App) migratePendingAccountReferences(ctx context.Context, value string, acc *store.WechatAccount) (string, string, error) {
+	refs, snapshot, err := a.db.PendingAccountReferences(ctx, acc.ID)
+	if err != nil {
+		return "", "", err
+	}
+	for _, ref := range refs {
+		targetRef := acc.OpenID
+		if _, err := strconv.ParseInt(ref, 10, 64); err == nil {
+			targetRef = strconv.FormatInt(acc.ID, 10)
+		}
+		if ref != targetRef && containsYYBServerReference(value, ref) {
+			owner, lookupErr := a.db.ResolveAccount(ctx, ref)
+			if lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
+				return "", "", lookupErr
+			}
+			if lookupErr == nil && owner.ID != acc.ID {
+				return "", "", errors.New("待迁移旧引用已被其他账号复用，请先在面板手动核对")
+			}
+		}
+		value = migrateAccountOpenIDReference(value, ref, targetRef)
+	}
+	return value, snapshot, nil
+}
+
+func containsYYBServerReference(value, ref string) bool {
+	for _, line := range strings.Split(value, "\n") {
+		index := strings.LastIndex(line, "@")
+		if index >= 0 && strings.TrimSpace(line[index+1:]) == ref {
+			return true
+		}
+	}
+	return false
+}
+
+// A channel switch changes the external identity, not the local account ID.
+// Migrate managed OpenID references before merging so the old row cannot linger.
+// Use a detached bounded context: closing the scan page must not cancel this step.
+func (a *App) syncUpdatedAccountReferences(after *store.WechatAccount) string {
+	if !a.qinglong.configured() {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), max(10*time.Second, a.cfg.RequestTimeout*2))
+	defer cancel()
+	if _, _, err := a.syncAccountToQingLong(ctx, after); err != nil {
+		// Panel errors can contain the variable value; do not log that content.
+		log.Printf("[auto-sync] account %d reference migration failed", after.ID)
+		return "账号已更新，面板引用同步失败，请在控制台重新同步；手动维护的旧 OpenID 引用也需更新"
+	}
+	return ""
+}
+
+func migrateAccountOpenIDReference(value, oldID, newID string) string {
+	if oldID == "" || oldID == newID {
+		return value
+	}
+	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
+	seen := map[string]bool{}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		separator := strings.LastIndex(trimmed, "@")
+		if separator >= 0 {
+			ref := strings.TrimSpace(trimmed[separator+1:])
+			if ref == oldID {
+				line = trimmed[:separator+1] + newID
+				ref = newID
+			}
+			if ref == newID {
+				key := strings.TrimSpace(line)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 // Prefer the active variable over disabled historical copies. Ambiguous

@@ -577,6 +577,22 @@ func (s *Store) AccountOwner(ctx context.Context, accountID int64) (int64, error
 	return userID, err
 }
 
+// Remove a known ownership claim before an explicit account merge releases ID.
+func (s *Store) RemoveAccountOwner(ctx context.Context, accountID, expectedUserID int64) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM account_owners WHERE account_id=? AND user_id=?", accountID, expectedUserID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) AccountCounts(ctx context.Context) (map[int64]int, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT user_id, COUNT(*) FROM account_owners GROUP BY user_id")
 	if err != nil {

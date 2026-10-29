@@ -1,0 +1,11 @@
+.scan-switch-dialog{width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;margin:auto;padding:24px;border:1px solid #d9e3e5;border-radius:14px;background:#fff;color:#172529;box-shadow:0 20px 60px #17252926;font:14px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left}
+.scan-switch-dialog::backdrop{background:#17252966}
+.scan-switch-dialog h2{font-size:18px;line-height:1.4;margin:0 0 12px}
+.scan-switch-dialog p{margin:10px 0;color:#40585d;font-size:13px;line-height:1.65}
+.scan-switch-dialog .scan-switch-warning{padding:12px;border:1px solid #e8cf96;border-radius:9px;background:#fff8e6;color:#76520c}
+.scan-switch-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}
+.scan-switch-actions button{width:auto;min-height:40px;padding:8px 14px;border:1px solid #c5d4d7;border-radius:9px;background:#fff;color:#25494b;font:inherit;font-weight:600;cursor:pointer}
+.scan-switch-actions button:hover{background:#eef5f5}
+.scan-switch-actions button.primary{background:#287f7b;border-color:#287f7b;color:#fff}
+.scan-switch-actions button.primary:hover{background:#216b68}
+.scan-switch-actions button:focus-visible{outline:2px solid #287f7b;outline-offset:3px}

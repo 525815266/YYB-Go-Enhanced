@@ -14,6 +14,8 @@ type AccountLink struct {
 	OwnerUserID     *int64
 	ExpectedOpenID  string
 	TokenCiphertext string
+	TargetProduct   string
+	SwitchConfirmed bool
 	ExpiresAt       int64
 	UsedAt          *int64
 	RevokedAt       *int64
@@ -45,10 +47,14 @@ func (db *DB) CreateAccountLink(ctx context.Context, tokenHash, kind string, acc
 }
 
 func (db *DB) CreateAccountLinkWithCiphertext(ctx context.Context, tokenHash, tokenCiphertext, kind string, accountID int64, ownerUserID *int64, expectedOpenID string, expiresAt int64) (*AccountLink, error) {
+	return db.CreateAccountLinkForProduct(ctx, tokenHash, tokenCiphertext, kind, accountID, ownerUserID, expectedOpenID, expiresAt, "", false)
+}
+
+func (db *DB) CreateAccountLinkForProduct(ctx context.Context, tokenHash, tokenCiphertext, kind string, accountID int64, ownerUserID *int64, expectedOpenID string, expiresAt int64, product string, switchConfirmed bool) (*AccountLink, error) {
 	now := time.Now().Unix()
 	result, err := db.sql.ExecContext(ctx, `INSERT INTO account_links
-		(token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash, tokenCiphertext, kind, accountID, nullableInt64Ptr(ownerUserID), expectedOpenID, expiresAt, now)
+		(token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, created_at, target_product, switch_confirmed)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash, tokenCiphertext, kind, accountID, nullableInt64Ptr(ownerUserID), expectedOpenID, expiresAt, now, product, switchConfirmed)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +69,9 @@ func (db *DB) GetAccountLink(ctx context.Context, id int64) (*AccountLink, error
 	link := &AccountLink{}
 	var owner, used, revoked sql.NullInt64
 	err := db.sql.QueryRowContext(ctx, `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id,
-		expected_openid, expires_at, used_at, revoked_at, created_at FROM account_links WHERE id=?`, id).Scan(
+		expected_openid, expires_at, used_at, revoked_at, created_at, target_product, switch_confirmed FROM account_links WHERE id=?`, id).Scan(
 		&link.ID, &link.TokenHash, &link.TokenCiphertext, &link.Kind, &link.AccountID, &owner,
-		&link.ExpectedOpenID, &link.ExpiresAt, &used, &revoked, &link.CreatedAt)
+		&link.ExpectedOpenID, &link.ExpiresAt, &used, &revoked, &link.CreatedAt, &link.TargetProduct, &link.SwitchConfirmed)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +139,7 @@ func (db *DB) reclaimAccountLinkSequence(ctx context.Context) error {
 }
 
 func (db *DB) ListAccountLinks(ctx context.Context, ownerUserID *int64) ([]AccountLinkRecord, error) {
-	query := `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, used_at, revoked_at, created_at FROM account_links`
+	query := `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, used_at, revoked_at, created_at, target_product, switch_confirmed FROM account_links`
 	args := []any{}
 	if ownerUserID != nil {
 		query += " WHERE owner_user_id=?"
@@ -150,7 +156,7 @@ func (db *DB) ListAccountLinks(ctx context.Context, ownerUserID *int64) ([]Accou
 	for rows.Next() {
 		var item AccountLinkRecord
 		var owner, used, revoked sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.TokenHash, &item.TokenCiphertext, &item.Kind, &item.AccountID, &owner, &item.ExpectedOpenID, &item.ExpiresAt, &used, &revoked, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.TokenHash, &item.TokenCiphertext, &item.Kind, &item.AccountID, &owner, &item.ExpectedOpenID, &item.ExpiresAt, &used, &revoked, &item.CreatedAt, &item.TargetProduct, &item.SwitchConfirmed); err != nil {
 			return nil, err
 		}
 		item.OwnerUserID, item.UsedAt, item.RevokedAt = nullableInt64(owner), nullableInt64(used), nullableInt64(revoked)

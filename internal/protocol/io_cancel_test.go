@@ -104,6 +104,9 @@ func TestSessionWaitHonoursLoginBudget(t *testing.T) {
 	}
 	defer db.Close()
 	p := NewPool(Config{LoginTimeout: 100 * time.Millisecond}, db)
+	if _, err := db.UpsertAccount(context.Background(), "queue-budget-test", "unused", nil, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	lock := p.lockFor("1\x00")
 	if err := acquire(context.Background(), lock); err != nil {
 		t.Fatal(err)

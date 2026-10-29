@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -72,6 +73,16 @@ func TestStateReusesLegacyCacheBeforePSKExpiry(t *testing.T) {
 			}
 			if err != nil || got.Session.UIN != st.Session.UIN || got.PSK.ExpiredAt != tc.pskExpiry {
 				t.Fatalf("usable legacy session not reused: %v", err)
+			}
+			// On-demand ticket recovery uses a new buffer without changing the
+			// saved OAuth snapshot. It must remain compatible with the CAS guard.
+			if _, err := pool.state(ctx, "new-on-demand-buffer", acc.ID, "", false, acc); err != nil {
+				t.Fatal("fresh buffer recovery blocked", err)
+			}
+			stale := *acc
+			stale.OpenID = "previous-channel-identity"
+			if _, err := pool.state(ctx, "", acc.ID, "", false, &stale); !errors.Is(err, store.ErrAccountAuthorizationChanged) {
+				t.Fatal("stale caller used replacement session", err)
 			}
 			if _, err := pool.state(ctx, "", acc.ID, "socks5://example.invalid:1080", false); err == nil {
 				t.Fatal("session crossed its proxy binding")

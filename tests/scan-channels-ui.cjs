@@ -54,22 +54,39 @@ const path = require('node:path');
       await page.setViewportSize({width,height:1000});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`scan overflow ${width}`);
     }
-    // A public update link pins its channel, while add links allow a choice.
-    let locked=true,linkSequence=0;
+    // Switching an update link requires explicit consent before allocating a QR.
+    let update=true,linkSequence=0,linkBodies=[];
     await context.route('**/a/fake-demo',route=>route.fulfill({status:200,contentType:'text/html',body:fs.readFileSync(path.join(__dirname,'../resource/templates/account-link.html'),'utf8')}));
-    await context.route('**/account-link/fake-demo/meta',route=>route.fulfill(json({product:'pcmgr',locked,kind:locked?'update':'add',target:'演示账号',account_id:42,expires_at:Math.floor(Date.now()/1000)+600})));
-    await context.route('**/account-link/fake-demo/qr',route=>route.fulfill(json({session_id:'link-'+(++linkSequence),link_expires_at:Math.floor(Date.now()/1000)+600})));
+    await context.route('**/account-link/fake-demo/meta',route=>route.fulfill(json({product:'pcmgr',source_product:'pcmgr',switch_confirmed:false,locked:false,kind:update?'update':'add',target:'演示账号',account_id:42,expires_at:Math.floor(Date.now()/1000)+600})));
+    await context.route('**/account-link/fake-demo/qr',route=>{linkBodies.push(route.request().postDataJSON());return route.fulfill(json({session_id:'link-'+(++linkSequence),link_expires_at:Math.floor(Date.now()/1000)+600}));});
     await context.route('**/account-link/fake-demo/qr/*/poll',route=>route.fulfill(json({status:'pending'})));
     await context.route('**/account-link/fake-demo/qr/*/cancel',route=>route.fulfill(json({cancelled:true})));
     await page.goto(base+'/a/fake-demo');
-    await page.locator('#intro').filter({hasText:'仅限 演示账号'}).waitFor();
-    assert.equal(await page.locator('#scanProduct').isDisabled(),true);
-    locked=false;
+    await page.locator('#intro').filter({hasText:'更新 演示账号'}).waitFor();
+    await page.waitForFunction(()=>sid==='link-1');
+    assert.equal(await page.locator('#scanProduct').isDisabled(),false);
+    await page.selectOption('#scanProduct','appstore');
+    await page.locator('.scan-switch-dialog').waitFor();
+    assert.match(await page.locator('.scan-switch-dialog').innerText(),/无法仅凭 OpenID/);
+    assert.equal(linkSequence,1,'no QR allocated before consent');
+    await page.getByRole('button',{name:'保留原渠道',exact:true}).click();
+    assert.equal(await page.locator('#scanProduct').inputValue(),'pcmgr');
+    assert.equal(linkSequence,1,'cancelling preserves original QR');
+    await page.selectOption('#scanProduct','appstore');
+    await page.getByRole('button',{name:'确认切换',exact:true}).click();
+    await page.waitForFunction(()=>sid==='link-2');
+    assert.deepEqual(linkBodies.at(-1),{product:'appstore',confirm_switch:true});
+    for(const width of [1440,390,320]){
+      await page.setViewportSize({width,height:1000});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`update overflow ${width}`);
+    }
+    update=false;
     await page.reload();
     await page.locator('#intro').filter({hasText:'可扫码添加'}).waitFor();
     assert.equal(await page.locator('#scanProduct').isDisabled(),false);
     await page.selectOption('#scanProduct','appstore');
-    await page.waitForFunction(()=>sid==='link-3');
+    await page.waitForFunction(()=>sid==='link-4');
+    assert.equal(await page.locator('.scan-switch-dialog').count(),0,'new account channel needs no rebinding confirmation');
     assert.deepEqual(errors,[]);
     console.log('PASS scan channels: defaults, permissions UI, cancellation, stale polling, mobile and short links');
   } finally {await browser.close();}
