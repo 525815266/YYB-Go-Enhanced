@@ -312,13 +312,23 @@ func definitiveCredentialFailure(err error) bool {
 	if errors.Is(err, protocol.ErrMissingRefreshToken) {
 		return true
 	}
-	var rejected *protocol.RefreshRejectedError
-	if errors.As(err, &rejected) {
+	switch rejected := err.(type) {
+	case *protocol.RefreshRejectedError:
+		return definitiveRefreshMessage(rejected.Code, rejected.Message)
+	case *protocol.LoginBufferRejectedError:
 		return definitiveRefreshMessage(rejected.Code, rejected.Message)
 	}
-	var bufferRejected *protocol.LoginBufferRejectedError
-	if errors.As(err, &bufferRejected) {
-		return definitiveRefreshMessage(bufferRejected.Code, bufferRejected.Message)
+	// A refresh rejection and its check-login fallback are separate causes.
+	// Inspect both: errors.As alone stops at the first ambiguous rejection.
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, cause := range wrapped.Unwrap() {
+			if definitiveCredentialFailure(cause) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return definitiveCredentialFailure(wrapped.Unwrap())
 	}
 	// Transport errors may contain a proxy provider's "token expired" or an
 	// HTTP/JSON error body. They are not evidence that WeChat revoked a session.

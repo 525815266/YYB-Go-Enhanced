@@ -295,6 +295,29 @@ func TestTencent42007ExpiresAccount(t *testing.T) {
 	}
 }
 
+func TestCredentialFailureChecksEveryJoinedCause(t *testing.T) {
+	ambiguous := &protocol.RefreshRejectedError{Code: -109, Operation: "refresh_token", Message: "RC_PARAMS_INVALID"}
+	rejected := &protocol.RefreshRejectedError{Code: -109, Operation: "check_login", Message: "error 42007 | 42007"}
+	for _, failure := range []error{
+		fmt.Errorf("%w; check login: %w", ambiguous, rejected),
+		fmt.Errorf("recovery: %w", errors.Join(ambiguous, fmt.Errorf("check login: %w", rejected))),
+		errors.Join(ambiguous, &protocol.LoginBufferRejectedError{Code: 40188, Message: "invalid scope"}),
+	} {
+		if !definitiveCredentialFailure(failure) {
+			t.Fatalf("explicit rejection hidden by earlier ambiguous failure: %v", failure)
+		}
+	}
+	for _, failure := range []error{
+		errors.Join(ambiguous, context.DeadlineExceeded),
+		errors.Join(ambiguous, errors.New("proxy error 42007, refresh_token expired")),
+		errors.Join(ambiguous, &protocol.RefreshRejectedError{Code: -109, Message: "access_token expired"}),
+	} {
+		if definitiveCredentialFailure(failure) {
+			t.Fatalf("retryable joined failure expired an account: %v", failure)
+		}
+	}
+}
+
 func TestOfficialNumericRefreshRejectionsExpireAccount(t *testing.T) {
 	for _, message := range []string{
 		"CheckWXToken wx refresh return error 42007 | 42007",

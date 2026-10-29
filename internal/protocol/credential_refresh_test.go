@@ -72,12 +72,37 @@ func TestAmbiguousRefreshUsesOfficialCheckLogin(t *testing.T) {
 					t.Fatalf("check-login rotation lost: %v", err)
 				}
 			} else {
-				var rejected *RefreshRejectedError
-				if !errors.As(err, &rejected) || rejected.Operation != "check_login" || !strings.Contains(rejected.Message, "40030") || !strings.Contains(err.Error(), "RC_PARAMS_INVALID") {
+				joined, ok := err.(interface{ Unwrap() []error })
+				if !ok || len(joined.Unwrap()) != 2 {
+					t.Fatalf("refresh/check-login error chain lost: %v", err)
+				}
+				var primary, checked *RefreshRejectedError
+				failures := joined.Unwrap()
+				if !errors.As(failures[0], &primary) || primary.Operation != "refresh_token" || primary.Message != "RC_PARAMS_INVALID" ||
+					!errors.As(failures[1], &checked) || checked.Operation != "check_login" || !strings.Contains(checked.Message, "40030") {
 					t.Fatalf("underlying rejection lost: %v", err)
 				}
 			}
 		})
+	}
+}
+
+func TestCheckLoginTransportFailurePreservesPrimaryRejection(t *testing.T) {
+	calls := 0
+	client := NewLoginBufferClientWithHTTPClient(&http.Client{Transport: loginBufferRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 && req.URL.String() == mainRefreshURL {
+			return credentialTestResponse(`{"code":-109,"msg":"RC_PARAMS_INVALID"}`), nil
+		}
+		if calls != 2 || req.URL.String() != checkLoginURL {
+			t.Fatalf("unexpected request: %s", req.URL)
+		}
+		return nil, context.DeadlineExceeded
+	})}, time.Second)
+	_, err := client.RefreshCredentials(context.Background(), LoginBufferCredentials{RefreshToken: "refresh"})
+	var primary *RefreshRejectedError
+	if calls != 2 || !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &primary) || primary.Operation != "refresh_token" {
+		t.Fatalf("refresh/check-login cause lost: requests=%d error=%v", calls, err)
 	}
 }
 

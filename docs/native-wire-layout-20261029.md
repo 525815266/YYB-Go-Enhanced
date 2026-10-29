@@ -56,8 +56,43 @@ Go 回归 `TestManualAuthRequestMatchesOfficialFieldLayout` 使用该固定样�
 
 ## 其他仍在核对的差异
 
-- **AutoAuth 不是 OAuth refresh token。** 官方 `TdiAutoLoginAsync`（`0x3ff80`）读取独立自动登录密钥，长度为零时在 `0x4020a` 分支进入“require manual login”并返回本地错误 `-14`；调用者 `0xed50a` 属于 TdiManager 的自动登录流程。项目目前通过登录票据做 ManualAuth 并缓存有限时长会话，没有这套 AutoAuth 恢复。成功响应中密钥如何保存、轮换及何时实际选用仍待完整复核，不能仅加一个同名请求当作已支持。
+- **AutoAuth 不是 OAuth refresh token。** 官方 `TdiAutoLoginAsync`（`0x3ff80`）读取独立自动登录密钥，长度为零时在 `0x4020a` 分支进入“require manual login”并返回本地错误 `-14`；调用者 `0xed50a` 属于 TdiManager 的自动登录流程。项目目前通过登录票据做 ManualAuth 并缓存有限时长会话，没有这套 AutoAuth 恢复。下节进一步确认成功响应密钥的来源与持久化，但轮换、异常恢复和完整网络请求仍待验证，不能仅加一个同名请求当作已支持。
 - **SmartHeartbeat 是 Mars 传输层组件。** 官方字符串的源码路径明确位于 `mars/stn/src/smart_heartbeat.cc`，涉及连接建立、断连和心跳间隔。项目握手完成后关闭长连接、通过短连接发 JSAPI；没有证据说明补发传输心跳可以延长 OAuth refresh token。
 - **设备与身份需要分清。** 持久 AppDeviceId、票据自带 device_id、短连接设备字段及会话密钥不是同一个字段。固定设备标识需单独隔离验证，不使用官方账号的真实标识去覆盖生产其他账号。
 
 自然续期验证仍使用真实扫码与到期时间，按实际部署记录版本变化。格式样例通过、会话重建成功与 token 后台续期成功是三个不同的结论。
+
+## AutoAuth 密钥与请求的进一步对照
+
+同一 DLL 同时包含 `ilinkcliproto` 生成消息与 `ilink` 的 `WXMessageLiteCPP` 消息，两者内存布局不同，不能跨类型套用偏移。继续解析后者的静态字段表，并核对实际读写，得到：
+
+| 原生证据 | 已确认内容 |
+| --- | --- |
+| `0x1e3790` | 根据虚表第 12 项返回的字段表，按零起始索引访问对象；每项 40 字节，字段号、类型与对象偏移分别在表项 `+0`、`+5`、`+8` |
+| `UnifyAuthResponse` 表 `0x9f01b0` | 索引 1 是字段 2，类型 message；工厂与 RTTI 对应 `ilink::AuthSectResp` |
+| `AuthSectResp` 表 `0x9effc8` | 字段 3 / 4 均为 bytes，在该动态消息的对象偏移为 `0x30` / `0x38` |
+| `0x7a0ad`、`0x7a41e`、`0x7a469` | 成功处理函数取上述认证段，读取字段 3，Base64 编码后调用 INI `set` 保存到 `kTdiKeyAutoauthKey` |
+| `0x7a4c8`、`0x7a513` | 同样把字段 4 Base64 编码，保存到 `kTdiKeyAutoauthEncKey` |
+| getter `0x3a640` / `0x3a800` | 读取这两个 INI 项并 Base64 解码；对应调用桩可核对到 `ini_file::get` 与 `base64_decode` 导入符号 |
+| `0x7b56f`、`0x7b5f7` | 清理流程对这两项调用 INI `del`；不是把它们当作永久有效的固定密钥 |
+| `AutoAuthRequest` 表 `0x9f04f0` | 字段 1 message、字段 2 uint32、字段 3 bytes、字段 4 bytes；内层 AppBase 表 `0x9efcf8` 只有设备字段 1 |
+| `0x3e94e`、`0x3ef57`、`0x3ef74` | 自动登录构造分支读取已保存的 autoauth key，版本字段设为 1901，并把 key 写到请求字段 3 |
+| `0x3efaf`–`0x3efee` | 请求字段 4 根据登录上下文存在标记条件设置；不能因为响应字段 4 是加密密钥，就假定请求字段 4 也直接填该密钥 |
+
+可用仅依赖 `pefile` 的静态工具复核字段表，不执行 DLL：
+
+```bash
+python tools/inspect_native_auth_schema.py --binary /path/to/ilink2.dll
+```
+
+工具同样校验样本 SHA256，只输出静态字段号、类型、索引和偏移，不读取官方配置中的真实密钥。项目 `extractSession` 当前仅提取收发密钥、部分会话字段和身份，没有保存认证段字段 3 / 4 或发送 AutoAuth。这是已确认的功能差异，但目前没有证据说明补齐它会使已撤销的 OAuth refresh token 恢复，也没有完成自动恢复请求的端到端验证。
+
+## v0.2.42 发布与现场结果
+
+- 全量 Go 测试、`go vet ./...`、5 项 Release 说明测试和原生字段模拟通过；main / tag 原生、main / tag Docker 和 Magisk 五个工作流均成功。
+- [v0.2.42 Release](https://github.com/525815266/YYB-Go-Enhanced/releases/tag/v0.2.42) 保留七种单二进制、七种完整包、Magisk 与 checksums 共 16 项资产。Windows amd64 正式文件完成 SHA256 校验和实际隔离启动，内嵌模板、版本接口及匿名协议请求 401 通过。
+- 飞牛精确版本镜像部署成功，健康正常，21 个账号身份、挂载、端口、环境变量与启动参数均保留，已留私有回滚备份。
+- 第一轮授权在 10:08:41 的请求为 HTTP 409，但升级前数据库备份里该账号已经是 `expired`，且凭据与票据均已清空。因此该次调用没有进入 v0.2.42 的新握手，不能说是字段修补导致上游拒绝；旧轮的具体业务拒绝阶段尚缺直接记录。此前 09:34 的会话重建成功并没有延续到凭据正常刷新窗口。
+- 用户重新扫码后，第二轮新授权在 v0.2.42 的真实取码为 HTTP 200、非空 32 字符 code。新基准扫码时间为北京时间 10:10:28，凭据原到期为 12:10:27，后台正常刷新窗口从 12:06:27 开始。旧观察完整保留，新观察单独建档，不覆盖或混合两次授权的数据。
+
+当前能够确认字段修正通过真实新授权取码；快速失效根因、后台自然续期与 30 天保活均未据此宣告解决。

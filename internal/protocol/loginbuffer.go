@@ -197,7 +197,7 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		if checkErr == nil {
 			return checked, nil
 		}
-		return LoginBufferCredentials{}, fmt.Errorf("%v; check login: %w", err, checkErr)
+		return LoginBufferCredentials{}, fmt.Errorf("%w; check login: %w", err, checkErr)
 	}
 	return refreshed, err
 }

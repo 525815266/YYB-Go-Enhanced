@@ -26,10 +26,12 @@ func TestRecovery409IncludesSafeTypedDiagnostics(t *testing.T) {
 	}
 	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
 		refreshes++
-		return protocol.LoginBufferCredentials{}, &protocol.RefreshRejectedError{
+		primary := &protocol.RefreshRejectedError{Code: -109, Operation: "refresh_token", Message: "RC_PARAMS_INVALID"}
+		checked := &protocol.RefreshRejectedError{
 			Code: -109, Operation: "check_login",
 			Message: "CheckWXToken wx refresh return error 42007 | 42007 private-account private-token",
 		}
+		return protocol.LoginBufferCredentials{}, fmt.Errorf("%w; check login: %w", primary, checked)
 	}
 	call := func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
 		return nil, &protocol.ManualAuthRejectedError{Code: -10}
@@ -61,6 +63,7 @@ func TestRecovery409IncludesSafeTypedDiagnostics(t *testing.T) {
 	}
 	want := []upstreamDiagnostic{{Stage: "manual_auth", UpstreamCode: -10},
 		{Stage: "login_buffer", UpstreamCode: -101},
+		{Stage: "refresh_token", UpstreamCode: -109},
 		{Stage: "check_login", UpstreamCode: -109, WeChatCode: 42007}}
 	if envelope.Code != 409 || !envelope.Data.Rescan || !reflect.DeepEqual(envelope.Data.Errors, want) {
 		t.Fatalf("unexpected diagnostics: %+v", envelope)

@@ -38,7 +38,7 @@
 | 脚本管理 | 统一收录审核后的 YYB 多账号脚本；支持整库同步、单脚本拉取、拉取并创建任务 |
 | 部署维护 | Docker Compose、Android ARM64 Magisk、跨平台内嵌资源二进制；按运行平台提供更新入口 |
 
-v0.2.42 对照官方原生构造与序列化函数，修正登录请求中版本字段的层级，补充[逐字段对照与离线复核工具](docs/native-wire-layout-20261029.md)。v0.2.41 的严格错误码检查、v0.2.40 的分阶段诊断继续保留，见[近期项目对照](docs/yyb-upstream-review-20261029.md)和[409 排查说明](docs/proxy-keepalive.md#scan-first-call-409)。v0.2.38 对齐官方主登录路径与业务签名，默认每两分钟检查、提前四分钟续期，token 先保存、登录票据按需获取；多架构原生 Release 和 Magisk 正常维护。
+v0.2.43 补齐主刷新与 check-login 两段错误链的诊断，保留明确拒绝与网络故障的区别。v0.2.42 修正官方登录请求的版本字段层级，补充[逐字段对照与离线复核工具](docs/native-wire-layout-20261029.md)。严格错误码检查、分阶段诊断与主登录续期路径继续保留，见[近期项目对照](docs/yyb-upstream-review-20261029.md)和[409 排查说明](docs/proxy-keepalive.md#scan-first-call-409)。默认每两分钟检查、提前四分钟续期，token 先保存、登录票据按需获取；多架构原生 Release 和 Magisk 正常维护。近期快速失效的共同根因和 30 天保活尚未验证解决。
 
 近期生产复测仍有凭据被上游明确拒绝；此前三个账号的短时取码通过不代表持续保活已恢复。这些修补不能恢复已被微信撤销的 refresh token，也未验证 30 天保活。实际结果与限制见[协议复核](docs/protocol-audit-20261028.md)和[官方客户端续期对照](docs/native-keepalive-audit-20261028.md)。
 
