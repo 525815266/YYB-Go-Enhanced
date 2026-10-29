@@ -99,3 +99,44 @@ func TestStateReusesLegacyCacheBeforePSKExpiry(t *testing.T) {
 		})
 	}
 }
+
+func TestApplicationRejectionDoesNotInvalidateProxySession(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "yyb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	acc, err := db.UpsertAccount(ctx, "synthetic-proxy-refusal", "", nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := "socks5://example.invalid:1080"
+	st := WmpfSession{
+		Session:  AppSession{UIN: 1234, SendKey: []byte("send"), RecvKey: []byte("recv")},
+		PSK:      pskEntry{PSKType: 1, PreSharedKey: "001122", TicketEntry: "aabbcc", ExpiredAt: time.Now().Add(time.Hour).Unix()},
+		TCPProxy: proxy,
+	}
+	if err := db.PutSession(ctx, acc.ID, nil, st.toBlob(), st.PSK.ExpiredAt, proxy); err != nil {
+		t.Fatal(err)
+	}
+	pool := NewPool(DefaultConfig(), db)
+	calls := 0
+	_, err = pool.run(ctx, "", acc.ID, proxy, true, func(context.Context, WmpfSession) (map[string]any, error) {
+		calls++
+		return nil, &ShortlinkRejectedError{Code: -14}
+	}, acc)
+	if !IsApplicationRequestRejection(err) || calls != 1 || !pool.HasReusableSession(ctx, acc.ID, proxy) {
+		t.Fatal("application refusal invalidated proxy session or fell back to direct")
+	}
+	if _, err := db.ApplyCredentialRefresh(ctx, acc, "", nil, store.StatusSessionOnly); err != nil {
+		t.Fatal(err)
+	}
+	limited, _ := db.GetAccount(ctx, acc.ID)
+	if _, err := pool.state(ctx, "must-not-be-used", acc.ID, "", false, limited); !errors.Is(err, ErrCachedSessionUnavailable) {
+		t.Fatal("session-only cache miss attempted login")
+	}
+	if _, err := pool.state(ctx, "", acc.ID, proxy, false, limited); err != nil {
+		t.Fatal("session-only mode blocked eligible proxy cache", err)
+	}
+}

@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"yyb_go/internal/pcmgr"
 )
 
 type nativeAuditState struct {
@@ -109,11 +111,12 @@ func TestNativeCachedSessionCodeAudit(t *testing.T) {
 
 func TestNativeAutoAuthAudit(t *testing.T) {
 	path := os.Getenv("YYB_AUTOAUTH_AUDIT_DB")
+	pcTicket := os.Getenv("YYB_AUTOAUTH_AUDIT_PCMGR_TICKET")
 	statePath := os.Getenv("YYB_AUTOAUTH_AUDIT_STATE")
-	if path == "" || statePath == "" || os.Getenv("YYB_AUTOAUTH_AUDIT_ACCOUNT") != "1" {
+	if statePath == "" || (pcTicket == "" && (path == "" || os.Getenv("YYB_AUTOAUTH_AUDIT_ACCOUNT") != "1")) {
 		t.Skip("requires explicit private read-only database, state path and account 1")
 	}
-	if !filepath.IsAbs(path) || !filepath.IsAbs(statePath) {
+	if !filepath.IsAbs(statePath) || (pcTicket == "" && !filepath.IsAbs(path)) || (pcTicket != "" && (!filepath.IsAbs(pcTicket) || path != "")) {
 		t.Fatal("audit paths must be absolute")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -125,24 +128,41 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 	} else if phase != "manual" && phase != "buffer" {
 		t.Fatal("explicit audit phase required")
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
-	if err != nil {
-		t.Fatal("read-only database open failed")
+	var buffer string
+	var creds LoginBufferCredentials
+	var err error
+	if pcTicket != "" {
+		raw, readErr := os.ReadFile(pcTicket)
+		if readErr != nil {
+			t.Fatal("private PCMgr ticket unavailable")
+		}
+		buffer, err = pcmgr.ParseBufferResponse(raw)
+		meta, parseErr := parseLoginBuffer(buffer)
+		if err != nil || parseErr != nil || string(meta.HostAppID) != pcmgr.HostAppID {
+			t.Fatal("requires a fresh PCMgr ticket with the matching provider")
+		}
+	} else {
+		db, openErr := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+		if openErr != nil {
+			t.Fatal("read-only database open failed")
+		}
+		defer db.Close()
+		var raw, status, proxyMode string
+		err = db.QueryRowContext(ctx, "SELECT a.login_buffer,COALESCE(a.credentials,''),a.status,COALESCE(p.mode,'direct') FROM wechat_accounts a LEFT JOIN account_proxy_settings p ON p.account_id=a.id WHERE a.id=1").Scan(&buffer, &raw, &status, &proxyMode)
+		if err != nil || status != "alive" || proxyMode != "direct" || buffer == "" {
+			t.Fatal("audit requires an existing alive direct account with a login buffer")
+		}
+		var mapped map[string]any
+		if json.Unmarshal([]byte(raw), &mapped) != nil {
+			t.Fatal("credential parsing failed")
+		}
+		creds = CredentialsFromMap(mapped)
 	}
-	defer db.Close()
-	var buffer, raw, status string
-	var proxyMode string
-	err = db.QueryRowContext(ctx, "SELECT a.login_buffer,COALESCE(a.credentials,''),a.status,COALESCE(p.mode,'direct') FROM wechat_accounts a LEFT JOIN account_proxy_settings p ON p.account_id=a.id WHERE a.id=1").Scan(&buffer, &raw, &status, &proxyMode)
-	if err != nil || status != "alive" || proxyMode != "direct" || buffer == "" {
-		t.Fatal("audit requires an existing alive direct account with a login buffer")
-	}
-	var mapped map[string]any
-	if json.Unmarshal([]byte(raw), &mapped) != nil {
-		t.Fatal("credential parsing failed")
-	}
-	creds := CredentialsFromMap(mapped)
 	client := NewLoginBufferClient(12 * time.Second)
 	if phase == "buffer" {
+		if pcTicket != "" {
+			t.Fatal("PCMgr audit uses the explicitly supplied fresh ticket")
+		}
 		ticket, err := client.FetchLoginBuffer(ctx, creds)
 		if err != nil {
 			auditBufferFailure(err)
@@ -225,6 +245,9 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 	var rejected *ManualAuthRejectedError
 	if errors.As(err, &rejected) && rejected.Code == -10 {
 		auditOutput("saved_buffer_rejected", map[string]any{"code": rejected.Code})
+		if pcTicket != "" {
+			t.Fatal("PCMgr ticket rejected; acquire a new ticket explicitly")
+		}
 		buffer, err = client.FetchLoginBuffer(ctx, creds)
 		if err != nil {
 			auditBufferFailure(err)

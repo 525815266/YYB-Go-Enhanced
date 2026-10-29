@@ -1274,7 +1274,22 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if errors.Is(callErr, store.ErrAccountAuthorizationChanged) || snapshotErr == nil && !current.SameAuthorization(acc) {
 		return nil, store.ErrAccountAuthorizationChanged
 	}
-	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || protocol.IsApplicationRequestRejection(callErr) {
+	if acc.SessionOnly() {
+		if errors.Is(callErr, protocol.ErrCachedSessionUnavailable) {
+			applied, err := a.db.ApplyCredentialRefresh(ctx, acc, "", nil, "expired")
+			if err != nil {
+				return nil, err
+			}
+			if !applied {
+				return nil, store.ErrAccountAuthorizationChanged
+			}
+			return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID, cause: callErr}
+		}
+		// A request using the retained PSK cannot trigger OAuth or ManualAuth.
+		return nil, callErr
+	}
+	var codeRecovery *protocol.CodeSessionRecoveryError
+	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || protocol.IsApplicationRequestRejection(callErr) || errors.As(callErr, &codeRecovery) {
 		// An empty code or a bare authenticated application -14 does not
 		// establish account expiry. Other apps may use this same session.
 		return nil, callErr
@@ -1372,7 +1387,13 @@ func accountNeedsRescan(acc *store.WechatAccount) bool {
 }
 
 func (a *App) invokeGetCode(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
-	return a.pool.GetCode(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
+	result, err := a.pool.GetCode(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
+	if err == nil || !protocol.IsApplicationRequestRejection(err) || acc.SessionOnly() {
+		return result, err
+	}
+	return a.pool.RecoverCodeSession(ctx, acc, appID, proxyValue, fallbackDirect, err, func(ctx context.Context) (string, error) {
+		return a.fetchAccountLoginBuffer(ctx, acc)
+	})
 }
 
 func (a *App) invokeGetPhoneNumber(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
@@ -1386,7 +1407,7 @@ func (a *App) invokeOperateWXData(ctx context.Context, acc *store.WechatAccount,
 func refreshOut(acc *store.WechatAccount, status string, refreshErr error) map[string]any {
 	out := map[string]any{
 		"id": acc.ID, "openid": acc.OpenID, "uin": acc.UIN, "nickname": acc.Nickname,
-		"status": status, "rescan_required": status == "expired",
+		"status": status, "rescan_required": status == "expired" || status == store.StatusSessionOnly,
 	}
 	if refreshErr != nil {
 		out["refresh_error"] = refreshErr.Error()

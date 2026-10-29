@@ -32,6 +32,10 @@ func (a *App) handleAccountStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if acc.SessionOnly() && body.Status == "alive" {
+		writeError(w, http.StatusConflict, "授权已被拒绝，请重新扫码；不能手动改为仍有效")
+		return
+	}
 	if err := a.setAccountStatus(r.Context(), acc.ID, body.Status); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

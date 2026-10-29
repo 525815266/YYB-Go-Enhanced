@@ -96,6 +96,12 @@ uin=NULL,status='alive',last_checked_at=?,updated_at=? WHERE id=?`, openID, buff
 
 var ErrAccountAuthorizationChanged = errors.New("account authorization changed; retry with the current account")
 
+const StatusSessionOnly = "session_only"
+
+func (a *WechatAccount) SessionOnly() bool {
+	return a != nil && a.Status != nil && *a.Status == StatusSessionOnly
+}
+
 // The raw credential snapshot survives copies used with a newly fetched buffer.
 // Such a buffer may be used without rewriting the persisted authorization.
 func (a *WechatAccount) SameAuthorization(other *WechatAccount) bool {
@@ -144,7 +150,8 @@ func (db *DB) PutSessionForAccount(ctx context.Context, account *WechatAccount, 
 	}
 	defer tx.Rollback()
 	now := time.Now().Unix()
-	result, err := tx.ExecContext(ctx, `UPDATE wechat_accounts SET uin=? WHERE id=? AND openid=? AND login_buffer=?`, uin, account.ID, account.OpenID, account.LoginBuffer)
+	result, err := tx.ExecContext(ctx, `UPDATE wechat_accounts SET uin=? WHERE id=? AND openid=? AND login_buffer=?
+AND credentials IS ? AND COALESCE(status,'unknown') NOT IN ('expired','session_only')`, uin, account.ID, account.OpenID, account.LoginBuffer, account.credentialJSON)
 	if err != nil {
 		return err
 	}

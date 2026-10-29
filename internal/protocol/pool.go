@@ -19,6 +19,8 @@ import (
 // wx.login code. It does not establish that the account's session expired.
 var ErrLoginCodeUnavailable = errors.New("wx.login returned no code; check the application's AppID or authorization")
 
+var ErrCachedSessionUnavailable = errors.New("authorization rejected and no reusable protocol session; re-scan required")
+
 type Config struct {
 	ShortlinkTimeout        time.Duration
 	LoginTimeout            time.Duration
@@ -46,6 +48,7 @@ type WmpfSession struct {
 	CreatedAt        time.Time
 	TCPProxy         string
 	FallbackDirect   bool
+	CachedOnly       bool
 }
 
 type Pool struct {
@@ -57,7 +60,8 @@ type Pool struct {
 	// codeLocks serialize wx.login requests for one account. Different
 	// accounts keep running concurrently, while a single account cannot have
 	// two one-time login codes consumed at the same time.
-	codeLocks map[int64]chan struct{}
+	codeLocks   map[int64]chan struct{}
+	codeRepairs map[string]codeRepairAttempt
 
 	loginSem     chan struct{}
 	shortlinkSem chan struct{}
@@ -88,6 +92,7 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 		db:           db,
 		locks:        map[string]chan struct{}{},
 		codeLocks:    map[int64]chan struct{}{},
+		codeRepairs:  map[string]codeRepairAttempt{},
 		loginSem:     make(chan struct{}, cfg.MaxLoginConcurrency),
 		shortlinkSem: make(chan struct{}, cfg.MaxShortlinkConcurrency),
 	}
@@ -105,20 +110,10 @@ func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID
 
 func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	call := func(ctx context.Context, st WmpfSession) (map[string]any, error) {
-		hostAppID := st.Session.HostAppID
-		if len(hostAppID) == 0 {
-			hostAppID = hostAppIDDefault
-		}
-		plain := buildJSAPIPlaintext(st.Session.UIN, appID, jsLoginURL, jsLoginCmdID, nil, hostAppID, nil)
-		envelope, err := buildTransferPacket(st.Session, plain)
-		if err != nil {
-			return nil, err
-		}
-		code, _, err := p.sendEnvelope(ctx, st, envelope)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"code": string(code), "errMsg": "login:ok"}, nil
+		return p.requestLoginCode(ctx, st, appID)
+	}
+	if len(expected) > 0 && expected[0].SessionOnly() {
+		return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, call, expected...)
 	}
 	return retryLoginCode(ctx, func() (map[string]any, error) {
 		return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, call, expected...)
@@ -203,6 +198,13 @@ func (p *Pool) Invalidate(ctx context.Context, accountID int64, tcpProxy string)
 }
 
 func (p *Pool) invalidateExpected(ctx context.Context, accountID int64, proxy string, expected ...*store.WechatAccount) error {
+	acc, err := p.db.GetAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if acc.SessionOnly() {
+		return ErrCachedSessionUnavailable
+	}
 	if len(expected) > 0 {
 		return p.db.InvalidateSessionForAccount(ctx, expected[0], proxy)
 	}
@@ -214,7 +216,7 @@ func (p *Pool) run(ctx context.Context, loginBuffer string, accountID int64, tcp
 	if err == nil {
 		st.FallbackDirect = fallbackDirect
 		res, err := op(ctx, st)
-		if err == nil || tcpProxy == "" || !fallbackDirect {
+		if err == nil || tcpProxy == "" || !fallbackDirect || IsApplicationRequestRejection(err) || st.CachedOnly {
 			return res, err
 		}
 		_ = p.invalidateExpected(ctx, accountID, tcpProxy, expected...)
@@ -241,7 +243,10 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 		return WmpfSession{}, store.ErrAccountAuthorizationChanged
 	}
 	if st, err := p.cachedSession(ctx, accountID, tcpProxy); err == nil {
+		st.CachedOnly = acc.SessionOnly()
 		return st, nil
+	} else if acc.SessionOnly() {
+		return WmpfSession{}, ErrCachedSessionUnavailable
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return WmpfSession{}, err
 	}
@@ -250,7 +255,15 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 		return WmpfSession{}, err
 	}
 	defer release(lock)
+	acc, err = p.db.GetAccount(ctx, accountID)
+	if err != nil {
+		return WmpfSession{}, err
+	}
+	if len(expected) > 0 && !acc.SameAuthorization(expected[0]) {
+		return WmpfSession{}, store.ErrAccountAuthorizationChanged
+	}
 	if st, err := p.cachedSession(ctx, accountID, tcpProxy); err == nil {
+		st.CachedOnly = acc.SessionOnly()
 		return st, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return WmpfSession{}, err
@@ -261,6 +274,9 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	}
 	if len(expected) > 0 && !acc.SameAuthorization(expected[0]) {
 		return WmpfSession{}, store.ErrAccountAuthorizationChanged
+	}
+	if acc.SessionOnly() {
+		return WmpfSession{}, ErrCachedSessionUnavailable
 	}
 	if err = acquire(ctx, p.loginSem); err != nil {
 		return WmpfSession{}, err
@@ -307,6 +323,17 @@ func (p *Pool) cachedSession(ctx context.Context, accountID int64, tcpProxy stri
 		}
 	}
 	return st, nil
+}
+
+// This checks local eligibility only; it does not assert server acceptance.
+func (p *Pool) HasReusableSession(ctx context.Context, accountID int64, tcpProxy string) bool {
+	st, err := p.cachedSession(ctx, accountID, tcpProxy)
+	if err != nil || st.PSK.PSKType != 1 || st.PSK.ExpiredAt <= time.Now().Unix() {
+		return false
+	}
+	key, keyErr := hex.DecodeString(st.PSK.PreSharedKey)
+	ticket, ticketErr := hex.DecodeString(st.PSK.TicketEntry)
+	return keyErr == nil && len(key) > 0 && ticketErr == nil && len(ticket) > 0
 }
 
 func (p *Pool) lockFor(key string) chan struct{} {

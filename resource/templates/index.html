@@ -1386,6 +1386,7 @@
     function statusText(status) {
       if (status === "alive") return "可用";
       if (status === "expired") return "需重扫";
+      if (status === "session_only") return "需补授权";
       return "待确认";
     }
 
@@ -1431,6 +1432,7 @@
 
     function lifecycleMarkup(account) {
       if (account.status === "expired") return '<span class="account-lifecycle lifecycle-inactive">保活已停止 · 重新扫码后恢复</span>';
+      if (account.status === "session_only") return '<span class="account-lifecycle lifecycle-inactive">授权已失效 · 仅尝试原会话，请重新扫码</span>';
       const now = Math.floor(Date.now() / 1000);
       if(account.scan_product==='pcmgr'){
 		const due=Number(account.credential_expires_at||0),remaining=Math.max(0,due-now),interval=Number(account.credential_expires_in||86400),ratio=Math.min(1,remaining/interval);
@@ -1551,8 +1553,8 @@
 		const proxy = proxyText(state.proxyConfigs.get(String(account.id)));
         const isExpired = account.status === "expired";
         const cls = isExpired ? "expired" : account.rescan_recommended ? "warning" : statusClass(account.status);
-        const status = isExpired ? "已失效" : account.rescan_recommended ? "建议重扫" : statusText(account.status);
-        const pendingConfirmation = account.status !== "alive" && account.status !== "expired";
+        const status = isExpired ? "已失效" : account.status === "session_only" ? "需补授权" : account.rescan_recommended ? "建议重扫" : statusText(account.status);
+        const pendingConfirmation = account.status !== "alive" && account.status !== "expired" && account.status !== "session_only";
         const button = document.createElement("article");
         button.className = `account-card ${cls}${isExpired && playExpiredIntro ? " expired-alert" : ""}`;
         button.dataset.openid = account.openid;
@@ -1569,7 +1571,7 @@
               <span class="account-header-tools">
               ${pendingConfirmation
                 ? `<button type="button" class="account-status account-status-toggle ${cls}" aria-expanded="false" aria-controls="confirm-account-${account.id}" aria-label="确认账号 ${escapeHTML(number)} 的状态"><span class="status-dot"></span>${status}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>`
-                : `<span class="account-status ${cls}" title="${account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>`}
+                : `<span class="account-status ${cls}" title="${account.status === "session_only" ? "授权已拒绝，原会话可尝试使用，不代表保活恢复" : account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>`}
               <span class="scan-channel-badge" title="扫码渠道：${account.scan_product === 'pcmgr' ? 'PCMgr' : 'YYB'}" aria-label="${account.scan_product === 'pcmgr' ? 'PCMgr' : 'YYB'} 渠道"><img alt="" src="/static/images/scan-${account.scan_product === 'pcmgr' ? 'pcmgr' : 'yyb'}.png"></span>
               </span>
             </span>

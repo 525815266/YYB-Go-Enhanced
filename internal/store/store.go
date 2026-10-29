@@ -770,6 +770,14 @@ func (db *DB) ApplyCredentialRefresh(ctx context.Context, expected *WechatAccoun
 	if status == "expired" {
 		loginBuffer, credentials = "", nil
 	}
+	if status == StatusSessionOnly {
+		// Keep the scan timestamp as audit metadata, never rejected tokens.
+		credentials = nil
+		if observed := int64Credential(expected.Credentials, "refresh_token_observed_at"); observed > 0 {
+			credentials = map[string]any{"refresh_token_observed_at": observed}
+		}
+		loginBuffer = ""
+	}
 	encoded, err := marshalNullable(credentials)
 	if err != nil {
 		return false, err
@@ -947,7 +955,7 @@ func (a *WechatAccount) Public() AccountPublic {
 		product = "pcmgr"
 	}
 	var refreshTokenObservedAt *int64
-	rescanRecommended := false
+	rescanRecommended := a.SessionOnly()
 	var credentialExpiresAt *int64
 	credentialExpiresIn := int64(0)
 	credentialExpiresAtValue := int64Credential(a.Credentials, "expires_at")
@@ -955,10 +963,10 @@ func (a *WechatAccount) Public() AccountPublic {
 	if credentialExpiresIn <= 0 {
 		credentialExpiresIn = 7200
 	}
-	if stringCredential(a.Credentials, "refreshtoken") != "" {
+	if stringCredential(a.Credentials, "refreshtoken") != "" || a.SessionOnly() {
 		if observedAt := int64Credential(a.Credentials, "refresh_token_observed_at"); observedAt > 0 {
 			refreshTokenObservedAt = &observedAt
-			rescanRecommended = time.Now().Unix()-observedAt >= int64((25*24*time.Hour)/time.Second)
+			rescanRecommended = rescanRecommended || time.Now().Unix()-observedAt >= int64((25*24*time.Hour)/time.Second)
 		}
 	}
 	if credentialExpiresAtValue <= 0 {

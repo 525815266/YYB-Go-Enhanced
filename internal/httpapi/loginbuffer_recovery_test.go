@@ -45,6 +45,27 @@ func TestPCMgrTicketRefusalDoesNotRotateKeyOnEveryCall(t *testing.T) {
 	}
 }
 
+func TestFailedCodeSessionRepairDoesNotRotateCredentials(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "synthetic-repair-refusal", time.Now().Add(time.Hour))
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		t.Fatal("failed candidate repair entered OAuth recovery")
+		return protocol.LoginBufferCredentials{}, nil
+	}
+	refusal := &pcmgr.BufferRejectedError{Code: 1}
+	_, err := app.invokeWXApp(context.Background(), acc, "wx-test", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		return nil, &protocol.CodeSessionRecoveryError{Cause: errors.Join(&protocol.ShortlinkRejectedError{Code: -14}, refusal)}
+	})
+	if !errors.Is(err, refusal) {
+		t.Fatal("candidate refusal diagnostic lost")
+	}
+	stored, _ := app.db.GetAccount(context.Background(), acc.ID)
+	if !stored.SameAuthorization(acc) || accountStatus(stored) != "alive" {
+		t.Fatal("candidate refusal changed authorization")
+	}
+}
+
 func TestApplicationEmptyCodeDoesNotRecoverAccountCredentials(t *testing.T) {
 	app := newKeepAliveTestApp(t)
 	defer app.Close()
