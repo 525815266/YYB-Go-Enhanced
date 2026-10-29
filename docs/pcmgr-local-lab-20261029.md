@@ -1,0 +1,111 @@
+# 应用宝 / 腾讯电脑管家：独立本地协议实验
+
+2026-10-29，本地 Windows x64。当前代码只通过 `protocolaudit` 构建标签开放实验入口，未接入管理页面、正式账号数据库、飞牛服务或自动续期任务。
+
+## 两条路径
+
+| 项目 | 应用宝 `yyb` | 电脑管家 `pcmgr` |
+| --- | --- | --- |
+| HostAppID | `wxd44977328b36e647` | `wx5cd60c5d4817a188` |
+| 上游凭据 | 应用宝 OAuth access / refresh token | 管家 account ID、loginkey、client GUID |
+| 登录票据 | 应用宝登录票据接口 | 原生网络指令 `20138` / GetLoginBuffer |
+| 凭据续期 | 应用宝 refresh-token / check-login | 原生网络指令 `20042` / RenewLoginkey |
+| 本地状态 | `STATE_ROOT/yyb/session.json` | `STATE_ROOT/pcmgr/credentials.json`、`ticket-response.pb`、`session.json` |
+| 共享部分 | ILink / MMTLS 传输实现 | ILink / MMTLS 传输实现 |
+
+凭据格式、HostAppID、会话标签及目录分别校验。缺少 HostAppID、产品不符或会话过期时直接拒绝；没有跨产品回退，不会用管家授权替换应用宝 ID1。正式服务继续沿用原应用宝路径。共享传输实现能完成此次请求，不表示所有管家原生参数均已逐字段对齐。
+
+## 已完成的真实验证
+
+| 本地实验 | 实际结果 | 能证明什么 |
+| --- | --- | --- |
+| 管家登录态 → `20138` → ManualAuth → 小程序取码 | 成功，code 长度 32 | 管家自己的票据可建立可用的独立会话 |
+| 退出实验进程后读取保存的管家会话 | 成功，code 长度 32 | 本地会话可持久化复用 |
+| 管家旧 key → `20042` | `result=0`，返回新 key，账号与类型一致 | 官方 key 轮换指令实际可用 |
+| 新 key → `20138` → 新会话 → 取码 | 成功，code 长度 32 | 新 key 可用于完整登录链路 |
+| 将上述步骤整理为仓库内桥接工具后重新执行 | 导入、续期、取票据、取码均成功 | 不是仅一次性临时脚本成功 |
+| 主动续期后重读官方客户端状态并使用其原 key 取票据、取码 | 成功；原生登录时间与原 key 未改变 | 本次实验未改官方配置，原 key 在该时刻仍能使用 |
+| 应用宝 ID1 先前保存的原会话，在本地 `yyb` 目录复测 | 成功，code 长度 32 | 原 ILink 会话在该时刻仍可用；没有恢复生产账号或 OAuth 凭据 |
+
+一个放置数分钟的旧管家票据曾收到 `ManualAuth -10`，重新按需获取后通过。因此不长期囤积 login_buffer；这一个样本不能推导固定的票据 TTL。
+
+**尚未验证：** 管家 key 自然到期后的自动续期、长期有效期、30 天保活、关闭所有官方进程后的完整独立运行、Linux / Docker 中的纯 Go 原生账号服务替代，以及新扫码 code 到管家登录凭据的独立闭环。当前管家账号服务调用依赖已核对版本的 Windows 官方 DLL，不捆绑或上传这些 DLL。
+
+此次是显式提前调用续期接口的受控实验，不能写成后台自然续期成功。应用宝 OAuth `-109 / 42007` 的原问题也没有因此消失，详见[第四轮终止记录](native-keepalive-audit-20261028.md#第四轮终止oauth-拒绝与仍可用的原协议会话15411544)。
+
+## 本地复现
+
+需要 Go 1.23+、64 位 Windows Python，以及已登录微信的电脑管家 `18.2.30865.218`。桥接工具固定校验三个 DLL 的 SHA256；升级后样本不符会停止，需要重新核对 ABI，不能关闭校验硬试。
+
+在仓库根目录的 PowerShell 执行：
+
+```powershell
+go build -tags protocolaudit -o .codex-tmp/protocol-lab.exe ./cmd/protocol-lab
+$labRoot = Join-Path (Get-Location) '.codex-tmp/protocol-lab'
+
+# 首次导入到管家专用凭据文件；已有文件会拒绝覆盖。
+python tools/pcmgr_local_bridge.py --state-root $labRoot --import-native --fetch-ticket
+if ($LASTEXITCODE -ne 0) { throw '管家取票据失败' }
+
+& ./.codex-tmp/protocol-lab.exe --provider pcmgr --state-root $labRoot `
+  --ticket-file (Join-Path $labRoot 'pcmgr/ticket-response.pb')
+
+# 复用管家会话：不刷新凭据，不重新登录，不在失败时自动回退。
+& ./.codex-tmp/protocol-lab.exe --provider pcmgr --state-root $labRoot
+
+# 显式实验：只轮换私有副本中的 key，随后取新票据。
+python tools/pcmgr_local_bridge.py --state-root $labRoot --renew-key --fetch-ticket
+if ($LASTEXITCODE -ne 0) { throw '管家续期或取票据失败' }
+& ./.codex-tmp/protocol-lab.exe --provider pcmgr --state-root $labRoot `
+  --ticket-file (Join-Path $labRoot 'pcmgr/ticket-response.pb')
+
+# 仅检查官方客户端状态；没有业务网络请求，不输出 key / 账号身份。
+python tools/pcmgr_local_bridge.py --state-root $labRoot
+
+# 应用宝：显式提供自己的新 base64 票据文件；不读取生产数据库。
+& ./.codex-tmp/protocol-lab.exe --provider yyb --state-root $labRoot `
+  --ticket-file 'C:/private-lab/yyb-login-buffer.txt'
+& ./.codex-tmp/protocol-lab.exe --provider yyb --state-root $labRoot
+```
+
+每次重新取票据只需 `--fetch-ticket`，不需要重复导入客户端凭据；轮换后使用私有文件中的新 key。成功轮换先原子保存，后续取票据失败不会丢失已经下发的新 key。失败的新取票据操作清除旧响应文件，不用旧文件冒充本次成功。实验失败保留已保存的会话，不会清空正式账号。
+
+工具仅输出产品标识、成功状态、固定错误码、code 长度、PSK 期限等摘要，真实 code 不输出。管家私有目录收紧到当前 Windows 用户 SID，凭据文件只留本地；不要分享该目录。仓库忽略 `.codex-tmp/`，不提交真实票据、会话或密钥。
+
+离线回归：
+
+```powershell
+go test ./...
+go test -tags protocolaudit ./internal/pcmgr ./internal/protocol ./cmd/protocol-lab
+python tools/test_pcmgr_local_bridge.py
+```
+
+覆盖产品隔离、标签与 HostAppID 不一致、过期会话、重复字段、截断 protobuf、错误 wire type、错误码溢出不得变成成功、续期身份不符、空新 key、续期拒绝不替换原 key。普通测试与正式二进制不触发这些真实网络实验。
+
+## 原生协议依据
+
+管家 WMPF RPC 来自 `Qt64/MAL.exe` 中的 `wmpf_login_code.proto`；账号续期结构来自 `QMTrayPlugin/QMLoginPlugin/QMLoginPlugin.dll` 的 `gjaccount_server.proto`。指令号来自真实网络发送调用点，不将 native command 猜成 jprx HTTP route。
+
+| 消息 | protobuf 字段 |
+| --- | --- |
+| GetLoginBufferReq | 1 accountid:int64；2 loginkey:string；3 client_guid:string；4 authcode:string；5 pcmgr_tmp_token:string |
+| GetLoginBufferResp | 1 result:int32；2 msg:string；3 login_buffer:string；4 pcmgr_tmp_token:string；5 pcmgr_openid:string |
+| RenewLoginkeyReq | 1 type:enum；2 accountid:int64；3 old_loginkey:string；4 client_guid:string |
+| RenewLoginkeyResp | 1 result:int32；2 login_type:enum；3 accountid:int64；4 new_loginkey:string；5 next_renew_len:int32；6 third_party_info:message |
+
+本地登录结构的微信类型是 `16`，续期消息里的账号类型是 `2`，两者不能混用。`20138` 使用 accountid + loginkey + 小写十六进制 GUID 的已验证路径；未把临时 token、authcode 分支宣称为已测试。
+
+32 位登录插件中，`RequestRenewLoginkeyValue` 的请求构建始于 RVA `0x5b080`，实际发送 `20042` 的调用位于 `0x5b5ae`；成功响应处理保存新 key 和 `next_renew_len`，失败不会凭空延长凭据。RVA `0x62303..0x624a6` 的一条检查路径读取登录时间、续期时长及 `defLoginPatchRunOnce`：经过时间超过时长一半，或时长小于 `0x13c680`（15 天）时进入续期；其他情况存在补丁标记的一次性分支。这是静态分支证据，尚未量测完整后台定时调度。
+
+当前官方配置与两次实际续期响应均出现 `next_renew_len=5097600` 秒（59 天）。它是“下次续期时长”字段，不是通过实测证明的 key 有效期，更不是“小程序 code 能保活 59 天”。
+
+核对样本 SHA256：
+
+| 样本 | SHA256 |
+| --- | --- |
+| QMCommon64.dll | `307f596fe65f7012dad5ba83ed8f14cdff426c743a3d38e1993e062d1e189b6a` |
+| QMGuid64.dll | `216098312549bce826d59fb2aa696233443745fa51be6fc03688fbfb6c72d858` |
+| QMNetworkMgr64.dll | `e9b54b7f7dba30a0aa65b8da47f96ce7552ce3bf57c23625ca0491ebe89294e4` |
+| Qt64/MAL.exe | `ce4b4acd5b7b472819f98eb321eedd44d9a4aa15b81f2ad85e5c50d791bd55bb` |
+| QMLoginPlugin.dll | `f301b2978325e4e0844252948292c957cde4ffac56dcaaa57338d67e63f1043f` |
+| 管家 runtime/ilink2.dll | `46a0ac2eb34ef2e781a68aa4c6bbe5bd5ed1860218c6b4cbdf51ce81d78247c6` |

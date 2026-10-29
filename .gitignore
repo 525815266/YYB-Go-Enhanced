@@ -13,3 +13,4 @@ __pycache__/
 *.py[cod]
 /yyb-go
 /dist/
+/.codex-tmp/
