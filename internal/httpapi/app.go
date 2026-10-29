@@ -830,7 +830,7 @@ func (a *App) handleNamedWXOperation(w http.ResponseWriter, r *http.Request, pat
 			writeError(w, http.StatusNotFound, "account not found: "+body.Ref)
 			return
 		case errors.As(err, &expired):
-			writeError(w, http.StatusConflict, "account login_buffer expired (refresh failed); re-scan required")
+			writeAccountExpired(w, expired)
 			return
 		case strings.Contains(err.Error(), " is required"):
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1006,7 +1006,7 @@ func (a *App) callWXApp(w http.ResponseWriter, r *http.Request, requirePayload b
 		var expired accountExpiredError
 		switch {
 		case errors.As(err, &expired):
-			writeError(w, http.StatusConflict, "account login_buffer expired (refresh failed); re-scan required")
+			writeAccountExpired(w, expired)
 		default:
 			writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
 		}
@@ -1238,8 +1238,9 @@ func (a *App) resyncProfile(ctx context.Context, acc *store.WechatAccount) (*sto
 }
 
 type accountExpiredError struct {
-	openid string
-	cause  error
+	accountID int64
+	openid    string
+	cause     error
 }
 
 func (e accountExpiredError) Error() string { return "account expired: " + e.openid }
@@ -1251,10 +1252,10 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout+35*time.Second)
 	defer cancel()
 	if accountStatus(acc) == "expired" {
-		return nil, accountExpiredError{openid: acc.OpenID}
+		return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID}
 	}
 	if accountNeedsRescan(acc) {
-		return nil, accountExpiredError{openid: acc.OpenID}
+		return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID}
 	}
 	proxyValue, fallbackDirect, err := a.resolveWXAppProxy(ctx, acc.ID)
 	if err != nil {
@@ -1299,7 +1300,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	status = a.finishLivenessRefresh(ctx, acc, status)
 	if status != "alive" {
 		if status == "expired" {
-			return nil, accountExpiredError{openid: acc.OpenID, cause: errors.Join(callErr, refreshErr)}
+			return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID, cause: errors.Join(callErr, refreshErr)}
 		}
 		return nil, errors.Join(callErr, fmt.Errorf("refresh account credentials: %w", refreshErr))
 	}
@@ -1365,6 +1366,9 @@ func refreshOut(acc *store.WechatAccount, status string, refreshErr error) map[s
 	}
 	if refreshErr != nil {
 		out["refresh_error"] = refreshErr.Error()
+		if diagnostics := credentialDiagnostics(refreshErr); len(diagnostics) > 0 {
+			out["upstream_errors"] = diagnostics
+		}
 	}
 	return out
 }

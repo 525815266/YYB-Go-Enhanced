@@ -18,8 +18,9 @@ import (
 var ErrMissingRefreshToken = errors.New("missing refresh token")
 
 type RefreshRejectedError struct {
-	Code    int
-	Message string
+	Code      int
+	Message   string
+	Operation string
 }
 
 func (e *RefreshRejectedError) Error() string {
@@ -225,7 +226,11 @@ func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginB
 		return LoginBufferCredentials{}, err
 	}
 	if code := intFromAny(data["code"]); code != 0 {
-		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data["msg"]), creds)}
+		operation := "refresh_token"
+		if endpoint == checkLoginURL {
+			operation = "check_login"
+		}
+		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data["msg"]), creds), Operation: operation}
 	}
 	info, _ := data["user_info"].(map[string]any)
 	if openID := stringFromMap(info, "open_id"); openID != "" && openID != creds.OpenID {

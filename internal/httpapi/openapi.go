@@ -499,7 +499,7 @@ func newOpenAPISpec() map[string]any {
 				"APIErrorResponse": objectSchema([]string{"code", "msg", "data"}, map[string]any{
 					"code": map[string]any{"type": "integer", "example": 400, "description": "非 0 业务错误码。"},
 					"msg":  map[string]any{"type": "string", "example": "ref is required"},
-					"data": nullableObjectSchema("错误响应当前固定返回 null。"),
+					"data": nullableObjectSchema("通常为 null；账号恢复失败的 409 包含 rescan_required 与 upstream_errors（阶段和数字错误码，不含凭据）。已失效记录再次调用时 upstream_errors 为空，不重放上游请求或推断历史原因。"),
 				}),
 				"HealthResponse": objectSchema([]string{"ok"}, map[string]any{
 					"ok": map[string]any{"type": "boolean"},
@@ -553,6 +553,12 @@ func newOpenAPISpec() map[string]any {
 					"status":          map[string]any{"type": "string", "example": "alive"},
 					"rescan_required": map[string]any{"type": "boolean", "description": "仅在服务端明确判定登录凭证失效时为 true。"},
 					"refresh_error":   nullableStringSchema("本次刷新失败原因；临时网络错误不代表账号失效。"),
+					"upstream_errors": arraySchema(refSchema("UpstreamDiagnostic")),
+				}),
+				"UpstreamDiagnostic": objectSchema([]string{"stage", "upstream_code"}, map[string]any{
+					"stage":         map[string]any{"type": "string", "enum": []string{"manual_auth", "login_buffer", "refresh_token", "check_login"}},
+					"upstream_code": map[string]any{"type": "integer", "description": "已解析的业务拒绝码。"},
+					"wechat_code":   map[string]any{"type": "integer", "description": "业务消息中明确提供的已知微信拒绝码；不能从请求标识或网络错误猜测。"},
 				}),
 				"DeleteAccountResponse": objectSchema([]string{"deleted", "openid", "qinglong_cleanup", "env_entries_removed", "tasks_deleted"}, map[string]any{
 					"deleted":             int64Schema(),

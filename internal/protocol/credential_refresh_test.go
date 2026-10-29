@@ -73,7 +73,7 @@ func TestAmbiguousRefreshUsesOfficialCheckLogin(t *testing.T) {
 				}
 			} else {
 				var rejected *RefreshRejectedError
-				if !errors.As(err, &rejected) || !strings.Contains(rejected.Message, "40030") || !strings.Contains(err.Error(), "RC_PARAMS_INVALID") {
+				if !errors.As(err, &rejected) || rejected.Operation != "check_login" || !strings.Contains(rejected.Message, "40030") || !strings.Contains(err.Error(), "RC_PARAMS_INVALID") {
 					t.Fatalf("underlying rejection lost: %v", err)
 				}
 			}

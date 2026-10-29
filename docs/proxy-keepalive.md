@@ -91,6 +91,35 @@ host:port|user|pass
 
 ## 自动保活
 
+<a id="scan-first-call-409"></a>
+
+### 扫码成功后首次调用返回 409（#105 / #109）
+
+确认扫码并成功入库，只能证明取得过凭据；需要结合首次失败的实际业务码判断后续是否被上游拒绝。v0.2.40 起，协议恢复失败的 409 保留原 `code` / `msg`，增加安全诊断，例如：
+
+```json
+{
+  "code": 409,
+  "msg": "account login_buffer expired (refresh failed); re-scan required",
+  "data": {
+    "rescan_required": true,
+    "upstream_errors": [
+      {"stage": "manual_auth", "upstream_code": -10},
+      {"stage": "login_buffer", "upstream_code": -101},
+      {"stage": "check_login", "upstream_code": -109, "wechat_code": 42007}
+    ]
+  }
+}
+```
+
+这是格式示例，不代表所有 409 都是该错误链。`manual_auth` 是协议握手拒绝，`login_buffer` 是获取登录票据，`refresh_token` 是凭据刷新，`check_login` 是官方登录检查。仅返回已解析的数字业务码；不回显 token、OpenID、代理认证或原始响应。本次 `/accounts/refresh`、批量刷新和集成刷新结果遇到业务拒绝也增加 `upstream_errors`。
+
+首次恢复失败还会写入默认服务日志，使用固定字段与账号数字 ID。账号已经标为失效后，再调用只返回 409 与空诊断列表，不重新请求上游；服务没有持久保存历史拒绝码，事后单独调用 `/accounts/refresh` 或手动状态接口无法还原旧原因，请保留首次 409 的诊断或对应时间的服务日志。不能从“同地区家宽”、健康接口 200 或本地剩余两小时推断凭据仍有效。
+
+普通扫码的 `/qr/{sid}/cancel` 仅移除二维码会话，不撤销已入库账号。项目未设置失效后重扫的冷却期；同一微信重扫沿用原账号记录，但上游是否接受新授权仍以真实调用结果为准。不要把缺少具体错误的 409 直接归因于代理或风控。
+
+### 默认配置
+
 默认配置：
 
 ```dotenv
