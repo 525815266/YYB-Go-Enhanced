@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -153,7 +154,7 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 		return "", err
 	}
 	ts, nonce := timestampMS(), nonce4()
-	var data map[string]any
+	var data loginCredentialResponse
 	if err = c.requestJSON(ctx, http.MethodPost, loginBufferURL, body, map[string]string{
 		"Content-Type":          "application/json",
 		"Ual-Access-Businessid": loginBusinessID,
@@ -164,10 +165,14 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 	}, &data); err != nil {
 		return "", err
 	}
-	if code := intFromAny(data["code"]); code != 0 {
-		return "", &LoginBufferRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data["msg"]), creds)}
+	code, err := credentialResponseCode(data.Code)
+	if err != nil {
+		return "", err
 	}
-	values := stringSlicePath(data, "ext_info", "list_s", "login_buffer", "value")
+	if code != 0 {
+		return "", &LoginBufferRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data.Message), creds)}
+	}
+	values := stringSlicePath(data.ExtInfo, "list_s", "login_buffer", "value")
 	if len(values) == 0 || values[0] == "" {
 		return "", fmt.Errorf("login_buffer response is empty")
 	}
@@ -215,7 +220,7 @@ func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginB
 		return LoginBufferCredentials{}, err
 	}
 	ts, nonce := timestampMS(), nonce4()
-	var data map[string]any
+	var data loginCredentialResponse
 	if err = c.requestJSON(ctx, http.MethodPost, endpoint, body, map[string]string{
 		"Content-Type":          "application/json",
 		"Ual-Access-Businessid": business,
@@ -225,14 +230,18 @@ func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginB
 	}, &data); err != nil {
 		return LoginBufferCredentials{}, err
 	}
-	if code := intFromAny(data["code"]); code != 0 {
+	code, err := credentialResponseCode(data.Code)
+	if err != nil {
+		return LoginBufferCredentials{}, err
+	}
+	if code != 0 {
 		operation := "refresh_token"
 		if endpoint == checkLoginURL {
 			operation = "check_login"
 		}
-		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data["msg"]), creds), Operation: operation}
+		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data.Message), creds), Operation: operation}
 	}
-	info, _ := data["user_info"].(map[string]any)
+	info := data.UserInfo
 	if openID := stringFromMap(info, "open_id"); openID != "" && openID != creds.OpenID {
 		return LoginBufferCredentials{}, fmt.Errorf("credential response account mismatch")
 	}
@@ -360,6 +369,13 @@ type refreshTokenUserInfo struct {
 	LoginType    string `json:"loginType"`
 }
 
+type loginCredentialResponse struct {
+	Code     json.RawMessage `json:"code"`
+	Message  any             `json:"msg"`
+	UserInfo map[string]any  `json:"user_info"`
+	ExtInfo  map[string]any  `json:"ext_info"`
+}
+
 func timestampMS() string {
 	return fmt.Sprintf("%d", time.Now().UnixMilli())
 }
@@ -424,20 +440,18 @@ func int64FromMap(m map[string]any, key string) int64 {
 	}
 }
 
-func intFromAny(v any) int {
-	switch x := v.(type) {
-	case int:
-		return x
-	case int64:
-		return int(x)
-	case float64:
-		return int(x)
-	case json.Number:
-		n, _ := x.Int64()
-		return int(n)
-	default:
-		return 0
+func credentialResponseCode(raw json.RawMessage) (int, error) {
+	// Preserve the JSON representation: truncating a float or defaulting a
+	// missing/unrecognized value to zero would turn a rejection into success.
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err != nil {
+		return 0, fmt.Errorf("credential response code must be an integer")
 	}
+	code, err := strconv.ParseInt(number.String(), 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("credential response code must be an integer")
+	}
+	return int(code), nil
 }
 
 func defaultString(s, def string) string {
