@@ -111,9 +111,22 @@ v0.2.39 据此补修：已解析的凭据业务错误中识别纯数字 `40030 /
 
 继续分析真实运行库，已把 `GetAppDeviceId` 定位到 `ilink2.dll` RVA `0x1783d0`：读取 INI 配置中的 `AppDeviceId`，非空时直接返回，空值分支生成并转换为十六进制后执行 `ini_file::set` 与 `commit`。这确认该网络层标识会持久保存，而非仅有相关字符串。
 
-不能把它直接替换项目 `randomAppDeviceID()` 的 32 字节请求字段：该函数来自 `ilink-network/logic/netcore_bridge_values.cpp`，目前尚未完成它与 ManualAuth 内层字段的对应追踪。另有 cloud session 的缓存 device_id、票据附带 device_id 和项目短链会话，层次不同；还没有证据证明某一处随机标识就是近期 OAuth refresh token 失效的原因。本轮未改变握手设备字段或加入猜测心跳。
+继续追踪直接调用者后，增加了比符号关联更具体的证据：`0x10318c` 调用 `GetAppDeviceId`，随后复制返回字符串到 `AppBaseRequest`；`0x1032c9` 将该对象放入当前构造的 `ManualAuthRequest`。构造函数与 MSVC RTTI 相互核对：`0x145e10` / vtable `0x7e96b0` 为 `ilinkcliproto::AppBaseRequest`，`0x146470` / vtable `0x7e9718` 为 `ilinkcliproto::ManualAuthRequest`。缺省生成分支在 `0x178595` 生成 8 字节，再转十六进制字符串并持久保存。这确认持久设备标识确实进入登录请求对象，不再只是网络层存在一个同名配置。
+
+项目当前 `randomAppDeviceID()` 每次握手生成 32 个原始随机字节，与以上持久化行为有差异。不过尚未完成完整序列化字节和实际请求分支的隔离对照，也没有证据证明这一差异导致 OAuth refresh token 被撤销。另有 cloud session 的缓存 device_id、票据附带 device_id 和项目短链会话，不能混用。为了保留本轮自然续期的可比较条件，v0.2.40 未更改握手设备字段或增加猜测心跳；后续应单独验证这个差异。
 
 样本 SHA256（用于复核定位对应的文件版本）：
 
 - `WmpfRuntime/5.10.7300.414/runtime/ilink2.dll`：`8b69772a79e5892ab48aff13a096a1a806219061a17395d14f311305d4a74d7a`
 - `Application/5.10.7600.6722/AndrowsSvr.exe`：`b2d1270b1329b9f69d95c77f4ddbd2f5d6c99df1c58c0dfe9c62a907c3f532c9`
+
+### v0.2.40 诊断修补与发布验证（2026-10-29）
+
+#105 / #109 新反馈指出重扫后的首次协议调用仍可能只返回统一 409，具体错误不可见。核对代码确认：v0.2.39 内部错误链虽然保留，HTTP 失效分支仍会丢掉诊断。本次为首次恢复失败增加固定阶段、业务拒绝码和明确的已知微信码；默认日志输出相同的安全字段。刷新结果也提供本次诊断，但不为已失效记录重新探测，不把未持久保存的历史错误说成已知原因。[响应示例与边界](proxy-keepalive.md#scan-first-call-409)。
+
+- Windows 全量 Go 测试、`go vet ./...` 与 5 项 Release 说明测试通过。新增真实 HTTP handler 回归覆盖三阶段拒绝、409 数据结构、敏感错误内容不回显、失效凭据释放和重复调用不再请求上游。
+- GitHub 的 main / tag 原生构建、main / tag Docker 构建及 Magisk 构建全部通过，v0.2.40 Release 保留七架构单二进制、七种完整包、Magisk 和 checksums 共 16 项资产。
+- 实际下载 Windows amd64 发布文件并核对 SHA256，隔离启动确认版本 0.2.40、内嵌页面、协议令牌输入框及匿名拒绝。没有把交叉编译成功描述为已在每个系统运行。
+- 飞牛部署精确版本镜像，保留原配置与 21 个账号身份，容器健康且 LAN 健康接口 HTTP 200。部署后 ID1 真实取码返回 HTTP 200、非空 32 字符 code，状态仍为 `alive`。
+- 09:16 的版本升级只改变诊断，已记录到私有观察状态；09:19 复核扫码时间仍为 08:56:14、原凭据到期时间仍为 10:56:14、access / refresh 摘要未改变。没有强制提前续期或重置测试时钟。两轮自然续期仍待实际窗口。
+- 已向 #105 / #109 回复具体接口行为、取消扫码的代码范围、诊断读取时机及剩余验证事项，保持问题开放；未宣称快速失效根因已修好。
