@@ -146,7 +146,7 @@ python tools/inspect_native_auth_schema.py --binary /path/to/ilink2.dll
 
 官方 Hybrid 加密会用保存的 enc key（最多取前 24 字节）包装同一个 32 字节 CEK，结果进入 Hybrid 请求字段 4；它不是直接放到 AutoAuth 明文字段 4。`0x11ba6c` 调用 AES-GCM 的输入为 enc key、第一阶段 32 字节哈希 AAD 和 CEK；`0x11bf7f`–`0x11bfd6` 把结果赋给消息字段 4。HKDF 盐 `security hdkf expand` 的原生长度为 20 字节，与项目常量一致。
 
-`PackRequest` 中应用 UIN、设备与用户名分别进入 wpkg 字段 22、24、27。`Req2Buf` 的字段 2 则来自独立网络账号，不能直接当成应用 UIN。更下层还有账号类型分支：应用账号分支 `0x1a2d7c`–`0x1a2e01` 写入字段 18 为 0，非应用账号分支 `0x1a3897`–`0x1a38f2` 写入 1；随后应用分支还可能根据网络会话包装外层数据。因此仅修改这个标志，并不构成完整的官方网络实现。
+`PackRequest` 中应用 UIN、设备与用户名分别进入 wpkg 字段 22、24、27。`Req2Buf` 的字段 2 来自独立网络账号存储，但完整会话更新调用者存在把应用 UIN 写入该存储的路径，不能据“独立存储”推断它必须为 0，详见下方调用者复核。更下层还有账号类型分支：应用账号分支 `0x1a2d7c`–`0x1a2e01` 写入字段 18 为 0，非应用账号分支 `0x1a3897`–`0x1a38f2` 写入 1；随后应用分支还可能根据网络会话包装外层数据。因此仅修改这个标志，并不构成完整的官方网络实现。
 
 新增离线工具：
 
@@ -210,3 +210,22 @@ python tools/inspect_native_session_update.py --binary /path/to/ilink2.dll
 另沿调用链确认：`0x7a643` 将上层提供的会话类型保存为 `kTdiKeyIlinkAppSessionType`，AutoAuth 的 `0x3eb99` 读取后交给网络层；`0x100f89` 在复制应用会话后还调用 `SetUin`（`0x1728b0`），后者涉及按身份读取网络同步数据。此前隔离候选中把应用字段和网络字段简单拼到同一包头，尚未覆盖这些初始化条件；没有将仅修改包头标志或收到不同拒绝码描述为完整兼容。
 
 另增加只在 `protocolaudit` 构建存在的 `TestNativeCachedSessionWireAudit`：针对显式提供的私有缓存会话，仅记录 MMTLS 认证结果、固定数字码和长度，不输出密钥、请求和业务正文。12:38 的真实请求确认 MMTLS 认证成功后，应用头为 `-14`、无正文；v0.2.45 因此保留此类真实拒绝及首次重建错误。它与凭据恢复时另收到的 OAuth `42007` 是不同阶段，不能合并解释为同一个错误码。
+
+### 完整调用者中的网络 UIN 更新
+
+复制 helper 不写网络区，不等于完整调用者也不写。继续执行 `UpdateAppSession` 的 `0x10100d`–`0x101032`：应用 getter `0x1709d0` 读取应用会话 `+0x68`；`0x10102f` 调网络账号虚表 slot 10，实际 setter `0x173210` 把该值写入 `+0x390`。`Req2Buf` 在 `0x1a2b5a`–`0x1a2b79` 经 getter `0x172370` 读取同一位置，形成字段 2。
+
+`inspect_native_session_update.py` 新增虚构 identity 的调用者模拟，只替代 wrapper 的 GetAccount accessor，实际应用 getter、虚调用和网络 setter 均执行原生代码，确认该路径的网络 UIN 等于应用 UIN。该切片从前置条件之后开始，没有验证所有会话都会走入该路径，也没有证明服务器接受。
+
+隔离客户端新增 `nativeidentity` 候选：字段 2 取当前应用身份，字段 18 为 0、字段 25 为 17、字段 7 为 0。此前字段 2 为 0 的候选保留以便复现。13:56–13:58 新票据已被拒绝，未取得本轮可用的新 AutoKey，因此 **尚未发出这个新 AutoAuth 候选**；没有重放旧授权的密钥。
+
+### 网络实例决定外层加密分支
+
+继续从 `CreateIlinkNetwork` 追踪 provider，而非只看任务类名：`0x10efa2` 查询设备标识对应的 provider，`0x10f299` 将它传给网络构造，`0xfb542` 保存至网络实例 `+0x20`。`__RunTaskCheckLogic` 在 `0x109750` 调该 provider 的虚表 slot 5，按其返回值选择任务：
+
+| provider（RTTI 与次级虚表交叉确认） | slot 5 实现 | 任务选择与 Init 中的外层模式 |
+| --- | --- | --- |
+| `IlinkAppInstanceImpl`，provider 虚表 `0x7ee2d8`（对象偏移 8） | `0x191fe0` 固定返回 false | 构造 `0x17a740`；Init 的 `0x17a963` 写模式 0 |
+| `IlinkDeviceInstanceImpl`，provider 虚表 `0x7ee9a0`（对象偏移 8） | `0x199c80` 固定返回 true | `AesGcmCGITask` 构造 `0x17a9a0`；Init 的 `0x17abc3` 写模式 16 |
+
+`inspect_native_autoauth.py` 新增两组离线执行：使用实际 provider 虚表、getter 和选择分支，仅替代分配器，在进入完整构造前停止，再单独执行原生模式赋值指令。两组均通过。由此可把“外层是否必须 AES-GCM”收窄到具体实例：上述应用实例路径选择模式 0，设备实例选择 16；不能因 DLL 中存在 AES-GCM 任务就要求所有 AutoAuth 都加一层 AES-GCM。尚未验证整条构造 / Init、当前线上实例创建链与完整服务器接受，这不是成功 AutoAuth 的结论。

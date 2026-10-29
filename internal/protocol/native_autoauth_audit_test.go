@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -37,6 +39,19 @@ func auditOutput(stage string, fields map[string]any) {
 	fields["stage"] = stage
 	raw, _ := json.Marshal(fields)
 	fmt.Printf("NATIVE_AUTOAUTH %s\n", raw)
+}
+
+func auditBufferFailure(err error) {
+	fields := map[string]any{"error_type": fmt.Sprintf("%T", err)}
+	var rejected *LoginBufferRejectedError
+	if errors.As(err, &rejected) {
+		fields["upstream_code"] = rejected.Code
+		pattern := regexp.MustCompile(`(?i)(?:^|(?:\berror\b|\bcode\b)\s*[:=]?\s*|\[)(40030|42002|42007|40188)(?:$|[\s\]|,;])`)
+		if match := pattern.FindStringSubmatch(rejected.Message); len(match) > 1 {
+			fields["wechat_code"], _ = strconv.Atoi(match[1])
+		}
+	}
+	auditOutput("fresh_buffer_failed", fields)
 }
 
 // Compare application requests against one saved protocol session without
@@ -103,10 +118,11 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if phase := os.Getenv("YYB_AUTOAUTH_AUDIT_PHASE"); phase == "auto" {
+	phase := os.Getenv("YYB_AUTOAUTH_AUDIT_PHASE")
+	if phase == "auto" {
 		auditAutoAuth(t, ctx, statePath)
 		return
-	} else if phase != "manual" {
+	} else if phase != "manual" && phase != "buffer" {
 		t.Fatal("explicit audit phase required")
 	}
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
@@ -126,6 +142,16 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 	}
 	creds := CredentialsFromMap(mapped)
 	client := NewLoginBufferClient(12 * time.Second)
+	if phase == "buffer" {
+		ticket, err := client.FetchLoginBuffer(ctx, creds)
+		if err != nil {
+			auditBufferFailure(err)
+			t.Fatal("read-only buffer probe rejected; no handshake or OAuth refresh attempted")
+		}
+		auditOutput("fresh_buffer", map[string]any{"ticket_length": len(ticket),
+			"credentials_written": false, "oauth_refresh_requested": false})
+		return
+	}
 	targets, err := getLonglinkTargets(ctx, 4*time.Second, time.Minute)
 	if err != nil {
 		t.Fatal("longlink target discovery failed")
@@ -201,7 +227,7 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 		auditOutput("saved_buffer_rejected", map[string]any{"code": rejected.Code})
 		buffer, err = client.FetchLoginBuffer(ctx, creds)
 		if err != nil {
-			auditOutput("fresh_buffer_failed", map[string]any{"error_type": fmt.Sprintf("%T", err)})
+			auditBufferFailure(err)
 			t.Fatal("fresh buffer failed; no OAuth refresh attempted")
 		}
 		err = login(buffer)
@@ -270,15 +296,26 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 		t.Fatal("candidate header decode failed")
 	}
 	ints[25] = 17
-	// wpkg 2 is the independent transport-account identity (0x1a2b64,
-	// getter 0x172370), whereas wpkg 22 is the application identity.
-	// This isolated client has no transport-account login.
+	// wpkg 2 reads separate storage, but the full UpdateAppSession caller
+	// can set it from the application identity (0x10100d--0x101032).
+	// Keep earlier zero-UIN candidates reproducible, then test that path
+	// explicitly instead of assuming separate storage must imply zero.
 	ints[2] = 0
-	if os.Getenv("YYB_AUTOAUTH_AUDIT_HEADER_STYLE") == "nativeapp" {
+	headerStyle := os.Getenv("YYB_AUTOAUTH_AUDIT_HEADER_STYLE")
+	if headerStyle == "nativeapp" || headerStyle == "nativeidentity" {
 		// Req2Buf's application-account branch sets 18=0 (0x1a2df0),
 		// whereas its independent non-application branch sets 18=1.
 		ints[18] = 0
 	}
+	if headerStyle == "nativeidentity" {
+		ints[2] = uint64(saved.Session.UIN)
+	} else if headerStyle != "" && headerStyle != "existing" && headerStyle != "nativeapp" {
+		t.Fatal("unsupported audit header style")
+	}
+	auditOutput("auto_request_shape", map[string]any{
+		"network_identity_matches_application": ints[2] == uint64(saved.Session.UIN),
+		"application_account_flag":             ints[18], "application_crypto": ints[25],
+		"transport_crypto": ints[7], "credentials_written": false})
 	// PackRequest copies the network session's username into Header +0x28;
 	// AesGcmCGITask serializes it as wpkg bytes field 27 (0x1a2ce6).
 	identity := pbParse(safeBytes(pbParse(safeBytes(pbParse(saved.Response)[3]))[3]))

@@ -221,6 +221,57 @@ def run_transport_crypto_dispatch(pe, mode):
             'native_destination_rva': hex(stop), 'complete_packet_verified': False}
 
 
+def run_instance_task_selection(pe, device_instance):
+    """Run real provider virtual getters and task selection, not full Init."""
+    base = pe.OPTIONAL_HEADER.ImageBase
+    raw = pe.get_memory_mapped_image()
+    emu = Uc(UC_ARCH_X86, UC_MODE_64)
+    emu.mem_map(base, (len(raw) + 4095) & ~4095)
+    emu.mem_write(base, raw)
+    emu.mem_map(HEAP, 0x10000)
+    emu.mem_map(STACK, 0x10000)
+    network, provider, task = HEAP + 0x1000, HEAP + 0x2000, HEAP + 0x4000
+    table = 0x7ee9a0 if device_instance else 0x7ee2d8
+    locator, = struct.unpack('<Q', pe.get_data(table - 8, 8))
+    signature, offset, _, descriptor, _, own = struct.unpack('<6I', pe.get_data(locator - base, 24))
+    name = pe.get_data(descriptor + 16, 100).split(b'\0', 1)[0].decode('ascii')
+    expected = '.?AVIlinkDeviceInstanceImpl@@' if device_instance else '.?AVIlinkAppInstanceImpl@@'
+    assert signature == 1 and offset == 8 and own == locator - base and name == expected
+    emu.mem_write(network + 0x20, struct.pack('<Q', provider))
+    emu.mem_write(provider, struct.pack('<Q', base + table))
+    emu.reg_write(UC_X86_REG_R13, network)
+    emu.reg_write(UC_X86_REG_RBP, STACK + 0x8000)
+    emu.reg_write(UC_X86_REG_RSP, STACK + 0x6000)
+    selected = []
+
+    def hook(uc, address, size, _):
+        if address == base + 0x708eec:
+            assert uc.reg_read(UC_X86_REG_RCX) == 0x190
+            uc.reg_write(UC_X86_REG_RAX, task)
+            sp = uc.reg_read(UC_X86_REG_RSP)
+            destination, = struct.unpack('<Q', uc.mem_read(sp, 8))
+            uc.reg_write(UC_X86_REG_RSP, sp + 8)
+            uc.reg_write(UC_X86_REG_RIP, destination)
+        elif address in (base + 0x17a740, base + 0x17a9a0):
+            assert uc.reg_read(UC_X86_REG_RCX) == task
+            assert uc.reg_read(UC_X86_REG_RDX) == provider + 0x190
+            selected.append(address - base)
+            uc.emu_stop()  # Do not claim that full constructor/Init ran.
+
+    emu.hook_add(UC_HOOK_CODE, hook)
+    emu.emu_start(base + 0x109749, base + 0x1097ac, count=100)
+    assert selected == [0x17a9a0 if device_instance else 0x17a740]
+    start, stop = (0x17abc3, 0x17abcd) if device_instance else (0x17a963, 0x17a96d)
+    emu.reg_write(UC_X86_REG_RDI, task)
+    emu.emu_start(base + start, base + stop, count=1)
+    mode, = struct.unpack('<I', emu.mem_read(task + 0x178, 4))
+    assert mode == (16 if device_instance else 0)
+    return {'instance_type': name, 'provider_vtable_rva': hex(table),
+            'selected_constructor_rva': hex(selected[0]), 'transport_crypto': mode,
+            'allocator_substituted': True, 'native_virtual_getters_executed': True,
+            'complete_constructor_or_init_verified': False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
@@ -243,6 +294,8 @@ def main():
                                                     for mode in (0, 16, 17)],
                       'transport_crypto_dispatch': [run_transport_crypto_dispatch(pe, mode)
                                                      for mode in (0, 16, 17)],
+                      'instance_task_selection': [run_instance_task_selection(pe, device)
+                                                  for device in (False, True)],
                       'network_or_server_acceptance_verified': False}, indent=2))
 
 

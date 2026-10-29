@@ -121,6 +121,59 @@ def run(pe):
             'complete_wire_or_renewal_verified': False}
 
 
+def run_caller_identity_update(pe):
+    """Execute the later caller path that updates the transport UIN as well.
+
+    The copy helper above leaves network storage alone. That does not imply
+    the full UpdateAppSession caller leaves it unchanged: this slice invokes
+    the real virtual setter after reading the application session's identity.
+    It deliberately starts after the caller's empty-key conditional.
+    """
+    base = pe.OPTIONAL_HEADER.ImageBase
+    image = pe.get_memory_mapped_image()
+    emu = Uc(UC_ARCH_X86, UC_MODE_64)
+    emu.mem_map(base, (len(image) + 4095) & ~4095)
+    emu.mem_write(base, image)
+    heap, stack = 0x2000000, 0x3000000
+    emu.mem_map(heap, 0x10000)
+    emu.mem_map(stack, 0x10000)
+    network, session, wrapper, account = (heap + x for x in (0x1000, 0x2000, 0x3000, 0x4000))
+    vtable, getter = heap + 0x5000, heap + 0x6000
+    identity = 12345678  # Synthetic; never read from the official client.
+    emu.mem_write(network + 0x20, struct.pack('<Q', wrapper))
+    emu.mem_write(network + 0xd8, struct.pack('<Q', session))
+    emu.mem_write(session + 0x68, struct.pack('<Q', identity))
+    emu.mem_write(wrapper, struct.pack('<Q', vtable))
+    emu.mem_write(vtable + 8, struct.pack('<Q', getter))
+    emu.mem_write(account, struct.pack('<Q', base + 0x7ebea0))
+    # Only the wrapper's GetAccount accessor is substituted. The official
+    # application getter and virtual network-UIN setter execute unmodified.
+    calls = []
+
+    def hook(uc, address, size, _):
+        if address == getter:
+            uc.reg_write(UC_X86_REG_RAX, account)
+            sp = uc.reg_read(UC_X86_REG_RSP)
+            destination, = struct.unpack('<Q', uc.mem_read(sp, 8))
+            uc.reg_write(UC_X86_REG_RSP, sp + 8)
+            uc.reg_write(UC_X86_REG_RIP, destination)
+        elif address == base + 0x173210:
+            calls.append({'native_setter_rva': '0x173210',
+                          'identity_matches_application': uc.reg_read(UC_X86_REG_RDX) == identity})
+
+    emu.hook_add(UC_HOOK_CODE, hook)
+    emu.reg_write(UC_X86_REG_RSI, network)
+    emu.reg_write(UC_X86_REG_RSP, stack + 0x8000)
+    emu.emu_start(base + 0x10100d, base + 0x101032, count=100)
+    assert emu.reg_read(UC_X86_REG_RIP) == base + 0x101032
+    assert calls == [{'native_setter_rva': '0x173210', 'identity_matches_application': True}]
+    value, = struct.unpack('<Q', emu.mem_read(account + 0x390, 8))
+    assert value == identity
+    return {'native_slice': ['0x10100d', '0x101032'], 'calls': calls,
+            'network_identity_updated': True, 'zero_network_identity_matches_this_path': False,
+            'precondition_or_server_acceptance_verified': False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
@@ -131,7 +184,8 @@ def main():
     pe = pefile.PE(data=raw)
     print(json.dumps({'sample_sha256': SAMPLE_SHA256, 'synthetic_inputs_only': True,
                       'session_type_dispatch': run_type_dispatch(pe),
-                      'session_update': run(pe)}, indent=2))
+                      'session_update': run(pe),
+                      'caller_identity_update': run_caller_identity_update(pe)}, indent=2))
 
 
 if __name__ == '__main__':
