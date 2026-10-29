@@ -567,7 +567,7 @@ func newOpenAPISpec() map[string]any {
 					"upstream_errors": arraySchema(refSchema("UpstreamDiagnostic")),
 				}),
 				"UpstreamDiagnostic": objectSchema([]string{"stage", "upstream_code"}, map[string]any{
-					"stage":         map[string]any{"type": "string", "enum": []string{"shortlink_application", "shortlink_transport", "manual_auth", "login_buffer", "refresh_token", "check_login"}},
+					"stage":         map[string]any{"type": "string", "enum": []string{"shortlink_application", "shortlink_transport", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "login_buffer", "refresh_token", "check_login"}},
 					"upstream_code": map[string]any{"type": "integer", "description": "已解析的业务拒绝码。"},
 					"wechat_code":   map[string]any{"type": "integer", "description": "业务消息中明确提供的已知微信拒绝码；不能从请求标识或网络错误猜测。"},
 				}),

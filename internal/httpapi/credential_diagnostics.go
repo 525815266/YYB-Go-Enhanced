@@ -40,6 +40,11 @@ func credentialDiagnostics(err error) []upstreamDiagnostic {
 			item.Stage, item.UpstreamCode, message = "login_buffer", int64(e.Code), e.Message
 		case *protocol.ManualAuthRejectedError:
 			item.Stage, item.UpstreamCode = "manual_auth", e.Code
+		case *protocol.AutoAuthRejectedError:
+			switch e.Stage {
+			case "transport", "application", "business":
+				item.Stage, item.UpstreamCode = "native_autoauth_"+e.Stage, e.Code
+			}
 		case *protocol.ShortlinkRejectedError:
 			item.Stage, item.UpstreamCode = "shortlink_application", e.Code
 			if e.Transport {

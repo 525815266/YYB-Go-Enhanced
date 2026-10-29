@@ -41,11 +41,23 @@ func (p *Pool) requestLoginCode(ctx context.Context, st WmpfSession, appID strin
 	return map[string]any{"code": string(code), "errMsg": "login:ok"}, nil
 }
 
-// RecoverCodeSession tests a fresh ticket and session without invalidating the
-// shared cache. Only a successful wx.login may replace it. It never refreshes
+// RecoverCodeSession first uses independent native recovery when available.
+// Otherwise it validates a fresh ticket/session before replacing the cache.
+// Native key rotation is saved before probing. Neither path rotates OAuth
 // credentials or replays phone/data operations.
 func (p *Pool) RecoverCodeSession(ctx context.Context, acc *store.WechatAccount, appID, proxy string, fallback bool, original error, fetch func(context.Context) (string, error)) (map[string]any, error) {
 	return p.recoverCodeSession(ctx, acc, proxy, original, func(ctx context.Context) (WmpfSession, map[string]any, error) {
+		if saved, err := p.nativeRecoveryState(ctx, acc.ID, proxy); err == nil {
+			st, err := p.restoreNativeSession(ctx, acc, saved)
+			if err != nil {
+				return WmpfSession{}, nil, err
+			}
+			result, err := p.requestLoginCode(ctx, st, appID)
+			return st, result, err
+		}
+		if acc.SessionOnly() {
+			return WmpfSession{}, nil, ErrCachedSessionUnavailable
+		}
 		buffer, err := fetch(ctx)
 		if err != nil {
 			return WmpfSession{}, nil, fmt.Errorf("fetch fresh code ticket: %w", err)
@@ -67,7 +79,7 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	fail := func(err error) (map[string]any, error) {
 		return nil, &CodeSessionRecoveryError{Cause: errors.Join(original, err)}
 	}
-	if !IsApplicationRequestRejection(original) || acc == nil || acc.SessionOnly() {
+	if !IsApplicationRequestRejection(original) || acc == nil || acc.SessionOnly() && !p.hasNativeRecovery(ctx, acc.ID, proxy) {
 		return nil, original
 	}
 	lock := p.codeLockFor(acc.ID)
@@ -75,6 +87,11 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		return fail(err)
 	}
 	defer release(lock)
+	stateLock := p.lockFor(fmt.Sprintf("%d\x00%s", acc.ID, proxy))
+	if err := acquire(ctx, stateLock); err != nil {
+		return fail(err)
+	}
+	defer release(stateLock)
 	current, err := p.db.GetAccount(ctx, acc.ID)
 	if err != nil {
 		return fail(err)
@@ -82,7 +99,7 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	if !current.SameAuthorization(acc) {
 		return nil, store.ErrAccountAuthorizationChanged
 	}
-	if current.SessionOnly() || current.Status != nil && *current.Status == "expired" {
+	if current.SessionOnly() && !p.hasNativeRecovery(ctx, current.ID, proxy) || current.Status != nil && *current.Status == "expired" {
 		return nil, original
 	}
 	key := fmt.Sprintf("%d\x00%s", acc.ID, proxy)
@@ -98,7 +115,7 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	}
 	st, result, err := probe(ctx)
 	if err != nil {
-		return fail(fmt.Errorf("fresh code session rejected; original cache retained: %w", err))
+		return fail(fmt.Errorf("code session recovery failed: %w", err))
 	}
 	if code, ok := result["code"].(string); !ok || code == "" {
 		return fail(ErrLoginCodeUnavailable)
@@ -108,8 +125,18 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	}
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := p.db.PutSessionForAccount(saveCtx, current, st.Session.UIN, st.toBlob(), sessionExpiresAt(st, p.cfg.SessionTTL), proxy); err != nil {
-		return fail(err)
+	if !st.nativePersisted {
+		if err := p.db.PutSessionForAccount(saveCtx, current, st.Session.UIN, st.toBlob(), sessionExpiresAt(st, p.cfg.SessionTTL), proxy); err != nil {
+			return fail(err)
+		}
+	} else {
+		latest, err := p.db.GetAccount(saveCtx, current.ID)
+		if err != nil {
+			return fail(err)
+		}
+		if !latest.SameAuthorization(current) || latest.Status != nil && *latest.Status == "expired" {
+			return fail(store.ErrAccountAuthorizationChanged)
+		}
 	}
 	return result, nil
 }

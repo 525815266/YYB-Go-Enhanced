@@ -181,6 +181,7 @@ type SessionRow struct {
 	ExpiresAt       int64
 	CreatedAt       int64
 	UpdatedAt       int64
+	blobJSON        string
 }
 
 type Feature struct {
@@ -1088,6 +1089,7 @@ func scanSession(row accountScanner) (*SessionRow, error) {
 	if err := json.Unmarshal([]byte(blob), &s.SessionBlob); err != nil {
 		return nil, fmt.Errorf("decode session_blob: %w", err)
 	}
+	s.blobJSON = blob
 	return &s, nil
 }
 
