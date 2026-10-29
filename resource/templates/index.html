@@ -662,11 +662,22 @@
     }
 
     .selected-account strong {
+      flex: 1;
+      min-width: 0;
       color: var(--ink);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    .test-provider { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--ink); }
+    .test-command { min-width: 0; border-top: 1px solid var(--line); padding-top: 12px; }
+    .test-command summary { cursor: pointer; font-size: 13px; font-weight: 650; }
+    .command-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 8px; }
+    .command-toolbar label { font-size: 12px; color: var(--muted); }
+    .command-toolbar .select { width: auto; flex: 1; min-width: 100px; }
+    .command-preview { max-height: 260px; overflow: auto; margin: 0; padding: 12px; border-radius: var(--radius); background: var(--code-bg); color: var(--code-ink); font: 12px/1.6 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .test-command .field-note { display: block; margin-top: 8px; line-height: 1.6; }
 
     .account-tools {
       display: flex;
@@ -1029,6 +1040,7 @@
             <div class="selected-account">
               <span>当前账号</span>
               <strong id="selectedAccountName">未选择</strong>
+              <span class="test-provider" id="testProvider" aria-live="polite">未选择渠道</span>
             </div>
             <div class="account-tools">
               <input class="input" id="accountRemarkInput" maxlength="80" placeholder="账号备注，例如：Boom">
@@ -1086,6 +1098,16 @@
               <button class="btn primary" id="callBtn" type="button">执行调用</button>
               <button class="btn secondary" id="clearResultBtn" type="button">清空结果</button>
             </div>
+            <details class="test-command" id="testCommand">
+              <summary>测试命令</summary>
+              <div class="command-toolbar">
+                <label for="commandShell">格式</label>
+                <select class="select" id="commandShell"><option value="bash">cURL · Bash</option><option value="powershell">PowerShell</option></select>
+                <button class="btn secondary" id="copyCommandBtn" type="button">复制命令</button>
+              </div>
+              <pre class="command-preview" id="commandPreview" tabindex="0"></pre>
+              <span class="field-note">命令跟随当前账号、能力和参数。已配置协议令牌时，请先设置环境变量 YYB_PROTOCOL_TOKEN；此处不会写入页面中填写的令牌。</span>
+            </details>
           </div>
         </section>
 
@@ -1636,10 +1658,14 @@
         togglePayload();
         return;
       }
-      select.innerHTML = state.features.map(feature => {
-        const label = feature.label || feature.name;
-        return `<option value="${escapeHTML(feature.name)}" data-name="${escapeHTML(feature.name)}">${escapeHTML(label)}</option>`;
-      }).join("");
+      const groups = [
+        ["小程序", ["getCode", "encryptKey", "latestUserKey", "getPhoneNumber", "cloud"]],
+        ["渠道账号", ["getUserInfo", "qrcodeauth"]],
+        ["未验证的兼容转发", ["mpGetA8Key", "appmsgext", "appmsglike"]],
+        ["公众号授权链接", ["oauth"]]
+      ];
+      select.innerHTML = groups.map(([label, names]) => `<optgroup label="${label}">${state.features.filter(feature => names.includes(feature.name)).map(feature =>
+        `<option value="${escapeHTML(feature.name)}" data-name="${escapeHTML(feature.name)}">${escapeHTML(feature.label || feature.name)}</option>`).join("")}</optgroup>`).join("");
       togglePayload();
       renderStats();
     }
@@ -1670,13 +1696,21 @@
 
     function updateFeatureHint() {
       const feature = currentFeatureName();
-      const product = getSelectedAccount()?.scan_product === "pcmgr" ? "PCMgr" : "YYB";
+      const account = getSelectedAccount();
+      const product = account?.scan_product === "pcmgr" ? "PCMgr" : "YYB";
+      $("testProvider").textContent = account ? product : "系统默认渠道";
+      for (const option of $("featureSel").options) {
+        const item = state.features.find(item => item.name === option.dataset.name);
+        if (!item) continue;
+        option.textContent = item.name === "getPhoneNumber" ? `${item.route} ${product} 手机号 · ${product === "PCMgr" ? "1141" : "1020"}`
+          : item.name === "getUserInfo" ? `${item.route} ${product === "PCMgr" ? "PCMgr 扫码资料" : "YYB 渠道资料"}` : item.label;
+      }
       const hints = {
         getCode: "小程序取码，不能替代原生 APP 或公众号授权。",
         getUserInfo: product === "PCMgr" ? "读取扫码时保存的渠道资料，不检测小程序登录态。" : "读取渠道账号资料，不是目标小程序的加密资料。",
         encryptKey: "通过 1133 转发，需要完整 JSON；以返回的 err_no 判断结果。",
         latestUserKey: "通过 1133 转发 webapi_getuserencryptkey，以返回的 err_no 判断结果。",
-        getPhoneNumber: product === "PCMgr" ? "使用原生 1141 路径（待实测），需要目标小程序支持及真实授权。" : "使用原有 1020 兼容路径，需要目标小程序支持及真实授权。",
+        getPhoneNumber: product === "PCMgr" ? "原生 1141 路径，已通过单个目标实测；仍需目标小程序支持及真实授权。" : "原有 1020 兼容路径，需要目标小程序支持及真实授权。",
         cloud: "通用 operateWxData 转发，需要真实业务参数，不自动生成云函数请求。",
         qrcodeauth: "新建当前渠道二维码；生成成功不代表已扫码登录。",
         mpGetA8Key: "仅兼容转发，尚未实现独立公众号 A8Key 链路。",
@@ -1685,6 +1719,47 @@
         oauth: "仅生成授权链接，需要在微信完成授权，不会直接返回 code。"
       };
       $("featureHint").textContent = `${product} · ${hints[feature] || "选择要测试的接口。"}`;
+      updateTestCommand();
+    }
+
+    function featureRequest() {
+      const feature = currentFeature(), account = getSelectedAccount();
+      if (!account && feature?.requiresAccount !== false) throw new Error("请先选择一个账号。");
+      const endpoint = currentFeatureName(), appID = $("appidInput").value.trim();
+      if (!endpoint) throw new Error("当前没有可调用能力。");
+      if (feature?.requiresAppID !== false && !appID) throw new Error("请输入 APPID。");
+      const isOAuth = endpoint === "oauth", isQRCodeAuth = endpoint === "qrcodeauth";
+      const body = isQRCodeAuth ? (account ? {product: account.scan_product || "appstore"} : undefined)
+        : isOAuth ? {ref: String(account.id), appid: appID, redirect_uri: $("oauthRedirectInput").value.trim(), scope: $("oauthScopeInput").value, state: $("oauthStateInput").value.trim()}
+        : {ref: account.openid};
+      if (!isOAuth && feature?.requiresAppID !== false) body.app_id = appID;
+      if (isOAuth && !body.redirect_uri) throw new Error("请填写公众号回调地址。");
+      if (feature?.needsPayload) {
+        const raw = $("payloadInput").value.trim();
+        if (!raw) throw new Error("operateWxData 需要请求 JSON。");
+        try { body.payload = JSON.parse(raw); } catch { throw new Error("请求 JSON 格式不正确。"); }
+        if (!body.payload || typeof body.payload !== "object" || Array.isArray(body.payload)) throw new Error("请求 JSON 必须是对象。");
+      }
+      return {feature, account, endpoint, isOAuth, body, route: feature.route};
+    }
+
+    function updateTestCommand() {
+      const output = $("commandPreview"), button = $("copyCommandBtn");
+      try {
+        const {route, body} = featureRequest();
+        const url = location.origin + route, payload = body === undefined ? "" : JSON.stringify(body);
+        if ($("commandShell").value === "powershell") {
+          const quote = value => "'" + value.replaceAll("'", "''") + "'";
+          output.textContent = `Invoke-RestMethod -Method Post -Uri ${quote(url)} -ContentType 'application/json' -Headers @{ Authorization = "Bearer $env:YYB_PROTOCOL_TOKEN" }${payload ? ` -Body ${quote(payload)}` : ""}`;
+        } else {
+          const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+          output.textContent = `curl --request POST ${quote(url)} \\\n  --header 'Content-Type: application/json' \\\n  --header "Authorization: Bearer \${YYB_PROTOCOL_TOKEN}"${payload ? ` \\\n  --data-raw ${quote(payload)}` : ""}`;
+        }
+        button.disabled = false;
+      } catch (error) {
+        output.textContent = error.message;
+        button.disabled = true;
+      }
     }
 
     function protocolResultFailure(result) {
@@ -2167,55 +2242,10 @@
     }
 
     async function callFeature() {
-      const feature = currentFeature();
-      const account = getSelectedAccount();
-      if (!account && feature?.requiresAccount !== false) {
-        setResult("请先选择一个账号。", "缺少账号", true);
-        return;
-      }
-
-      const endpoint = currentFeatureName();
-      const appID = $("appidInput").value.trim();
-      if (!endpoint) {
-        setResult("当前没有可调用能力。", "缺少能力", true);
-        return;
-      }
-      if (feature?.requiresAppID !== false && !appID) {
-        setResult("请输入 APPID。", "缺少 APPID", true);
-        return;
-      }
-
-      const isOAuth = endpoint.toLowerCase() === "oauth";
-      const isQRCodeAuth = feature?.name === "qrcodeauth";
-      const body = isQRCodeAuth
-        ? (account ? { product: account.scan_product || "appstore" } : undefined)
-        : isOAuth
-        ? {
-            ref: String(account.id),
-            appid: appID,
-            redirect_uri: $("oauthRedirectInput").value.trim(),
-            scope: $("oauthScopeInput").value,
-            state: $("oauthStateInput").value.trim()
-          }
-        : { ref: account.openid };
-      if (!isOAuth && feature?.requiresAppID !== false) body.app_id = appID;
-      if (isOAuth && !body.redirect_uri) {
-        setResult("请填写公众号回调地址。", "缺少回调地址", true);
-        return;
-      }
-      if (feature?.needsPayload) {
-        const raw = $("payloadInput").value.trim();
-        if (!raw) {
-          setResult("operateWxData 需要请求 JSON。", "缺少 payload", true);
-          return;
-        }
-        try {
-          body.payload = JSON.parse(raw);
-        } catch {
-          setResult("请求 JSON 格式不正确。", "JSON 解析失败", true);
-          return;
-        }
-      }
+      let request;
+      try { request = featureRequest(); }
+      catch (error) { setResult(error.message, "请补全请求", true); return; }
+      const {feature, account, endpoint, isOAuth, body, route} = request;
 
       const button = $("callBtn");
       button.disabled = true;
@@ -2226,7 +2256,7 @@
       try {
         const token = $("protocolTokenInput").value.trim().replace(/^Bearer\s+/i, "").trim();
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const result = await api("POST", feature?.route || (isOAuth ? "/wx/oauth" : `/wxapp/${endpoint}`), body, headers);
+        const result = await api("POST", route, body, headers);
         $("protocolTokenInput").removeAttribute("aria-invalid");
         const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
         const failure = protocolResultFailure(result);
@@ -2244,8 +2274,9 @@
           setResult("协议令牌缺失或错误，请填写 YYB_PROTOCOL_TOKEN 后重试。", "调用失败 401", true);
         } else {
           const ticketRefused = /PCMgr GetLoginBuffer rejected: code=1\b/.test(error.message);
-          const detail = ticketRefused ? `PCMgr 取票据失败（20138/1），本次接口未执行。请核对该渠道的小程序授权。\n\n${error.message}` : error.data || error.message;
-          setResult(detail, ticketRefused ? "渠道取票据失败" : `调用失败 ${error.status || ""}`.trim(), true);
+          const requestRefused = error.data?.request_rejected === true;
+          const detail = ticketRefused ? `PCMgr 取票据失败（20138/1），本次接口未执行。请核对该渠道的小程序授权。\n\n${error.message}` : error.payload || error.message;
+          setResult(detail, ticketRefused ? "渠道取票据失败" : requestRefused ? "应用请求被拒绝，账号授权已保留" : `调用失败 ${error.status || ""}`.trim(), true);
         }
       } finally {
         button.disabled = false;
@@ -2302,6 +2333,14 @@
       const example = '{"api_name":"webapi_getuserencryptkey","data":{},"env":1}';
       if (["encryptKey", "latestUserKey"].includes(currentFeatureName()) && !input.value.trim()) input.value = example;
       else if (!["encryptKey", "latestUserKey"].includes(currentFeatureName()) && input.value === example) input.value = "";
+      updateTestCommand();
+    });
+    for (const id of ["appidInput", "payloadInput", "oauthRedirectInput", "oauthStateInput"]) $(id).addEventListener("input", updateTestCommand);
+    $("oauthScopeInput").addEventListener("change", updateTestCommand);
+    $("commandShell").addEventListener("change", updateTestCommand);
+    $("copyCommandBtn").addEventListener("click", async () => {
+      try { await copyText($("commandPreview").textContent); setActivity("测试命令已复制，请先设置 YYB_PROTOCOL_TOKEN 环境变量"); }
+      catch { setActivity("复制失败，请选中测试命令后复制"); }
     });
     $("protocolTokenInput").addEventListener("input", () => $("protocolTokenInput").removeAttribute("aria-invalid"));
     $("clearProtocolTokenBtn").addEventListener("click", () => {

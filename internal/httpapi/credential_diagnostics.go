@@ -79,3 +79,16 @@ func writeAccountExpired(w http.ResponseWriter, err accountExpiredError) {
 		Data: map[string]any{"rescan_required": true, "upstream_errors": diagnostics},
 	})
 }
+
+func writeProtocolCallError(w http.ResponseWriter, err error) {
+	diagnostics := credentialDiagnostics(err)
+	if len(diagnostics) == 0 {
+		writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
+		return
+	}
+	writeRawJSON(w, http.StatusBadGateway, apiEnvelope{
+		Code: http.StatusBadGateway,
+		Msg:  "call failed: " + err.Error(),
+		Data: map[string]any{"upstream_errors": diagnostics, "request_rejected": protocol.IsApplicationRequestRejection(err)},
+	})
+}

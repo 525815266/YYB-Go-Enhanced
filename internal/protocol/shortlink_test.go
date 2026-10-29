@@ -30,7 +30,7 @@ func TestShortlinkAuthenticatedRejectionPreservesCode(t *testing.T) {
 }
 
 func TestLoginCodeRebuildPreservesFirstRejection(t *testing.T) {
-	first := &ShortlinkRejectedError{Code: -14}
+	first := &ShortlinkRejectedError{Code: -20011, Transport: true}
 	second := &ManualAuthRejectedError{Code: -10}
 	calls := 0
 	_, err := retryLoginCode(context.Background(), func() (map[string]any, error) {
@@ -42,6 +42,29 @@ func TestLoginCodeRebuildPreservesFirstRejection(t *testing.T) {
 	}, func() error { return nil })
 	if calls != 2 || !errors.Is(err, first) || !errors.Is(err, second) {
 		t.Fatalf("rebuild lost first rejection: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestApplicationRejectionKeepsSessionWithoutRetry(t *testing.T) {
+	first := &ShortlinkRejectedError{Code: -14}
+	calls := 0
+	_, err := retryLoginCode(context.Background(), func() (map[string]any, error) {
+		calls++
+		return nil, first
+	}, func() error {
+		t.Fatal("application refusal must not invalidate the shared session")
+		return nil
+	})
+	if calls != 1 || !errors.Is(err, first) || !IsApplicationRequestRejection(err) {
+		t.Fatal("application rejection retried or lost its diagnostic")
+	}
+	for _, other := range []error{nil, &ShortlinkRejectedError{Code: -14, Transport: true},
+		&ShortlinkRejectedError{Code: -1}, errors.Join(first, &ManualAuthRejectedError{Code: -10}),
+		errors.Join(first, &ShortlinkRejectedError{Code: -20011, Transport: true}),
+		errors.Join(first, &RefreshRejectedError{Code: -109})} {
+		if IsApplicationRequestRejection(other) {
+			t.Fatal("request-level protection suppressed another recovery condition")
+		}
 	}
 }
 

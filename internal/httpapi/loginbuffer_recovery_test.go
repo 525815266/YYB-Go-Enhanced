@@ -91,6 +91,55 @@ func TestApplicationEmptyCodeDoesNotRecoverAccountCredentials(t *testing.T) {
 	}
 }
 
+func TestApplicationMinus14DoesNotExpireSharedAccount(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	ctx := context.Background()
+	acc := insertKeepAliveTestAccount(t, app, "application-rejection", time.Now().Add(time.Hour))
+	before, _ := json.Marshal(acc.Credentials)
+	if err := app.db.PutSession(ctx, acc.ID, nil, map[string]any{"test": "shared-session"}, time.Now().Add(time.Hour).Unix(), ""); err != nil {
+		t.Fatal(err)
+	}
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+		t.Fatal("application -14 fetched a new login buffer")
+		return "", nil
+	}
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		t.Fatal("application -14 rotated account credentials")
+		return protocol.LoginBufferCredentials{}, nil
+	}
+	for _, route := range []string{"/wxapp/getCode", "/wxapp/operateWxData"} {
+		out := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, route, strings.NewReader(fmt.Sprintf(`{"ref":"%d","app_id":"wx-rejected","payload":{}}`, acc.ID)))
+		app.callWXApp(out, req, false, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+			return nil, fmt.Errorf("application: %w", &protocol.ShortlinkRejectedError{Code: -14})
+		})
+		var response struct {
+			Data struct {
+				RequestRejected bool                 `json:"request_rejected"`
+				Errors          []upstreamDiagnostic `json:"upstream_errors"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(out.Body.Bytes(), &response) != nil || out.Code != http.StatusBadGateway || !response.Data.RequestRejected || len(response.Data.Errors) != 1 || response.Data.Errors[0].UpstreamCode != -14 {
+			t.Fatalf("request refusal lost HTTP diagnostic: %s", out.Body.String())
+		}
+	}
+	stored, err := app.db.GetAccount(ctx, acc.ID)
+	after, _ := json.Marshal(stored.Credentials)
+	if err != nil || accountStatus(stored) != "alive" || stored.LoginBuffer != acc.LoginBuffer || string(before) != string(after) {
+		t.Fatal("request refusal changed shared account authorization")
+	}
+	if _, err := app.db.GetSession(ctx, acc.ID, ""); err != nil {
+		t.Fatal("request refusal deleted shared session")
+	}
+	result, err := app.invokeWXApp(ctx, stored, "wx-other", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		return map[string]any{"code": "synthetic-control-code"}, nil
+	})
+	if err != nil || result["code"] != "synthetic-control-code" {
+		t.Fatal("other target was blocked by earlier refusal")
+	}
+}
+
 func TestManualAuthRejectionRecoversBufferWithoutTokenRotation(t *testing.T) {
 	app := newKeepAliveTestApp(t)
 	defer app.Close()

@@ -841,7 +841,7 @@ func (a *App) handleNamedWXOperation(w http.ResponseWriter, r *http.Request, pat
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
+		writeProtocolCallError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1013,7 +1013,7 @@ func (a *App) callWXApp(w http.ResponseWriter, r *http.Request, requirePayload b
 		case errors.As(err, &expired):
 			writeAccountExpired(w, expired)
 		default:
-			writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
+			writeProtocolCallError(w, err)
 		}
 		return
 	}
@@ -1274,9 +1274,9 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if errors.Is(callErr, store.ErrAccountAuthorizationChanged) || snapshotErr == nil && !current.SameAuthorization(acc) {
 		return nil, store.ErrAccountAuthorizationChanged
 	}
-	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) {
-		// A successful decryption without an application code does not prove
-		// the account expired. Other apps can still use this same session.
+	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || protocol.IsApplicationRequestRejection(callErr) {
+		// An empty code or a bare authenticated application -14 does not
+		// establish account expiry. Other apps may use this same session.
 		return nil, callErr
 	}
 	var rejected *protocol.ManualAuthRejectedError

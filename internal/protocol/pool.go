@@ -145,7 +145,7 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 		}
 		return nil, ErrLoginCodeUnavailable
 	}
-	if !errors.Is(err, ErrShortlinkPayload) {
+	if IsApplicationRequestRejection(err) || !errors.Is(err, ErrShortlinkPayload) {
 		return result, err
 	}
 	if ctx.Err() != nil {

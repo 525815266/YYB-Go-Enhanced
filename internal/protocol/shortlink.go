@@ -34,8 +34,33 @@ func (e *ShortlinkRejectedError) Error() string {
 	return fmt.Sprintf("shortlink %s rejected: code=%d", layer, e.Code)
 }
 
-// Preserve the existing one-rebuild policy while retaining the actual code.
+// Retain the payload error category; application -14 is excluded from rebuilds.
 func (e *ShortlinkRejectedError) Unwrap() error { return ErrShortlinkPayload }
+
+// A bare authenticated application -14 has also been observed between two
+// successful calls using one session. It alone does not justify deleting the
+// shared session or rotating account credentials. A later real ManualAuth
+// rejection remains a separate recovery case.
+func IsApplicationRequestRejection(err error) bool {
+	switch e := err.(type) {
+	case *ShortlinkRejectedError:
+		return !e.Transport && e.Code == -14
+	case interface{ Unwrap() []error }:
+		children := e.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !IsApplicationRequestRejection(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return IsApplicationRequestRejection(e.Unwrap())
+	}
+	return false
+}
 
 func build0RTTRequest(entry pskEntry, envelope []byte) ([]byte, []byte, []byte, []byte, error) {
 	psk, err := hex.DecodeString(entry.PreSharedKey)
