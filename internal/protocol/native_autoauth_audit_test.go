@@ -1,0 +1,379 @@
+//go:build protocolaudit
+
+package protocol
+
+// Explicitly gated live audit. Never opened by normal tests or production.
+// Credentials are read-only; experimental session state stays in a private file.
+import (
+	"bytes"
+	"context"
+	"crypto/ecdh"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+type nativeAuditState struct {
+	AppDevice    []byte
+	Device       []byte
+	AutoKey      []byte
+	EncKey       []byte
+	Response     []byte
+	Session      AppSession
+	PSK          pskEntry
+	WireResponse []byte
+	WireCommand  uint32
+}
+
+func auditOutput(stage string, fields map[string]any) {
+	fields["stage"] = stage
+	raw, _ := json.Marshal(fields)
+	fmt.Printf("NATIVE_AUTOAUTH %s\n", raw)
+}
+
+func TestNativeAutoAuthAudit(t *testing.T) {
+	path := os.Getenv("YYB_AUTOAUTH_AUDIT_DB")
+	statePath := os.Getenv("YYB_AUTOAUTH_AUDIT_STATE")
+	if path == "" || statePath == "" || os.Getenv("YYB_AUTOAUTH_AUDIT_ACCOUNT") != "1" {
+		t.Skip("requires explicit private read-only database, state path and account 1")
+	}
+	if !filepath.IsAbs(path) || !filepath.IsAbs(statePath) {
+		t.Fatal("audit paths must be absolute")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if phase := os.Getenv("YYB_AUTOAUTH_AUDIT_PHASE"); phase == "auto" {
+		auditAutoAuth(t, ctx, statePath)
+		return
+	} else if phase != "manual" {
+		t.Fatal("explicit audit phase required")
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	if err != nil {
+		t.Fatal("read-only database open failed")
+	}
+	defer db.Close()
+	var buffer, raw, status string
+	var proxyMode string
+	err = db.QueryRowContext(ctx, "SELECT a.login_buffer,COALESCE(a.credentials,''),a.status,COALESCE(p.mode,'direct') FROM wechat_accounts a LEFT JOIN account_proxy_settings p ON p.account_id=a.id WHERE a.id=1").Scan(&buffer, &raw, &status, &proxyMode)
+	if err != nil || status != "alive" || proxyMode != "direct" || buffer == "" {
+		t.Fatal("audit requires an existing alive direct account with a login buffer")
+	}
+	var mapped map[string]any
+	if json.Unmarshal([]byte(raw), &mapped) != nil {
+		t.Fatal("credential parsing failed")
+	}
+	creds := CredentialsFromMap(mapped)
+	client := NewLoginBufferClient(12 * time.Second)
+	targets, err := getLonglinkTargets(ctx, 4*time.Second, time.Minute)
+	if err != nil {
+		t.Fatal("longlink target discovery failed")
+	}
+	pool := NewPool(DefaultConfig(), nil)
+	var captured nativeAuditState
+	login := func(ticket string) error {
+		_, e := tryLonglinkCandidates(ctx, targets, 35*time.Second, func(callCtx context.Context, target Target) (WmpfSession, error) {
+			mc, e := connectMmtls(callCtx, target, 12*time.Second, "", false)
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			defer mc.close()
+			meta, e := parseLoginBuffer(ticket)
+			if e != nil {
+				return WmpfSession{}, errors.New("audit login buffer malformed")
+			}
+			device, e := randomAppDeviceID()
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			if os.Getenv("YYB_AUTOAUTH_AUDIT_DEVICE_STYLE") == "native16" {
+				// Network-layer default; TDI has a separate device ID.
+				device = []byte(hex.EncodeToString(device[:8]))
+			} else if os.Getenv("YYB_AUTOAUTH_AUDIT_DEVICE_STYLE") == "ticket" {
+				// Isolate application/header identity consistency. Do not copy
+				// the official client's identity or modify production state.
+				device = append([]byte(nil), meta.DeviceID...)
+			}
+			temp := &manualAuthTemp{}
+			body, e := buildLoginBody(ticket, meta.DeviceID, device, temp)
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			if e = mc.sendApp(cmdManualAuth, body); e != nil {
+				return WmpfSession{}, e
+			}
+			response, e := mc.recvApp()
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			if response.Cmd != cmdManualAuth {
+				return WmpfSession{}, errors.New("unexpected manual auth response command")
+			}
+			decoded, e := parseLoginResponse(response.Body, temp)
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			session, e := extractSession(decoded)
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			sect := pbParse(safeBytes(pbParse(safeBytes(pbParse(decoded)[3]))[2]))
+			session.DeviceID, session.HostAppID = meta.DeviceID, meta.HostAppID
+			keys, e := mc.extractPSKs()
+			if e != nil {
+				return WmpfSession{}, e
+			}
+			psk, ok := pickAccessPSK(keys)
+			if !ok {
+				return WmpfSession{}, errors.New("audit handshake returned no access PSK")
+			}
+			captured = nativeAuditState{AppDevice: device, Device: meta.DeviceID,
+				AutoKey: safeBytes(sect[3]), EncKey: safeBytes(sect[4]),
+				Response: decoded, Session: session, PSK: psk}
+			return WmpfSession{Session: session, PSK: psk, CreatedAt: time.Now()}, nil
+		})
+		return e
+	}
+	err = login(buffer)
+	var rejected *ManualAuthRejectedError
+	if errors.As(err, &rejected) && rejected.Code == -10 {
+		auditOutput("saved_buffer_rejected", map[string]any{"code": rejected.Code})
+		buffer, err = client.FetchLoginBuffer(ctx, creds)
+		if err != nil {
+			auditOutput("fresh_buffer_failed", map[string]any{"error_type": fmt.Sprintf("%T", err)})
+			t.Fatal("fresh buffer failed; no OAuth refresh attempted")
+		}
+		err = login(buffer)
+	}
+	if err != nil {
+		auditOutput("manual_failed", map[string]any{"error_type": fmt.Sprintf("%T", err)})
+		t.Fatal("manual audit failed; production database unchanged")
+	}
+	stateRaw, _ := json.Marshal(captured)
+	file, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal("private state creation failed")
+	}
+	_, writeErr := file.Write(stateRaw)
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatal("private state save failed")
+	}
+	auditOutput("manual_keys", map[string]any{"auto_key_length": len(captured.AutoKey),
+		"enc_key_length": len(captured.EncKey), "credentials_written": false})
+	st := WmpfSession{Session: captured.Session, PSK: captured.PSK,
+		ShortlinkTargets: getShortlinkTargets(ctx, 4*time.Second, time.Minute)}
+	plain := buildJSAPIPlaintext(st.Session.UIN, "wx3bb18aff4f2fe45f", jsLoginURL, jsLoginCmdID, nil, st.Session.HostAppID, nil)
+	envelope, err := buildTransferPacket(st.Session, plain)
+	if err != nil {
+		t.Fatal("audit code packet build failed")
+	}
+	code, _, err := pool.sendEnvelope(ctx, st, envelope)
+	auditOutput("manual_code", map[string]any{"success": err == nil && len(code) > 0, "code_length": len(code)})
+	if err != nil || len(code) == 0 {
+		t.Fatal("audit code failed; credentials unchanged")
+	}
+}
+
+// This candidate is deliberately confined to the opt-in audit build. Native
+// PackRequest selects Hybrid=17 (0x174832); identity/header integration is
+// tested here, not assumed to be a production-ready AutoAuth implementation.
+func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
+	source := os.Getenv("YYB_AUTOAUTH_AUDIT_SOURCE")
+	if !filepath.IsAbs(source) || source == statePath {
+		t.Fatal("auto phase requires a separate absolute private source state")
+	}
+	raw, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal("private source state unavailable")
+	}
+	var saved nativeAuditState
+	if json.Unmarshal(raw, &saved) != nil || len(saved.AutoKey) == 0 || len(saved.EncKey) != 24 || len(saved.AppDevice) == 0 {
+		t.Fatal("private source state incomplete")
+	}
+	file, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal("new private output state required before network request")
+	}
+	defer file.Close()
+	request := append(pbLen(1, pbLen(1, saved.AppDevice)), pbVar(2, appVersion)...)
+	request = append(request, pbLen(3, saved.AutoKey)...)
+	// Native field 4 is optional login-context bytes, not the enc key.
+	temp := &manualAuthTemp{}
+	hybrid, err := auditHybridEncrypt(request, saved.EncKey, temp)
+	if err != nil {
+		t.Fatal("auto hybrid encryption failed")
+	}
+	ints, byts, _, err := decodeWpkgHead(sessionWpkgHead(saved.Session.UIN, saved.Session.F9, saved.Device))
+	if err != nil {
+		t.Fatal("candidate header decode failed")
+	}
+	ints[25] = 17
+	// wpkg 2 is the independent transport-account identity (0x1a2b64,
+	// getter 0x172370), whereas wpkg 22 is the application identity.
+	// This isolated client has no transport-account login.
+	ints[2] = 0
+	if os.Getenv("YYB_AUTOAUTH_AUDIT_HEADER_STYLE") == "nativeapp" {
+		// Req2Buf's application-account branch sets 18=0 (0x1a2df0),
+		// whereas its independent non-application branch sets 18=1.
+		ints[18] = 0
+	}
+	// PackRequest copies the network session's username into Header +0x28;
+	// AesGcmCGITask serializes it as wpkg bytes field 27 (0x1a2ce6).
+	identity := pbParse(safeBytes(pbParse(safeBytes(pbParse(saved.Response)[3]))[3]))
+	username := safeBytes(identity[2])
+	if len(username) == 0 {
+		t.Fatal("source response username missing; header mapping needs review")
+	}
+	byts[27] = username
+	body := append(wpkgHead(ints, byts), hybrid...)
+	targets, err := getLonglinkTargets(ctx, 4*time.Second, time.Minute)
+	if err != nil || len(targets) == 0 {
+		t.Fatal("auto target discovery failed")
+	}
+	// One request only: never replay a possibly consumed AutoKey on another node.
+	mc, err := connectMmtls(ctx, targets[0], 12*time.Second, "", false)
+	if err != nil {
+		t.Fatal("auto transport handshake failed")
+	}
+	defer mc.close()
+	if mc.sendApp(3198, body) != nil {
+		t.Fatal("auto request send failed")
+	}
+	response, err := mc.recvApp()
+	if err != nil {
+		t.Fatal("auto response receive failed")
+	}
+	captured := saved
+	captured.WireResponse = response.Body
+	captured.WireCommand = response.Cmd
+	captured.Response = nil
+	// Preserve any server rotation in private storage even if parsing fails.
+	defer func() {
+		encoded, e := json.Marshal(captured)
+		if e != nil {
+			t.Error("private auto state encode failed")
+			return
+		}
+		if _, e = file.Write(encoded); e != nil {
+			t.Error("private auto state write failed")
+		}
+	}()
+	ints, _, hlen, err := decodeWpkgHead(response.Body)
+	if err != nil || hlen > len(response.Body) {
+		t.Fatal("auto response header malformed")
+	}
+	transportCode, appCode := int64(ints[4]), int64(ints[23])
+	if transportCode != 0 || appCode != 0 || hlen == len(response.Body) {
+		auditOutput("auto_header_rejected", map[string]any{"command": response.Cmd,
+			"transport_code": transportCode, "application_code": appCode, "body_length": len(response.Body)})
+		t.Fatal("auto rejected before encrypted response")
+	}
+	fields := pbParse(response.Body[hlen:])
+	credentialType, _ := fields[2].(int64)
+	auditOutput("auto_response", map[string]any{"command": response.Cmd, "credential_type": credentialType,
+		"header_crypto": ints[25], "body_length": len(response.Body), "credentials_written": false})
+	if response.Cmd != 3198 || credentialType != 2 {
+		t.Fatal("auto audit requires native credential type 2; type 1 signature validation remains pending")
+	}
+	decoded, err := hybridECDHDecrypt(response.Body[hlen:], temp)
+	if err != nil {
+		t.Fatal("auto authenticated response decrypt failed")
+	}
+	captured.Response = decoded
+	parsed := pbParse(decoded)
+	base := safeBytes(parsed[1])
+	code, _ := pbParse(base)[1].(int64)
+	auditOutput("auto_business", map[string]any{"code": code, "unified_auth_present": len(safeBytes(parsed[2])) > 0})
+	if len(base) == 0 || code != 0 {
+		t.Fatal("auto rejected; no OAuth refresh attempted")
+	}
+	unified := safeBytes(parsed[2])
+	sect := pbParse(safeBytes(pbParse(unified)[2]))
+	if next := safeBytes(sect[3]); len(next) > 0 {
+		captured.AutoKey = next
+	}
+	if next := safeBytes(sect[4]); len(next) > 0 {
+		captured.EncKey = next
+	}
+	session, err := extractSession(append(pbLen(1, base), pbLen(3, unified)...))
+	if err != nil {
+		t.Fatal("auto session parsing failed")
+	}
+	if session.UIN != saved.Session.UIN {
+		t.Fatal("auto identity differs from source session")
+	}
+	session.DeviceID, session.HostAppID = saved.Session.DeviceID, saved.Session.HostAppID
+	keys, err := mc.extractPSKs()
+	if err != nil {
+		t.Fatal("auto transport keys unavailable")
+	}
+	psk, ok := pickAccessPSK(keys)
+	if !ok {
+		t.Fatal("auto access PSK missing")
+	}
+	captured.Session, captured.PSK = session, psk
+	auditOutput("auto_keys", map[string]any{"auto_key_length": len(captured.AutoKey), "enc_key_length": len(captured.EncKey),
+		"auto_key_changed": !bytes.Equal(saved.AutoKey, captured.AutoKey), "enc_key_changed": !bytes.Equal(saved.EncKey, captured.EncKey)})
+	st := WmpfSession{Session: session, PSK: psk, ShortlinkTargets: getShortlinkTargets(ctx, 4*time.Second, time.Minute)}
+	plain := buildJSAPIPlaintext(session.UIN, "wx3bb18aff4f2fe45f", jsLoginURL, jsLoginCmdID, nil, session.HostAppID, nil)
+	envelope, err := buildTransferPacket(session, plain)
+	if err != nil {
+		t.Fatal("auto code packet build failed")
+	}
+	loginCode, _, err := NewPool(DefaultConfig(), nil).sendEnvelope(ctx, st, envelope)
+	auditOutput("auto_code", map[string]any{"success": err == nil && len(loginCode) > 0, "code_length": len(loginCode)})
+	if err != nil || len(loginCode) == 0 {
+		t.Fatal("auto session code failed")
+	}
+}
+
+func auditHybridEncrypt(plain, encKey []byte, temp *manualAuthTemp) ([]byte, error) {
+	eph, pub, err := generateECDH()
+	if err != nil {
+		return nil, err
+	}
+	peer, err := ecdh.P256().NewPublicKey(serverPub)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := eph.ECDH(peer)
+	if err != nil {
+		return nil, err
+	}
+	secret := sha256.Sum256(shared)
+	hash1 := sha256.Sum256(bytes.Join([][]byte{[]byte("1"), []byte("415"), pub}, nil))
+	cek := make([]byte, 32)
+	if _, err = rand.Read(cek); err != nil {
+		return nil, err
+	}
+	wrap, err := aesGCMEncryptLayout(secret[:24], hash1[:], cek)
+	if err != nil {
+		return nil, err
+	}
+	encSession, err := aesGCMEncryptLayout(encKey[:24], hash1[:], cek)
+	if err != nil {
+		return nil, err
+	}
+	okm := hkdfExpand(hkdfExtract(ilinkHKDFSalt, cek), hash1[:], 56)
+	hash2 := sha256.Sum256(bytes.Join([][]byte{[]byte("1"), []byte("415"), pub, wrap, encSession}, nil))
+	compressed := lz4AllLiteral(plain)
+	ciphertext, err := aesGCMEncryptLayout(okm[:24], hash2[:], compressed)
+	if err != nil {
+		return nil, err
+	}
+	temp.Ephemeral, temp.OKM, temp.CompBody = eph, okm, compressed
+	key := append(pbVar(1, 415), pbLen(2, pub)...)
+	out := append(pbVar(1, 1), pbLen(2, key)...)
+	out = append(out, pbLen(3, wrap)...)
+	out = append(out, pbLen(4, encSession)...)
+	return append(out, pbLen(5, ciphertext)...), nil
+}

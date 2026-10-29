@@ -42,6 +42,8 @@ v0.2.43 补齐主刷新与 check-login 两段错误链的诊断，保留明确�
 
 近期生产复测仍有凭据被上游明确拒绝；此前三个账号的短时取码通过不代表持续保活已恢复。这些修补不能恢复已被微信撤销的 refresh token，也未验证 30 天保活。实际结果与限制见[协议复核](docs/protocol-audit-20261028.md)和[官方客户端续期对照](docs/native-keepalive-audit-20261028.md)。
 
+10 月 29 日继续核对了青龙任务与首次失效的时间关联，以及官方两套设备标识、AutoAuth 加密和包头。隔离 ManualAuth 取码通过，AutoAuth 仍被拒绝，尚未接入生产；[实验记录与复核工具](docs/native-wire-layout-20261029.md#2026-10-29-隔离-autoauth-验证)公开负结果与验证边界，不包含真实账号材料。
+
 此前的[失效误判修复](docs/proxy-keepalive.md#约两小时后失效的排查96)、[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)、[管理员密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)与[面板变量原位更新](docs/panel-integration.md#重复变量处理)继续保留。
 
 ## 部署选择
