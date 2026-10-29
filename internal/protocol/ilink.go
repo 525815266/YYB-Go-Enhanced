@@ -118,13 +118,15 @@ func buildManualAuthRequest(loginBufferB64 string, appDeviceID []byte) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	appBase := append(pbLen(1, appDeviceID), pbVar(2, appVersion)...)
+	appBase := pbLen(1, appDeviceID)
 	thirdApp := pbLen(1, meta.Ticket)
 	out := make([]byte, 0, len(appBase)+len(thirdApp)+32)
 	out = append(out, pbLen(1, appBase)...)
+	// The official ManualAuthRequest serializer emits version as outer field 2;
+	// AppBaseRequest only contains the device ID. See the native layout fixture.
+	out = append(out, pbVar(2, appVersion)...)
 	out = append(out, pbLen(3, thirdApp)...)
 	out = append(out, pbVar(4, 4)...)
-	out = append(out, pbLen(6, nil)...)
 	out = append(out, pbVar(7, 0)...)
 	out = append(out, pbVar(8, 6)...)
 	return out, nil

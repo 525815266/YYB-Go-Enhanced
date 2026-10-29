@@ -1,10 +1,31 @@
 package protocol
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
 )
+
+func TestManualAuthRequestMatchesOfficialFieldLayout(t *testing.T) {
+	// Generated with tools/inspect_native_manualauth.py using synthetic data.
+	// Official ilink2.dll serializers: AppBaseRequest 0x168280, ManualAuthRequest
+	// 0x169ab0; builder 0x1032d4 sets the outer field 2 to 1901.
+	buffer := append(pbLen(1, []byte("synthetic-ticket")), pbLen(2, []byte("ticket-device"))...)
+	got, err := buildManualAuthRequest(base64.StdEncoding.EncodeToString(buffer), []byte("0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := hex.DecodeString("0a120a103031323334353637383961626364656610ed0e1a120a1073796e7468657469632d7469636b6574200438004006")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("synthetic ManualAuthRequest differs from official layout:\n got %x\nwant %x", got, want)
+	}
+}
 
 func TestManualAuthBusinessRejectionPrecedesSessionParsing(t *testing.T) {
 	// Shape observed from the official server with an old saved login buffer.
