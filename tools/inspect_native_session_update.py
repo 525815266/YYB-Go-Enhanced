@@ -1,4 +1,4 @@
-"""Execute official session-copy instructions with synthetic objects only.
+"""Execute official session-type selection and copy with synthetic objects.
 
 Requires pefile and unicorn. Verifies application/network storage separation,
 not complete packet construction, server acceptance or credential renewal.
@@ -11,9 +11,52 @@ import struct
 
 import pefile
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_64, UC_HOOK_CODE
-from unicorn.x86_const import UC_X86_REG_RAX, UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_RDI, UC_X86_REG_RSI, UC_X86_REG_RSP, UC_X86_REG_RIP
+from unicorn.x86_const import (
+    UC_X86_REG_RAX, UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8,
+    UC_X86_REG_RDI, UC_X86_REG_RSI, UC_X86_REG_RSP, UC_X86_REG_RIP, UC_X86_REG_R15,
+)
 
 from inspect_native_auth_schema import SAMPLE_SHA256
+
+
+def run_type_dispatch(pe):
+    """Run only native enum selection, stopping before any protobuf parser."""
+    base = pe.OPTIONAL_HEADER.ImageBase
+    image = pe.get_memory_mapped_image()
+    emu = Uc(UC_ARCH_X86, UC_MODE_64)
+    emu.mem_map(base, (len(image) + 4095) & ~4095)
+    emu.mem_write(base, image)
+    branches = {
+        0x170aa5: 'IlinkAppCommSessionInfo',
+        0x170b8e: 'IlinkAppGetSessionInfo',
+        0x170e68: 'app_auth_info',
+        0x17107d: 'unsupported_type',
+        0x171163: 'empty_session',
+    }
+    selected = []
+
+    def hook(uc, address, size, _):
+        if address - base in branches:
+            selected.append((address - base, branches[address - base]))
+            uc.emu_stop()
+
+    emu.hook_add(UC_HOOK_CODE, hook)
+    results = []
+    for value in range(10):
+        selected.clear()
+        emu.reg_write(UC_X86_REG_RSI, 1)  # Synthetic nonempty session data.
+        emu.reg_write(UC_X86_REG_R15, value)
+        emu.emu_start(base + 0x170a72, base + 0x171274, count=40)
+        assert len(selected) == 1
+        address, branch = selected[0]
+        expected = ('empty_session' if value == 0 else
+                    'IlinkAppGetSessionInfo' if value == 4 else
+                    'app_auth_info' if value == 8 else
+                    'unsupported_type' if value > 8 else
+                    'IlinkAppCommSessionInfo')
+        assert branch == expected
+        results.append({'session_type': value, 'native_branch': hex(address), 'parser_branch': branch})
+    return results
 
 
 def run(pe):
@@ -85,8 +128,10 @@ def main():
     raw = args.binary.read_bytes()
     if hashlib.sha256(raw).hexdigest() != SAMPLE_SHA256:
         raise SystemExit('Sample changed; revalidate the native locations first')
+    pe = pefile.PE(data=raw)
     print(json.dumps({'sample_sha256': SAMPLE_SHA256, 'synthetic_inputs_only': True,
-                      'session_update': run(pefile.PE(data=raw))}, indent=2))
+                      'session_type_dispatch': run_type_dispatch(pe),
+                      'session_update': run(pe)}, indent=2))
 
 
 if __name__ == '__main__':
