@@ -17,6 +17,52 @@ import (
 	"yyb_go/internal/store"
 )
 
+func TestApplicationEmptyCodeDoesNotRecoverAccountCredentials(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	ctx := context.Background()
+	acc := insertKeepAliveTestAccount(t, app, "application-empty-code", time.Now().Add(time.Hour))
+	before, _ := json.Marshal(acc.Credentials)
+	if err := app.db.PutSession(ctx, acc.ID, nil, map[string]any{"test": "healthy-session"}, time.Now().Add(time.Hour).Unix(), ""); err != nil {
+		t.Fatal(err)
+	}
+	refreshes, fetches := 0, 0
+	app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+		fetches++
+		return "", errors.New("unexpected buffer fetch")
+	}
+	app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		refreshes++
+		return protocol.LoginBufferCredentials{}, errors.New("unexpected refresh")
+	}
+	_, err := app.invokeWXApp(ctx, acc, "wx-app-without-code", nil,
+		func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+			return nil, fmt.Errorf("application response: %w", protocol.ErrLoginCodeUnavailable)
+		})
+	if !errors.Is(err, protocol.ErrLoginCodeUnavailable) || fetches != 0 || refreshes != 0 {
+		t.Fatalf("application failure triggered recovery: fetches=%d refreshes=%d error=%v", fetches, refreshes, err)
+	}
+	out := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/wxapp/getCode", strings.NewReader(fmt.Sprintf(`{"ref":"%d","app_id":"wx-app-without-code"}`, acc.ID)))
+	app.callWXApp(out, req, false, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		return nil, protocol.ErrLoginCodeUnavailable
+	})
+	if out.Code != http.StatusBadGateway || fetches != 0 || refreshes != 0 || strings.Contains(out.Body.String(), "re-scan required") {
+		t.Fatalf("HTTP application error became account expiry: status=%d fetches=%d refreshes=%d", out.Code, fetches, refreshes)
+	}
+	stored, getErr := app.db.GetAccount(ctx, acc.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	after, _ := json.Marshal(stored.Credentials)
+	if getErr != nil || accountStatus(stored) != "alive" || string(before) != string(after) {
+		t.Fatal("application failure changed account")
+	}
+	if _, err = app.db.GetSession(ctx, acc.ID, ""); err != nil {
+		t.Fatalf("shared session lost: %v", err)
+	}
+}
+
 func TestManualAuthRejectionRecoversBufferWithoutTokenRotation(t *testing.T) {
 	app := newKeepAliveTestApp(t)
 	defer app.Close()

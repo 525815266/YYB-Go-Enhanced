@@ -1265,6 +1265,11 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if callErr == nil {
 		return result, nil
 	}
+	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) {
+		// A successful decryption without an application code does not prove
+		// the account expired. Other apps can still use this same session.
+		return nil, callErr
+	}
 	var rejected *protocol.ManualAuthRejectedError
 	bufferRejected := errors.As(callErr, &rejected) && rejected.Code == -10
 	var networkErr net.Error

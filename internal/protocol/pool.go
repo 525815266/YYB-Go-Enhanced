@@ -15,6 +15,10 @@ import (
 	"yyb_go/internal/store"
 )
 
+// ErrLoginCodeUnavailable describes a decrypted application response without a
+// wx.login code. It does not establish that the account's session expired.
+var ErrLoginCodeUnavailable = errors.New("wx.login returned no code; check the application's AppID or authorization")
+
 type Config struct {
 	ShortlinkTimeout        time.Duration
 	LoginTimeout            time.Duration
@@ -129,12 +133,19 @@ func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID
 	})
 }
 
-// Only wx.login may rebuild a stale session and retry once. Never replay
-// arbitrary OperateWXData operations, which can have side effects.
+// Only a wx.login transport payload failure may rebuild a stale session and
+// retry once. A decrypted empty application response is not a stale session.
+// Never replay arbitrary OperateWXData operations, which can have side effects.
 func retryLoginCode(ctx context.Context, call func() (map[string]any, error), invalidate func() error) (map[string]any, error) {
 	result, err := call()
 	emptyCode := err == nil && (result == nil || result["code"] == nil || result["code"] == "")
-	if !emptyCode && !errors.Is(err, ErrShortlinkPayload) {
+	if emptyCode {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, ErrLoginCodeUnavailable
+	}
+	if !errors.Is(err, ErrShortlinkPayload) {
 		return result, err
 	}
 	if ctx.Err() != nil {
@@ -148,7 +159,7 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 		return nil, fmt.Errorf("code retry after session rebuild failed: %w", err)
 	}
 	if result == nil || result["code"] == nil || result["code"] == "" {
-		return nil, fmt.Errorf("wx.login returned empty code after session rebuild")
+		return nil, fmt.Errorf("code retry after session rebuild: %w", ErrLoginCodeUnavailable)
 	}
 	return result, nil
 }

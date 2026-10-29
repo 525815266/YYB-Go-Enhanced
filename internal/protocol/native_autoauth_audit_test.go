@@ -39,6 +39,49 @@ func auditOutput(stage string, fields map[string]any) {
 	fmt.Printf("NATIVE_AUTOAUTH %s\n", raw)
 }
 
+// Compare application requests against one saved protocol session without
+// rebuilding/invalidating it or updating the production account's credentials.
+func TestNativeCachedSessionCodeAudit(t *testing.T) {
+	path := os.Getenv("YYB_CODE_SESSION_AUDIT_PATH")
+	if path == "" {
+		t.Skip("requires an explicit private saved session")
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatal("private session path must be absolute")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("private session unavailable")
+	}
+	var blob map[string]any
+	if json.Unmarshal(raw, &blob) != nil {
+		t.Fatal("private session malformed")
+	}
+	st, err := sessionFromBlob(blob)
+	if err != nil || st.PSK.ExpiredAt <= time.Now().Unix() || st.TCPProxy != "" {
+		t.Fatal("requires a valid saved direct session")
+	}
+	pool := NewPool(DefaultConfig(), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for _, appID := range []string{"wx3bb18aff4f2fe45f", "wx91d27dbf599dff74", "wx3bb18aff4f2fe45f", "wx2f5d8f9715c59d10", "wx3bb18aff4f2fe45f"} {
+		plain := buildJSAPIPlaintext(st.Session.UIN, appID, jsLoginURL, jsLoginCmdID, nil, st.Session.HostAppID, nil)
+		envelope, err := buildTransferPacket(st.Session, plain)
+		if err != nil {
+			t.Fatal("audit code packet build failed")
+		}
+		code, response, err := pool.sendEnvelope(ctx, st, envelope)
+		auditOutput("saved_session_code", map[string]any{"app_id": appID,
+			"success": err == nil && len(code) > 0, "code_length": len(code),
+			"response_length": len(response), "error_type": fmt.Sprintf("%T", err),
+			"shortlink_payload_error":        errors.Is(err, ErrShortlinkPayload),
+			"production_session_invalidated": false, "credentials_written": false})
+		if ctx.Err() != nil {
+			t.Fatal("audit budget expired")
+		}
+	}
+}
+
 func TestNativeAutoAuthAudit(t *testing.T) {
 	path := os.Getenv("YYB_AUTOAUTH_AUDIT_DB")
 	statePath := os.Getenv("YYB_AUTOAUTH_AUDIT_STATE")

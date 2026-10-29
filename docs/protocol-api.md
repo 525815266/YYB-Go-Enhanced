@@ -65,6 +65,8 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 
 同一个账号的取码请求会串行执行，避免多个任务同时刷新或消费一次性 code；不同账号仍可并发。
 
+v0.2.44 起，上游响应能解密但没有该应用的 code 时返回 HTTP `502`，提示检查 AppID 或应用授权；不删除共享协议会话、不触发账号 token 刷新，也不把账号标为失效。其他小程序可能仍可正常取码。HTTP `409` 与 `rescan_required=true` 则表示账号已明确失效；不要把任意取码失败都当成需要重扫。
+
 ## operateWxData
 
 通用调用必须提供目标业务真实使用的 `payload`：

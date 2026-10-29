@@ -152,7 +152,8 @@ def run_slices(pe, input_key):
             'hybrid_field_4_matches_wrapped_cek': True}
 
 
-def run_header_branch(pe, application_account, ignore_app_header=False):
+def run_header_branch(pe, application_account, ignore_app_header=False,
+                      transport_crypto=0, application_crypto=17):
     """Execute the two native Req2Buf branches, replacing only field writes."""
     image = pe.get_memory_mapped_image()
     base = pe.OPTIONAL_HEADER.ImageBase
@@ -165,6 +166,8 @@ def run_header_branch(pe, application_account, ignore_app_header=False):
     account = HEAP + 0x1000
     emu.mem_write(HEAP + 0x90, struct.pack('<Q', account))
     emu.mem_write(HEAP + 0x108, bytes([ignore_app_header]))
+    emu.mem_write(HEAP + 0x178, struct.pack('<I', transport_crypto))
+    emu.mem_write(HEAP + 0x118, struct.pack('<I', application_crypto))
     emu.mem_write(account, struct.pack('<Q', base + 0x7ebea0))
     emu.mem_write(account + 0x2c8, struct.pack('<I', 1504))
     for register, value in ((UC_X86_REG_RSI, HEAP), (UC_X86_REG_RDI, 0),
@@ -183,15 +186,39 @@ def run_header_branch(pe, application_account, ignore_app_header=False):
         uc.reg_write(UC_X86_REG_RIP, destination)
 
     emu.hook_add(UC_HOOK_CODE, hook)
+    # Field 25 is copied from the application request, independently of the
+    # transport crypto at +0x178 which the app-account branch writes as field 7.
+    emu.emu_start(base + 0x1a2cba, base + 0x1a2cd0, count=100)
     start, stop = (0x1a2d7c, 0x1a2e01) if application_account else (0x1a3897, 0x1a38f2)
     emu.emu_start(base + start, base + stop, count=1000)
-    expected = {20: 1504, 7: 0, 8: 4 if ignore_app_header else 0, 17: 0, 18: 0}
+    expected = {25: application_crypto, 20: 1504, 7: transport_crypto,
+                8: 4 if ignore_app_header else 0, 17: 0, 18: 0}
     if not application_account:
-        expected[8], expected[18] = 0, 1
+        expected[7], expected[8], expected[18] = 0, 0, 1
     if emu.reg_read(UC_X86_REG_RIP) != base + stop or fields != expected:
         raise RuntimeError('native account header branch differs from fixture')
     return {'application_account': application_account, 'ignore_app_header': ignore_app_header,
             'native_integer_fields': fields}
+
+
+def run_transport_crypto_dispatch(pe, mode):
+    """Execute only native branch selection; do not substitute a full packet."""
+    raw = pe.get_memory_mapped_image()
+    base = pe.OPTIONAL_HEADER.ImageBase
+    emu = Uc(UC_ARCH_X86, UC_MODE_64)
+    emu.mem_map(base, (len(raw) + 4095) & ~4095)
+    emu.mem_write(base, raw)
+    emu.mem_map(HEAP, 0x10000)
+    emu.mem_write(HEAP + 0x178, struct.pack('<I', mode))
+    emu.reg_write(UC_X86_REG_RSI, HEAP)
+    destinations = {0: (0x1a3686, 'copy'), 16: (0x1a3592, 'aes_gcm'),
+                    17: (0x1a343d, 'hybrid_ecdh')}
+    stop, primitive = destinations[mode]
+    emu.emu_start(base + 0x1a336e, base + stop, count=20)
+    if emu.reg_read(UC_X86_REG_RIP) != base + stop:
+        raise RuntimeError('native transport crypto dispatch differs from fixture')
+    return {'transport_crypto': mode, 'selected_primitive': primitive,
+            'native_destination_rva': hex(stop), 'complete_packet_verified': False}
 
 
 def main():
@@ -212,6 +239,10 @@ def main():
                       'autoauth_schema_verified': True, 'cases': results,
                       'header_branches': [run_header_branch(pe, True), run_header_branch(pe, True, True),
                                           run_header_branch(pe, False)],
+                      'independent_crypto_fields': [run_header_branch(pe, True, transport_crypto=mode)
+                                                    for mode in (0, 16, 17)],
+                      'transport_crypto_dispatch': [run_transport_crypto_dispatch(pe, mode)
+                                                     for mode in (0, 16, 17)],
                       'network_or_server_acceptance_verified': False}, indent=2))
 
 

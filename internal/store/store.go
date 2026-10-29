@@ -261,7 +261,25 @@ func (db *DB) Close() error {
 	if db == nil || db.sql == nil {
 		return nil
 	}
-	return db.sql.Close()
+	err := db.sql.Close()
+	if db.sql.Stats().OpenConnections == 0 {
+		return err
+	}
+	// sql.DB.Close stops new queries but does not wait for an in-flight
+	// connection opener. SQLite may still create/remove WAL files in that
+	// interval, so callers must not remove the data directory yet.
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for db.sql.Stats().OpenConnections != 0 {
+		select {
+		case <-ticker.C:
+		case <-timeout.C:
+			return errors.Join(err, errors.New("database close: pending connections did not stop within 5s"))
+		}
+	}
+	return err
 }
 
 func (db *DB) EnsureDefaultFeatures(ctx context.Context) error {

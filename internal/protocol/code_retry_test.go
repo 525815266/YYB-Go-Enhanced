@@ -15,7 +15,7 @@ func TestLoginCodeRetry(t *testing.T) {
 		want  int
 	}{
 		{"stale session", fmt.Errorf("targets: %w", ErrShortlinkPayload), "", 2},
-		{"empty code", nil, "", 2},
+		{"empty code", nil, "", 1},
 		{"success", nil, "ok", 1},
 		{"network", errors.New("timeout"), "", 1},
 	} {
@@ -29,6 +29,28 @@ func TestLoginCodeRetry(t *testing.T) {
 				t.Fatalf("calls=%d resets=%d", calls, resets)
 			}
 		})
+	}
+}
+
+func TestEmptyLoginCodePreservesSessionForOtherApps(t *testing.T) {
+	for _, empty := range []map[string]any{nil, {}, {"code": nil}, {"code": ""}} {
+		sessionHealthy := true
+		reset := func() error { sessionHealthy = false; return nil }
+		_, err := retryLoginCode(context.Background(), func() (map[string]any, error) {
+			return empty, nil
+		}, reset)
+		if !errors.Is(err, ErrLoginCodeUnavailable) || !sessionHealthy {
+			t.Fatalf("application failure invalidated shared session: healthy=%v error=%v", sessionHealthy, err)
+		}
+		result, err := retryLoginCode(context.Background(), func() (map[string]any, error) {
+			if !sessionHealthy {
+				t.Fatal("other application lost its usable session")
+			}
+			return map[string]any{"code": "control-app-code"}, nil
+		}, reset)
+		if err != nil || result["code"] != "control-app-code" {
+			t.Fatal("control application failed")
+		}
 	}
 }
 
