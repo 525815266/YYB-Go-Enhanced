@@ -2,6 +2,18 @@
 
 仓库使用根目录 `VERSION` 作为 Docker、Magisk 和原生二进制的统一版本来源。正式发布前应先更新版本号和 `CHANGELOG.md`，再创建对应标签。Release 正文由 `tools/release_notes.py` 从当前版本章节生成，包含本次更新、下载选择、升级提示和相关文档，不再只显示 GitHub 自动生成的 `Full Changelog`。
 
+## Windows 正式产物启动检查
+
+`.github/workflows/windows-release-smoke.yml` 在标签 Release 构建成功后，使用 Windows runner 下载已发布的 amd64 EXE 和 `checksums.txt`，核对 SHA256、版本及来源提交，并在空资源目录真实启动，检查内嵌控制台 / 登录 / 日志模板、静态资源和协议鉴权。也可在 Actions 手动选择现有标签或 `latest`。仅使用合成令牌、关闭后台保活，没有真实账号和上游调用；这是 Windows amd64 启动验证，不替代 ARM64、其他平台或真实授权续期测试。
+
+本地 Windows 已安装 PowerShell 时，可复用同一检查脚本：
+
+```powershell
+./tools/windows_release_smoke.ps1 -Binary ./yyb-go-windows-amd64.exe -Checksums ./checksums.txt -ExpectedVersion 0.2.54
+```
+
+本机下载的文件若被占用、删除或拦截，应先核对本机记录，不将无法启动记作通过，也不自动关闭防护或添加排除项。
+
 ## Docker 镜像
 
 工作流：`.github/workflows/docker-publish.yml`

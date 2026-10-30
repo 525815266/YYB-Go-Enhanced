@@ -1,0 +1,48 @@
+name: Windows Release Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing Release tag, or latest'
+        default: latest
+        required: true
+        type: string
+      expected_commit:
+        description: 'Optional expected source revision'
+        required: false
+        type: string
+  workflow_run:
+    workflows: ['多架构二进制 Release 构建与发布']
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-amd64:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and run the published Windows binary
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.workflow_run.head_branch }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit || github.event.workflow_run.head_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $smokeTag = $env:RELEASE_TAG
+          if ($smokeTag -eq 'latest') {
+            $smokeTag = gh release view --json tagName --jq .tagName
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve latest release' }
+          }
+          if ($smokeTag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw 'Invalid release tag' }
+          if ($env:EXPECTED_COMMIT -and $env:EXPECTED_COMMIT -notmatch '^[0-9a-f]{40}$') { throw 'Invalid source revision' }
+          $smokeDownloads = Join-Path $env:RUNNER_TEMP 'yyb-release-download'
+          gh release download $smokeTag --pattern yyb-go-windows-amd64.exe --pattern checksums.txt --dir $smokeDownloads
+          if ($LASTEXITCODE -ne 0) { throw 'Release download failed' }
+          ./tools/windows_release_smoke.ps1 -Binary (Join-Path $smokeDownloads 'yyb-go-windows-amd64.exe') -Checksums (Join-Path $smokeDownloads 'checksums.txt') -ExpectedVersion $smokeTag.Substring(1) -ExpectedCommit $env:EXPECTED_COMMIT
