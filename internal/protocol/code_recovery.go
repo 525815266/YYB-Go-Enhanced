@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/store"
 )
 
@@ -58,6 +59,7 @@ func (p *Pool) RecoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		if acc.SessionOnly() {
 			return WmpfSession{}, nil, ErrCachedSessionUnavailable
 		}
+		p.events.Emit("protocol.ticket_requested", eventlog.ForAccount(acc))
 		buffer, err := fetch(ctx)
 		if err != nil {
 			return WmpfSession{}, nil, fmt.Errorf("fetch fresh code ticket: %w", err)
@@ -111,8 +113,10 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	}
 	p.mu.Unlock()
 	if !allowed {
+		p.events.Emit("protocol.recovery_deferred", eventlog.ForAccount(current))
 		return nil, original
 	}
+	p.events.Emit("protocol.recovery_started", eventlog.ForAccount(current))
 	st, result, err := probe(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("code session recovery failed: %w", err))
@@ -138,5 +142,6 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 			return fail(store.ErrAccountAuthorizationChanged)
 		}
 	}
+	p.events.Emit("protocol.recovered", eventlog.ForAccount(current))
 	return result, nil
 }

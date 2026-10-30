@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 )
 
@@ -30,6 +31,15 @@ func credentialDiagnostics(err error) []upstreamDiagnostic {
 		var item upstreamDiagnostic
 		var message string
 		switch e := err.(type) {
+		case *pcmgr.BufferRejectedError:
+			item.Stage, item.UpstreamCode = "pcmgr_login_buffer", int64(e.Code)
+		case *pcmgr.RPCError:
+			switch e.Command {
+			case 20138:
+				item.Stage, item.UpstreamCode = "pcmgr_login_buffer", int64(e.Code)
+			case 20042:
+				item.Stage, item.UpstreamCode = "pcmgr_key_renewal", int64(e.Code)
+			}
 		case *protocol.RefreshRejectedError:
 			item.Stage = "refresh_token"
 			if e.Operation == "check_login" {

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/store"
 )
 
@@ -55,8 +56,9 @@ type WmpfSession struct {
 }
 
 type Pool struct {
-	cfg Config
-	db  *store.DB
+	events *eventlog.Logger
+	cfg    Config
+	db     *store.DB
 
 	mu    sync.Mutex
 	locks map[string]chan struct{}
@@ -69,6 +71,9 @@ type Pool struct {
 	loginSem     chan struct{}
 	shortlinkSem chan struct{}
 }
+
+// SetEventLogger is called once before serving requests or starting workers.
+func (p *Pool) SetEventLogger(events *eventlog.Logger) { p.events = events }
 
 func NewPool(cfg Config, db *store.DB) *Pool {
 	def := DefaultConfig()

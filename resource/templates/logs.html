@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>运行日志 - YYB Go</title>
+  <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261001-compact">
+  <link rel="stylesheet" href="/static/css/system-logs.css?v=20261030">
+</head>
+<body>
+<main class="page logs-page">
+  <div class="page-title"><div><h1>运行日志</h1><p>查看授权、续期与接口异常，保留近 7 天记录。</p></div><button class="btn secondary" id="refreshLogs" type="button">刷新日志</button></div>
+  <form id="logFilters" class="log-filters" aria-label="筛选日志">
+    <label>分类<select class="input" name="category"><option value="">全部分类</option><option value="protocol">协议调用</option><option value="keepalive">后台续期</option><option value="account">账号授权</option><option value="api">接口请求</option><option value="management">管理操作</option><option value="auth">面板登录</option><option value="system">服务运行</option></select></label>
+    <label>等级<select class="input" name="level"><option value="">全部等级</option><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></label>
+    <label>渠道<select class="input" name="channel"><option value="">全部渠道</option><option value="yyb">YYB</option><option value="pcmgr">PCMgr</option></select></label>
+    <label>账号 ID<input class="input" name="account_id" type="number" min="1" step="1" placeholder="全部账号"></label>
+    <label>时间<select class="input" name="hours"><option value="168">近 7 天</option><option value="24">近 24 小时</option><option value="1">近 1 小时</option></select></label>
+    <button class="btn primary" type="submit">筛选日志</button>
+    <button class="btn secondary" type="reset">重置</button>
+  </form>
+  <div class="log-toolbar"><p id="logStatus" role="status" aria-live="polite">正在读取日志…</p><label class="live-toggle"><input id="liveLogs" type="checkbox">自动刷新</label></div>
+  <div id="logError" class="notice log-error" role="alert" hidden></div>
+  <div class="table-wrap log-table-wrap" id="logResults" aria-busy="true">
+    <table class="log-table"><thead><tr><th scope="col">时间</th><th scope="col">等级</th><th scope="col">分类</th><th scope="col">账号 / 渠道</th><th scope="col">事件</th></tr></thead><tbody id="logRows"><tr><td colspan="5" class="log-empty">正在读取运行记录…</td></tr></tbody></table>
+  </div>
+  <div class="log-pagination"><span id="logPage">第 1 页</span><div><button class="btn secondary" id="previousLogs" type="button" disabled>上一页</button><button class="btn secondary" id="nextLogs" type="button" disabled>下一页</button></div></div>
+  <p class="log-footnote">最多保留 10,000 条。升级前的历史记录不回填；日志不包含密钥、扫码链接或请求正文。</p>
+</main>
+<script src="/static/js/platform.js?v=20261030-logs"></script>
+<script src="/static/js/system-logs.js?v=20261030"></script>
+</body></html>

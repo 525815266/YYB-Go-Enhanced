@@ -46,4 +46,4 @@ v0.2.52 补齐独立 ILink AutoAuth；它与 YYB OAuth 刷新、PCMgr 账号 key
 
 五项 main / tag 原生、Docker 与 Magisk 工作流均成功。v0.2.52 Release 包含七种独立程序、七种完整包、Magisk 和 SHA256 清单，共 16 项资产；正式 Windows amd64 文件校验后实际启动，内嵌模板、版本和鉴权通过。飞牛部署精确源码 `52b9032a0c0070a3b30c3838d6675eca283cdadb` 的镜像，Linux amd64 manifest 为 `sha256:ccca91c8baef84fe6d3fe97bb4003c8472e23ecde6f5528b9d56acb3f03c9aad`；21 个账号身份与容器配置保留、健康检查通过。发布与启动成功不等于真实续期成功。
 
-PCMgr 静态程序明确区分主账号登录与 WMPF 登录：`RequireLoginParams` 进入后端 login_code 路径，`RequireManualLogin` 进入独立 OpenSDK 授权，另有 `pcmgr_tmp_token` 缓存授权分支。当前样本没有可用缓存 token，不能通过调用主账号资料或添加传输心跳来代替这几条链路；它们仍需独立验证。
+PCMgr 静态程序明确区分主账号登录与 WMPF 登录。继续追踪当前 V3 的真实调用者后，`RequireLoginParams` 实际进入 `AppletLogin` 的 buffer / 临时 token / 合并授权分支，尚未确认独立 login_code RPC 的发送点；公共 getter 未覆盖版本专用 / 运行时配置，不能排除其 token。另已确认 PC 微信已登录但 WMPF 未登录时，可用桌面 URI 启动并跳过 WMPF 登录检查。详见[官方持久状态与启动通路](pcmgr-official-state-20261030.md)。这些能力不能由主账号资料成功、传输心跳或业务页能打开来代替独立验证。

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/store"
 )
@@ -76,6 +77,14 @@ func TestRecovery409IncludesSafeTypedDiagnostics(t *testing.T) {
 	second := request()
 	if second.Code != 409 || refreshes != 1 || strings.Contains(second.Body.String(), "42007") {
 		t.Fatal("already-expired request probed upstream or invented historical diagnostics")
+	}
+}
+
+func TestPCMgrDiagnosticsKeepTicketAndKeyRenewalDistinct(t *testing.T) {
+	err := errors.Join(&protocol.ShortlinkRejectedError{Code: -14}, &pcmgr.RPCError{Command: 20138, Code: 1}, &pcmgr.BufferRejectedError{Code: 1}, &pcmgr.RPCError{Command: 20042, Code: 2}, &pcmgr.RPCError{Command: 12345, Code: 3})
+	want := []upstreamDiagnostic{{Stage: "shortlink_application", UpstreamCode: -14}, {Stage: "pcmgr_login_buffer", UpstreamCode: 1}, {Stage: "pcmgr_key_renewal", UpstreamCode: 2}}
+	if !reflect.DeepEqual(credentialDiagnostics(err), want) {
+		t.Fatal("lost PCMgr recovery stage")
 	}
 }
 

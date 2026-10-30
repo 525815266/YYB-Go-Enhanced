@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/qr"
 	"yyb_go/internal/store"
 )
@@ -742,6 +743,7 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 		}
 		a.invalidateProxyLease(acc.ID)
 		a.clearKeepAliveRetry(acc.ID)
+		a.events.Emit("account.scanned", eventlog.ForAccount(acc))
 		warning := a.syncUpdatedAccountReferences(acc)
 		dropAfterConfirm = true
 		writeJSON(w, 200, struct {

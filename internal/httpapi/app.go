@@ -21,6 +21,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	"yyb_go/internal/auth"
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/proxysource"
@@ -65,6 +66,7 @@ type Config struct {
 }
 
 type App struct {
+	events             *eventlog.Logger
 	updates            *updateChecker
 	cfg                Config
 	resources          resources
@@ -216,6 +218,16 @@ func NewApp(cfg Config) (*App, error) {
 		}
 		app.auth = authStore
 	}
+	app.events, err = eventlog.New(db)
+	if err != nil {
+		if app.auth != nil {
+			_ = app.auth.Close()
+		}
+		_ = db.Close()
+		return nil, err
+	}
+	pool.SetEventLogger(app.events)
+	app.events.Emit("system.started", eventlog.Fields{})
 	app.startKeepAlive()
 	app.startAccountLinkCleanup()
 	return app, nil
@@ -234,6 +246,8 @@ func (a *App) Close() error {
 		a.stopAccountLinkCleanup()
 	}
 	if a.db != nil {
+		a.events.Emit("system.stopped", eventlog.Fields{})
+		a.events.Close()
 		if a.auth != nil {
 			_ = a.auth.Close()
 		}
@@ -248,7 +262,7 @@ func (a *App) Handler() http.Handler {
 	}
 
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(a.logRequests(), gin.Logger(), gin.Recovery())
 
 	router.Any("/login", gin.WrapF(a.handleLogin))
 	router.Any("/register", gin.WrapF(a.handleRegister))
@@ -308,6 +322,8 @@ func (a *App) Handler() http.Handler {
 	router.Any("/api/auth/me", gin.WrapF(a.handleAuthMe))
 	router.GET("/api/version", gin.WrapF(a.handleVersion))
 	router.GET("/maintenance", gin.WrapF(a.handleMaintenancePage))
+	router.GET("/logs", gin.WrapF(a.handleSystemLogsPage))
+	router.GET("/api/system-logs", gin.WrapF(a.handleSystemLogs))
 	router.GET("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.POST("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.Any("/api/auth/profile", gin.WrapF(a.handleProfile))
@@ -1227,7 +1243,11 @@ func (a *App) storeFromScan(ctx context.Context, loginBuffer string, creds proto
 	nick := pickNickname(userInfo, creds.Nickname)
 	avatar := a.resolveAvatar(ctx, openid, userInfo)
 	status := "alive"
-	return a.db.UpsertAccount(ctx, openid, loginBuffer, stringPtrMaybe(nick), stringPtrMaybe(nick), stringPtrMaybe(avatar), userInfo, creds.ToMapForScan(), &status)
+	acc, err := a.db.UpsertAccount(ctx, openid, loginBuffer, stringPtrMaybe(nick), stringPtrMaybe(nick), stringPtrMaybe(avatar), userInfo, creds.ToMapForScan(), &status)
+	if err == nil {
+		a.events.Emit("account.scanned", eventlog.ForAccount(acc))
+	}
+	return acc, err
 }
 
 func (a *App) resyncProfile(ctx context.Context, acc *store.WechatAccount) (*store.WechatAccount, error) {
@@ -1252,7 +1272,18 @@ func (e accountExpiredError) Error() string { return "account expired: " + e.ope
 
 func (e accountExpiredError) Unwrap() error { return e.cause }
 
-func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, call wxappCall) (map[string]any, error) {
+func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, call wxappCall) (resultOut map[string]any, errOut error) {
+	started := time.Now()
+	defer func() {
+		fields := eventlog.ForAccount(acc)
+		fields.DurationMS = time.Since(started).Milliseconds()
+		fields.Rejections = eventRejections(errOut)
+		event := "protocol.succeeded"
+		if errOut != nil {
+			event = "protocol.failed"
+		}
+		a.events.Emit(event, fields)
+	}()
 	// Bound queueing, protocol login and any credential recovery together.
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout+35*time.Second)
 	defer cancel()

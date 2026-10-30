@@ -1,0 +1,57 @@
+.logs-page { max-width: 1440px; }
+.logs-page .page-title { align-items: center; }
+.logs-page .btn { min-height: 38px; height: auto; width: auto; white-space: nowrap; }
+.log-filters { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; padding: 18px; background: var(--platform-surface); border: 1px solid var(--platform-line); border-radius: var(--radius); }
+.log-filters label { display: grid; gap: 7px; color: var(--platform-muted); font-size: 12px; flex: 1 1 124px; }
+.log-filters .input { height: 38px; font-size: 13px; min-width: 0; padding-inline: 10px; }
+.log-filters input::placeholder { color: var(--platform-muted); opacity: 1; }
+.log-toolbar, .log-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 12px; color: var(--platform-muted); font-size: 12px; }
+.log-toolbar p { margin: 0; }
+.live-toggle { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.live-toggle input { accent-color: var(--platform-accent); }
+.log-table-wrap { background: var(--platform-surface); border-color: var(--platform-line); }
+.log-table { min-width: 0; table-layout: fixed; }
+.log-table th { background: var(--platform-bg); color: var(--platform-muted); font-weight: 600; }
+.log-table th:nth-child(1) { width: 160px; }
+.log-table th:nth-child(2) { width: 76px; }
+.log-table th:nth-child(3) { width: 92px; }
+.log-table th:nth-child(4) { width: 110px; }
+.log-table td { vertical-align: top; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.log-table time { font-size: 12px; font-variant-numeric: tabular-nums; }
+.log-row:hover { background: var(--platform-bg); }
+.log-badge { display: inline-flex; padding: 1px 7px; border-radius: 4px; font-size: 12px; color: oklch(.4 .025 252); background: oklch(.94 .01 252); }
+.log-badge[data-level="error"] { color: oklch(.43 .16 25); background: oklch(.96 .025 25); }
+.log-badge[data-level="warn"] { color: oklch(.42 .09 70); background: oklch(.96 .045 90); }
+.log-badge[data-level="info"] { color: oklch(.4 .1 245); background: oklch(.96 .025 245); }
+.log-account { display: block; font-weight: 600; }
+.log-channel { color: var(--platform-muted); font-size: 11px; }
+.log-detail { margin-top: 5px; color: var(--platform-muted); font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.log-detail summary { cursor: pointer; width: fit-content; padding: 2px 0; font-family: inherit; }
+.log-detail dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 16px; margin: 8px 0 0; }
+.log-detail dt, .log-detail dd { margin: 0; }
+.log-rejections { display: block; color: oklch(.43 .12 25); margin-top: 3px; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.log-empty { padding: 48px 16px; text-align: center; color: var(--platform-muted); }
+.log-pagination { margin-top: 14px; }
+.log-pagination > div { display: flex; gap: 8px; }
+.log-footnote { color: var(--platform-muted); font-size: 12px; line-height: 1.6; }
+.log-error { color: var(--danger); border-color: oklch(.82 .08 25); background: oklch(.97 .02 25); }
+.logs-page :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+@media (max-width: 1000px) { .log-filters label { flex-basis: 28%; } }
+@media (max-width: 700px) {
+  .logs-page .page-title { align-items: flex-start; }
+  .log-filters { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); padding: 14px; gap: 12px; }
+  .log-filters label:nth-child(5) { grid-column: 1 / -1; }
+  .log-filters .btn { width: 100%; }
+  .log-table-wrap { overflow: visible; }
+  .log-table thead { display: none; }
+  .log-table, .log-table tbody { display: block; width: 100%; }
+  .log-row { display: grid; grid-template-columns: 1fr auto auto; gap: 7px 12px; padding: 14px; border-bottom: 1px solid var(--platform-line); }
+  .log-row:last-child { border-bottom: 0; }
+  .log-row td { padding: 0; border: 0; }
+  .log-row td:nth-child(1) { grid-column: 1; }
+  .log-row td:nth-child(2) { grid-column: 2; }
+  .log-row td:nth-child(3) { grid-column: 3; font-size: 12px; color: var(--platform-muted); }
+  .log-row td:nth-child(4) { grid-row: 2; grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+  .log-row td:nth-child(5) { grid-column: 1 / -1; }
+  .log-empty { display: block; }
+}

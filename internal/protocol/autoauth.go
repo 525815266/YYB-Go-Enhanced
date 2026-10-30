@@ -11,6 +11,7 @@ import (
 	"log"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/store"
 )
 
@@ -233,6 +234,7 @@ func (p *Pool) restoreNativeSession(ctx context.Context, acc *store.WechatAccoun
 }
 
 func (p *Pool) rotateNativeSession(ctx context.Context, acc *store.WechatAccount, saved WmpfSession, exchange func(context.Context, WmpfSession, func() error) (WmpfSession, error)) (WmpfSession, error) {
+	p.events.Emit("protocol.native_started", eventlog.ForAccount(acc))
 	var markedRow *store.SessionRow
 	next, err := exchange(ctx, saved, func() error {
 		marked := saved
@@ -242,6 +244,12 @@ func (p *Pool) rotateNativeSession(ctx context.Context, acc *store.WechatAccount
 		return err
 	})
 	if err != nil && !next.AutoAuth.usable() {
+		fields := eventlog.ForAccount(acc)
+		var rejected *AutoAuthRejectedError
+		if errors.As(err, &rejected) {
+			fields.Rejections = []eventlog.Rejection{{Stage: "native_autoauth_" + rejected.Stage, Code: rejected.Code}}
+		}
+		p.events.Emit("protocol.native_failed", fields)
 		return WmpfSession{}, err
 	}
 	exchangeErr := err
@@ -252,8 +260,10 @@ func (p *Pool) rotateNativeSession(ctx context.Context, acc *store.WechatAccount
 	}
 	next.nativePersisted = true
 	if exchangeErr != nil {
+		p.events.Emit("protocol.native_incomplete", eventlog.ForAccount(acc))
 		log.Printf("protocol: account id=%d native keys rotated; transport state incomplete", acc.ID)
 	} else {
+		p.events.Emit("protocol.native_rotated", eventlog.ForAccount(acc))
 		log.Printf("protocol: account id=%d native session renewed", acc.ID)
 	}
 	return next, exchangeErr

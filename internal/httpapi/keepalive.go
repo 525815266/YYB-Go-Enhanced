@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/qr"
 	"yyb_go/internal/store"
@@ -80,6 +81,12 @@ accountsLoop:
 			defer cancel()
 			status, refreshed, err := a.refreshAccount(accountCtx, acc, false)
 			if err != nil {
+				fields := eventlog.ForAccount(acc)
+				fields.Rejections = eventRejections(err)
+				a.events.Emit("keepalive.failed", fields)
+				if status == "expired" {
+					a.events.Emit("account.expired", fields)
+				}
 				if status == "expired" || status == store.StatusSessionOnly {
 					a.clearKeepAliveRetry(acc.ID)
 				} else {
@@ -93,6 +100,7 @@ accountsLoop:
 			}
 			a.clearKeepAliveRetry(acc.ID)
 			if refreshed {
+				a.events.Emit("keepalive.renewed", eventlog.ForAccount(acc))
 				log.Printf("keepalive: account id=%d credentials renewed", acc.ID)
 			}
 		}(acc)
@@ -297,6 +305,7 @@ func (a *App) setAccountStatus(ctx context.Context, accountID int64, status stri
 		return err
 	}
 	if status == "expired" {
+		a.events.Emit("account.expired", eventlog.Fields{AccountID: accountID})
 		_ = a.db.InvalidateAccountSessions(ctx, accountID)
 		a.invalidateProxyLease(accountID)
 		a.clearKeepAliveRetry(accountID)

@@ -250,6 +250,6 @@
 	$('scanProduct').addEventListener('change',()=>{channelMode();$('quickPane').hidden=true;$('qrPane').hidden=false;newQR();});
 	Promise.all([initializeProxyOptions(),api('GET','/api/scan-settings').then(settings=>{$('scanProduct').value=settings.effective;})]).catch(error=>setStatus(error.message,'error')).finally(()=>{channelMode();showMode(PC_LOGIN_ENABLED&&$('scanProduct').value==='appstore'?'quick':'qr');});
   </script>
-  <script src="/static/js/platform.js?v=20260930-console"></script>
+  <script src="/static/js/platform.js?v=20261030-logs"></script>
 </body>
 </html>

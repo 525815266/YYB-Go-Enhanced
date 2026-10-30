@@ -1,6 +1,7 @@
 (() => {
   const pages = {
     "/maintenance": ["系统维护", "版本更新与重启"],
+    "/logs": ["运行日志", "服务事件与授权诊断"],
     "/": ["我的控制台", "账号与能力调用"],
     "/scan": ["添加账号", "微信授权"],
     "/proxies": ["代理设置", "账号网络出口"],
@@ -47,6 +48,7 @@
       ["/account-links", "link", "已激活短链接", true, true],
       ["/users", "users", "用户管理", false, true],
       ["/maintenance", "settings", "系统维护", false, true],
+      ["/logs", "logs", "运行日志", false, true],
       ["/settings", "settings", "个人设置", true, false]
     ]}
   ];
