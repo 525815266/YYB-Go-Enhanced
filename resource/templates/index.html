@@ -2362,12 +2362,21 @@
       }
     });
 
-    const focusTarget = new URLSearchParams(location.search).get("focus");
+    window.addEventListener("popstate", () => {
+      const ref = new URLSearchParams(location.search).get("ref");
+      const account = ref ? state.accounts.find(item => String(item.id) === ref || item.openid === ref) : state.accounts[0];
+      if (account && account.openid !== state.selectedOpenID) {
+        state.selectedOpenID = account.openid;
+        syncSelectedAccount();
+        loadAccountProxySummary();
+      }
+    });
 
     applyRoleVisibility();
     loadHealth();
     loadFeatures();
     loadAccounts().then(() => {
+      const focusTarget = new URLSearchParams(location.search).get("focus");
       if (focusTarget === "accounts" || focusTarget === "test") document.getElementById(focusTarget === "accounts" ? "accountWorkspace" : "callWorkspace")?.scrollIntoView({ block:"start" });
     });
     loadQingLongConfig();
@@ -2375,6 +2384,6 @@
   </script>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=048">
   <script src="/static/js/scan-channel.js?v=048"></script>
-  <script src="/static/js/platform.js?v=20261030-logs"></script>
+  <script src="/static/js/platform.js?v=20261030-workspace"></script>
 </body>
 </html>

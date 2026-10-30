@@ -106,6 +106,36 @@
     sidebar.inert = mobileNav.matches;
     if (restore && mobileNav.matches) menu.focus();
   };
+  // These navigation entries are views of the same workspace. Reloading the
+  // document silently resets the account, target AppID and pending request.
+  const focusWorkspace = () => {
+    if (location.pathname !== "/") return;
+    const focus = new URLSearchParams(location.search).get("focus");
+    const context = {accounts:["我的微信账号", "账号与有效期"], test:["接口测试", "协议能力调用"]}[focus] || pages["/"];
+    shell.querySelector(".platform-page-title").textContent = context[0];
+    shell.querySelector(".platform-breadcrumb").textContent = `YYB Go / ${context[1]}`;
+    shell.querySelectorAll(".platform-nav a").forEach(link => {
+      if (isActive(link.getAttribute("href"))) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+    const target = focus === "accounts" ? document.getElementById("accountWorkspace")
+      : focus === "test" ? document.getElementById("callWorkspace") : main;
+    target?.scrollIntoView({block:"start"});
+  };
+  sidebar.addEventListener("click", event => {
+    const link = event.target.closest("a");
+    if (!link || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey
+      || link.target || link.hasAttribute("download") || location.pathname !== "/") return;
+    const target = new URL(link.href);
+    if (target.origin !== location.origin || target.pathname !== "/") return;
+    const ref = new URLSearchParams(location.search).get("ref");
+    if (ref) target.searchParams.set("ref", ref);
+    event.preventDefault();
+    if (target.href !== location.href) history.pushState(null, "", target.pathname + target.search + target.hash);
+    closeNav();
+    focusWorkspace();
+  });
+  window.addEventListener("popstate", focusWorkspace);
   menu.onclick = () => {
     if (document.body.classList.contains("platform-nav-open")) return closeNav();
     document.body.classList.add("platform-nav-open");
