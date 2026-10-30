@@ -105,3 +105,13 @@ func TestRefreshOutIncludesCurrentBusinessCodes(t *testing.T) {
 		t.Fatal("refresh response lost typed upstream code")
 	}
 }
+
+func TestNativeDiagnosticsKeepLayerAndNeverCopyUnknownStage(t *testing.T) {
+	err := errors.Join(&protocol.ShortlinkRejectedError{Code: -14},
+		&protocol.AutoAuthRejectedError{Stage: "business", Code: -13},
+		&protocol.AutoAuthRejectedError{Stage: "private-identifier", Code: 1})
+	want := []upstreamDiagnostic{{Stage: "shortlink_application", UpstreamCode: -14}, {Stage: "native_autoauth_business", UpstreamCode: -13}}
+	if !reflect.DeepEqual(credentialDiagnostics(err), want) {
+		t.Fatal("native diagnostic lost layer or exposed arbitrary stage")
+	}
+}

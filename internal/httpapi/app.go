@@ -1271,7 +1271,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		return result, nil
 	}
 	current, snapshotErr := a.db.GetAccount(ctx, acc.ID)
-	if errors.Is(callErr, store.ErrAccountAuthorizationChanged) || snapshotErr == nil && !current.SameAuthorization(acc) {
+	if errors.Is(callErr, store.ErrAccountAuthorizationChanged) || errors.Is(callErr, store.ErrSessionChanged) || snapshotErr == nil && !current.SameAuthorization(acc) {
 		return nil, store.ErrAccountAuthorizationChanged
 	}
 	if acc.SessionOnly() {
@@ -1388,7 +1388,7 @@ func accountNeedsRescan(acc *store.WechatAccount) bool {
 
 func (a *App) invokeGetCode(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
 	result, err := a.pool.GetCode(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
-	if err == nil || !protocol.IsApplicationRequestRejection(err) || acc.SessionOnly() {
+	if err == nil || !protocol.IsApplicationRequestRejection(err) {
 		return result, err
 	}
 	return a.pool.RecoverCodeSession(ctx, acc, appID, proxyValue, fallbackDirect, err, func(ctx context.Context) (string, error) {

@@ -8,13 +8,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdh"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,15 +27,19 @@ import (
 )
 
 type nativeAuditState struct {
-	AppDevice    []byte
-	Device       []byte
-	AutoKey      []byte
-	EncKey       []byte
-	Response     []byte
-	Session      AppSession
-	PSK          pskEntry
-	WireResponse []byte
-	WireCommand  uint32
+	AppDevice        []byte
+	Device           []byte
+	AutoKey          []byte
+	EncKey           []byte
+	Response         []byte
+	Session          AppSession
+	PSK              pskEntry
+	WireResponse     []byte
+	WireCommand      uint32
+	EphemeralPrivate []byte
+	OKM              []byte
+	Compressed       []byte
+	RequestCipher    []byte
 }
 
 func auditOutput(stage string, fields map[string]any) {
@@ -237,6 +242,20 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 			captured = nativeAuditState{AppDevice: device, Device: meta.DeviceID,
 				AutoKey: safeBytes(sect[3]), EncKey: safeBytes(sect[4]),
 				Response: decoded, Session: session, PSK: psk}
+			if os.Getenv("YYB_AUTOAUTH_AUDIT_SAME_CONNECTION") == "1" {
+				baseline := WmpfSession{Session: session, PSK: psk,
+					ShortlinkTargets: getShortlinkTargets(ctx, 4*time.Second, time.Minute)}
+				result, probeErr := pool.requestLoginCode(ctx, baseline, "wx3bb18aff4f2fe45f")
+				loginCode, _ := result["code"].(string)
+				auditOutput("manual_code_before_auto", map[string]any{"success": probeErr == nil && loginCode != "", "code_length": len(loginCode)})
+				if probeErr != nil || loginCode == "" {
+					t.Fatal("manual code baseline failed; AutoKey not sent")
+				}
+				// One fresh key, one request, on the original ManualAuth
+				// transport. Keep the rotated result separate from the
+				// pre-AutoAuth state and never write either to production.
+				auditAutoAuthOnConnection(t, ctx, statePath+".auto", captured, mc)
+			}
 			return WmpfSession{Session: session, PSK: psk, CreatedAt: time.Now()}, nil
 		})
 		return e
@@ -271,6 +290,12 @@ func TestNativeAutoAuthAudit(t *testing.T) {
 	}
 	auditOutput("manual_keys", map[string]any{"auto_key_length": len(captured.AutoKey),
 		"enc_key_length": len(captured.EncKey), "credentials_written": false})
+	if os.Getenv("YYB_AUTOAUTH_AUDIT_SAME_CONNECTION") == "1" {
+		// Successful AutoAuth already verified its replacement. Its key
+		// rotation retires the original session; do not test that stale
+		// session again or call its expected rejection a failed rotation.
+		return
+	}
 	st := WmpfSession{Session: captured.Session, PSK: captured.PSK,
 		ShortlinkTargets: getShortlinkTargets(ctx, 4*time.Second, time.Minute)}
 	plain := buildJSAPIPlaintext(st.Session.UIN, "wx3bb18aff4f2fe45f", jsLoginURL, jsLoginCmdID, nil, st.Session.HostAppID, nil)
@@ -301,6 +326,25 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 	if json.Unmarshal(raw, &saved) != nil || len(saved.AutoKey) == 0 || len(saved.EncKey) != 24 || len(saved.AppDevice) == 0 {
 		t.Fatal("private source state incomplete")
 	}
+	used, err := os.OpenFile(source+".used", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal("source key already used or cannot be marked; refusing replay")
+	}
+	_ = used.Close()
+	targets, err := getLonglinkTargets(ctx, 4*time.Second, time.Minute)
+	if err != nil || len(targets) == 0 {
+		t.Fatal("auto target discovery failed")
+	}
+	mc, err := connectMmtls(ctx, targets[0], 12*time.Second, "", false)
+	if err != nil {
+		t.Fatal("auto transport handshake failed")
+	}
+	defer mc.close()
+	auditAutoAuthOnConnection(t, ctx, statePath, saved, mc)
+}
+
+func auditAutoAuthOnConnection(t *testing.T, ctx context.Context, statePath string, saved nativeAuditState, mc *mmtlsClient) {
+	t.Helper()
 	file, err := os.OpenFile(statePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		t.Fatal("new private output state required before network request")
@@ -330,38 +374,58 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 		// whereas its independent non-application branch sets 18=1.
 		ints[18] = 0
 	}
-	if headerStyle == "nativeidentity" {
+	if headerStyle == "nativeidentity" || headerStyle == "nativeinstance" || headerStyle == "nativeserverid" {
 		ints[2] = uint64(saved.Session.UIN)
 	} else if headerStyle != "" && headerStyle != "existing" && headerStyle != "nativeapp" {
 		t.Fatal("unsupported audit header style")
 	}
+	// IlinkAppInstanceImpl explicitly clears IsAppAccount during its
+	// constructor (YYB 0x190c46--0x190c4f). Req2Buf consequently selects
+	// field 18=1 even though UpdateAppSession copies the application UIN
+	// into the network identity. The device instance sets the flag true.
+	if headerStyle == "nativeinstance" || headerStyle == "nativeserverid" {
+		ints[18] = 1
+	}
+	transport := os.Getenv("YYB_AUTOAUTH_AUDIT_TRANSPORT")
+	if transport != "" && transport != "long" && transport != "short" {
+		t.Fatal("unsupported audit transport")
+	}
+	if transport == "" {
+		transport = "long"
+	}
 	auditOutput("auto_request_shape", map[string]any{
 		"network_identity_matches_application": ints[2] == uint64(saved.Session.UIN),
 		"application_account_flag":             ints[18], "application_crypto": ints[25],
-		"transport_crypto": ints[7], "credentials_written": false})
-	// PackRequest copies the network session's username into Header +0x28;
-	// AesGcmCGITask serializes it as wpkg bytes field 27 (0x1a2ce6).
+		"transport_crypto": ints[7], "credentials_written": false,
+		"transport":             transport,
+		"same_manual_transport": transport == "long" && os.Getenv("YYB_AUTOAUTH_AUDIT_SAME_CONNECTION") == "1"})
+	// Preserve prior username candidates as negative controls. The actual
+	// TDI getter at 0x3a9c0 reads/decodes kTdiKeyServerId, saved from auth
+	// section field 9 at 0x7a0db/0x7a3bf. CommSession field 5 reaches
+	// PackRequest's 0x1709a0 getter and ultimately wpkg bytes field 27.
 	identity := pbParse(safeBytes(pbParse(safeBytes(pbParse(saved.Response)[3]))[3]))
 	username := safeBytes(identity[2])
-	if len(username) == 0 {
+	if headerStyle == "nativeserverid" {
+		if len(saved.Session.F9) == 0 {
+			t.Fatal("source response server ID missing")
+		}
+		byts[27] = saved.Session.F9
+	} else if len(username) == 0 {
 		t.Fatal("source response username missing; header mapping needs review")
+	} else {
+		byts[27] = username
 	}
-	byts[27] = username
 	body := append(wpkgHead(ints, byts), hybrid...)
-	targets, err := getLonglinkTargets(ctx, 4*time.Second, time.Minute)
-	if err != nil || len(targets) == 0 {
-		t.Fatal("auto target discovery failed")
-	}
 	// One request only: never replay a possibly consumed AutoKey on another node.
-	mc, err := connectMmtls(ctx, targets[0], 12*time.Second, "", false)
-	if err != nil {
-		t.Fatal("auto transport handshake failed")
+	var response shortlinkPacket
+	if transport == "short" {
+		response, err = auditAutoAuthShortlink(ctx, saved.PSK, body)
+	} else {
+		if mc.sendApp(3198, body) != nil {
+			t.Fatal("auto request send failed")
+		}
+		response, err = mc.recvApp()
 	}
-	defer mc.close()
-	if mc.sendApp(3198, body) != nil {
-		t.Fatal("auto request send failed")
-	}
-	response, err := mc.recvApp()
 	if err != nil {
 		t.Fatal("auto response receive failed")
 	}
@@ -369,6 +433,9 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 	captured.WireResponse = response.Body
 	captured.WireCommand = response.Cmd
 	captured.Response = nil
+	captured.EphemeralPrivate = temp.Ephemeral.Bytes()
+	captured.OKM, captured.Compressed = temp.OKM, temp.CompBody
+	captured.RequestCipher = safeBytes(pbParse(hybrid)[5])
 	// Preserve any server rotation in private storage even if parsing fails.
 	defer func() {
 		encoded, e := json.Marshal(captured)
@@ -394,8 +461,14 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 	credentialType, _ := fields[2].(int64)
 	auditOutput("auto_response", map[string]any{"command": response.Cmd, "credential_type": credentialType,
 		"header_crypto": ints[25], "body_length": len(response.Body), "credentials_written": false})
-	if response.Cmd != 3198 || credentialType != 2 {
-		t.Fatal("auto audit requires native credential type 2; type 1 signature validation remains pending")
+	if response.Cmd != 3198 || credentialType != 1 && credentialType != 2 {
+		t.Fatal("auto audit response command or credential type unsupported")
+	}
+	if credentialType == 1 {
+		if auditVerifyHybridSignature(captured.RequestCipher, response.Body[hlen:]) != nil {
+			t.Fatal("auto response signature verification failed")
+		}
+		auditOutput("auto_signature", map[string]any{"verified": true, "request_bound": true})
 	}
 	decoded, err := hybridECDHDecrypt(response.Body[hlen:], temp)
 	if err != nil {
@@ -425,13 +498,17 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 		t.Fatal("auto identity differs from source session")
 	}
 	session.DeviceID, session.HostAppID = saved.Session.DeviceID, saved.Session.HostAppID
-	keys, err := mc.extractPSKs()
-	if err != nil {
-		t.Fatal("auto transport keys unavailable")
-	}
-	psk, ok := pickAccessPSK(keys)
-	if !ok {
-		t.Fatal("auto access PSK missing")
+	psk := saved.PSK
+	if transport == "long" {
+		keys, keyErr := mc.extractPSKs()
+		if keyErr != nil {
+			t.Fatal("auto transport keys unavailable")
+		}
+		var ok bool
+		psk, ok = pickAccessPSK(keys)
+		if !ok {
+			t.Fatal("auto access PSK missing")
+		}
 	}
 	captured.Session, captured.PSK = session, psk
 	auditOutput("auto_keys", map[string]any{"auto_key_length": len(captured.AutoKey), "enc_key_length": len(captured.EncKey),
@@ -449,44 +526,121 @@ func auditAutoAuth(t *testing.T, ctx context.Context, statePath string) {
 	}
 }
 
+// Native HashObj +0x90 first consumes request field 5 (PCMgr 0x17d26d),
+// then response field 3 (0x17bc25). Type 1 verifies the resulting SHA256
+// with the statically configured application ECDSA public key.
+func auditVerifyHybridSignature(requestCipher, response []byte) error {
+	return verifyHybridSignature(requestCipher, response)
+}
+
+func TestNativeAutoAuthOfflineAudit(t *testing.T) {
+	path := os.Getenv("YYB_AUTOAUTH_OFFLINE_PATH")
+	if path == "" {
+		t.Skip("requires private captured response; no network requests")
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatal("private path must be absolute")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("private capture unavailable")
+	}
+	var saved nativeAuditState
+	if json.Unmarshal(raw, &saved) != nil {
+		t.Fatal("private capture malformed")
+	}
+	_, _, hlen, err := decodeWpkgHead(saved.WireResponse)
+	if err != nil || hlen >= len(saved.WireResponse) {
+		t.Fatal("captured header malformed")
+	}
+	response := saved.WireResponse[hlen:]
+	verified := auditVerifyHybridSignature(saved.RequestCipher, response) == nil
+	key, err := ecdh.P256().NewPrivateKey(saved.EphemeralPrivate)
+	if err != nil {
+		t.Fatal("captured local ephemeral key unavailable")
+	}
+	decoded, err := hybridECDHDecrypt(response, &manualAuthTemp{Ephemeral: key, OKM: saved.OKM, CompBody: saved.Compressed})
+	if err != nil {
+		t.Fatal("offline response GCM authentication failed")
+	}
+	fields := pbParse(decoded)
+	base := pbParse(safeBytes(fields[1]))
+	message := safeBytes(base[2])
+	unified := pbParse(safeBytes(fields[2]))
+	sect := pbParse(safeBytes(unified[2]))
+	auditOutput("offline_auto_response", map[string]any{"signature_verified": verified, "business_code": base[1], "unified_auth_present": len(safeBytes(fields[2])) > 0,
+		"auto_key_length": len(safeBytes(sect[3])), "enc_key_length": len(safeBytes(sect[4])), "send_key_length": len(safeBytes(sect[1])),
+		"error_message_present": len(message) > 0, "error_mentions_expiry": regexp.MustCompile(`(?i)expir|timeout|time.?out`).Match(message),
+		"error_mentions_frequency": regexp.MustCompile(`(?i)frequen|rate.?limit|too.?many`).Match(message),
+		"network_requests":         0, "credentials_written": false})
+}
+
+// Audit-only counterpart of the URL-based path advertised by native AutoAuth
+// request metadata. One explicit target and no automatic request replay.
+func auditAutoAuthShortlink(ctx context.Context, psk pskEntry, payload []byte) (shortlinkPacket, error) {
+	url, host := []byte("/ilink/ilinkapp/sys/ilinkapp_autoauth"), []byte("shortcloud.weixin.com")
+	packet := buildShortlink(3198, 0, payload, defaultVer)
+	envelope := make([]byte, 4)
+	envelope = binary.BigEndian.AppendUint16(envelope, uint16(len(url)))
+	envelope = append(envelope, url...)
+	envelope = binary.BigEndian.AppendUint16(envelope, uint16(len(host)))
+	envelope = append(envelope, host...)
+	envelope = binary.BigEndian.AppendUint32(envelope, uint32(len(packet)))
+	envelope = append(envelope, packet...)
+	binary.BigEndian.PutUint32(envelope, uint32(len(envelope)-4))
+	body, key, hello, type8, err := build0RTTRequest(psk, envelope)
+	if err != nil {
+		return shortlinkPacket{}, err
+	}
+	targets := getShortlinkTargets(ctx, 4*time.Second, time.Minute)
+	if len(targets) == 0 {
+		return shortlinkPacket{}, errors.New("audit shortlink target unavailable")
+	}
+	conn, err := dialTCP(ctx, targets[0].IP, targets[0].Port, 12*time.Second, "", false)
+	if err != nil {
+		return shortlinkPacket{}, err
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	_ = conn.SetDeadline(ioDeadline(ctx, 12*time.Second))
+	if _, err = conn.Write(httpPost(fmt.Sprintf("/mmtls/%08x", uint32(time.Now().Unix())), string(host), body)); err != nil {
+		return shortlinkPacket{}, err
+	}
+	raw, err := io.ReadAll(io.LimitReader(conn, 2<<20))
+	if err != nil {
+		return shortlinkPacket{}, err
+	}
+	_, data := splitHTTP(raw)
+	records, consumed := parseRecords(data)
+	if consumed != len(data) {
+		return shortlinkPacket{}, errors.New("audit shortlink records truncated")
+	}
+	var serverHello, appData []byte
+	for _, record := range records {
+		if record.ContentType == ctHandshake && serverHello == nil {
+			serverHello = record.Payload
+		}
+		if record.ContentType == ctAppData && appData == nil {
+			appData = record.Payload
+		}
+	}
+	if serverHello == nil || appData == nil {
+		return shortlinkPacket{}, errors.New("audit shortlink response missing authenticated data")
+	}
+	for _, transcript := range [][][]byte{{hello, serverHello}, {hello, type8, serverHello}, {hello, serverHello, type8}} {
+		hash := sha256.Sum256(bytes.Join(transcript, nil))
+		keys := derivePSKOneWayKeys(key, labelHandshakeKeys, hash[:])
+		for _, seq := range []uint64{2, 1, 3} {
+			plain, err := decryptRecordPayload(keys.Key, keys.IV, seq, ctAppData, appData)
+			if err == nil {
+				return parseShortlink(plain)
+			}
+		}
+	}
+	return shortlinkPacket{}, errors.New("audit shortlink authentication failed")
+}
+
 func auditHybridEncrypt(plain, encKey []byte, temp *manualAuthTemp) ([]byte, error) {
-	eph, pub, err := generateECDH()
-	if err != nil {
-		return nil, err
-	}
-	peer, err := ecdh.P256().NewPublicKey(serverPub)
-	if err != nil {
-		return nil, err
-	}
-	shared, err := eph.ECDH(peer)
-	if err != nil {
-		return nil, err
-	}
-	secret := sha256.Sum256(shared)
-	hash1 := sha256.Sum256(bytes.Join([][]byte{[]byte("1"), []byte("415"), pub}, nil))
-	cek := make([]byte, 32)
-	if _, err = rand.Read(cek); err != nil {
-		return nil, err
-	}
-	wrap, err := aesGCMEncryptLayout(secret[:24], hash1[:], cek)
-	if err != nil {
-		return nil, err
-	}
-	encSession, err := aesGCMEncryptLayout(encKey[:24], hash1[:], cek)
-	if err != nil {
-		return nil, err
-	}
-	okm := hkdfExpand(hkdfExtract(ilinkHKDFSalt, cek), hash1[:], 56)
-	hash2 := sha256.Sum256(bytes.Join([][]byte{[]byte("1"), []byte("415"), pub, wrap, encSession}, nil))
-	compressed := lz4AllLiteral(plain)
-	ciphertext, err := aesGCMEncryptLayout(okm[:24], hash2[:], compressed)
-	if err != nil {
-		return nil, err
-	}
-	temp.Ephemeral, temp.OKM, temp.CompBody = eph, okm, compressed
-	key := append(pbVar(1, 415), pbLen(2, pub)...)
-	out := append(pbVar(1, 1), pbLen(2, key)...)
-	out = append(out, pbLen(3, wrap)...)
-	out = append(out, pbLen(4, encSession)...)
-	return append(out, pbLen(5, ciphertext)...), nil
+	return hybridECDHEncryptWithKey(plain, serverPub, encKey, temp)
 }
