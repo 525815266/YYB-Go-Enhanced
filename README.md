@@ -46,6 +46,8 @@ v0.2.52 补齐原生 AutoAuth：保存独立恢复密钥与设备，现有会话
 
 v0.2.53 在管理员左侧新增“运行日志”，支持分类、等级、账号、渠道和时间筛选，可查看续期、票据、原生恢复及调用的独立事件。日志重启保留，近 7 天最多 10,000 条，不采集密钥或请求正文。补齐 PCMgr 票据 / 主 key 错误链，并记录[官方持久状态与当前恢复差异](docs/pcmgr-official-state-20261030.md)；延时原生恢复仍有失败，另有按需新票据恢复成功样本，持续授权问题尚未解决。[最新反馈与候选方案复核](docs/issue-review-20261030.md)说明官方 demo 的依赖、版本差异及验证边界。
 
+已对 #116 提供的独立 runtime 包完成真实扫码验证：登录成功，取码仍被 `-12 / no permission` 拒绝，包内未实现续期。见[请求通路与实测记录](docs/runtime-transfer-review-20261030.md)；目前未作为正式扫码渠道接入。
+
 此前的[失效误判修复](docs/proxy-keepalive.md#约两小时后失效的排查96)、[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)、[管理员密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)与[面板变量原位更新](docs/panel-integration.md#重复变量处理)继续保留。
 
 v0.2.46 按服务端下发的 PSK 期限复用会话，兼容已有 30 分钟本地缓存记录，避免缓存到期就强制重新登录；不改 OAuth 到期或扫码时间。多架构 Release 已发布，Windows 正式文件实际启动与飞牛部署后的旧会话真实取码均通过；这不等于 OAuth 后台续期或 30 天保活已验证。若更新镜像后页面仍旧，见[整套 resource 挂载排错](docs/docker-deployment.md#更新后页面仍旧整套-resource-挂载覆盖镜像)。
