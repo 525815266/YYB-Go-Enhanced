@@ -66,6 +66,46 @@ func TestFailedCodeSessionRepairDoesNotRotateCredentials(t *testing.T) {
 	}
 }
 
+func TestCodeRepairAccessRejectionRefreshesOnce(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	ctx := context.Background()
+	acc := insertKeepAliveTestAccount(t, app, "code-repair-access", time.Now().Add(time.Hour))
+	refreshes, calls, fetches := 0, 0, 0
+	app.fetchLoginBuffer = func(_ context.Context, creds protocol.LoginBufferCredentials) (string, error) {
+		fetches++
+		if refreshes != 1 || creds.AccessToken != "rotated-access" {
+			t.Fatal("already rejected ticket fetch was repeated before credential refresh")
+		}
+		return "rotated-ticket", nil
+	}
+	app.refreshCredentials = func(_ context.Context, creds protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+		refreshes++
+		creds.AccessToken = "rotated-access"
+		creds.RefreshToken = "rotated-refresh"
+		creds.ExpiresAt = time.Now().Add(2 * time.Hour).Unix()
+		return creds, nil
+	}
+	result, err := app.invokeWXApp(ctx, acc, "wx-target", nil, func(_ context.Context, used *store.WechatAccount, _ string, _ map[string]any, _ string, _ bool) (map[string]any, error) {
+		calls++
+		if calls == 1 {
+			return nil, &protocol.CodeSessionRecoveryError{Cause: errors.Join(
+				&protocol.ShortlinkRejectedError{Code: -14},
+				&protocol.ManualAuthRejectedError{Code: -10},
+				&protocol.CodeCredentialRecoveryError{Cause: &protocol.LoginBufferRejectedError{Code: -101}},
+			)}
+		}
+		stored, getErr := app.db.GetAccount(ctx, acc.ID)
+		if getErr != nil || stored.Credentials["accesstoken"] != "rotated-access" || used.Credentials["refreshtoken"] != "rotated-refresh" {
+			t.Fatal("retry occurred before refreshed credentials were persisted")
+		}
+		return map[string]any{"code": "synthetic-code"}, nil
+	})
+	if err != nil || result["code"] != "synthetic-code" || calls != 2 || refreshes != 1 || fetches != 1 {
+		t.Fatalf("calls=%d refreshes=%d fetches=%d err=%v", calls, refreshes, fetches, err)
+	}
+}
+
 func TestApplicationEmptyCodeDoesNotRecoverAccountCredentials(t *testing.T) {
 	app := newKeepAliveTestApp(t)
 	defer app.Close()

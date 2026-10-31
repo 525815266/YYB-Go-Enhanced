@@ -7,7 +7,7 @@ v0.2.52 补齐独立 ILink AutoAuth；它与 YYB OAuth 刷新、PCMgr 账号 key
 - ManualAuth 成功时保存认证段字段 3 的 AutoKey、字段 4 的 EncKey，以及该次 AppBase 的原始设备值，跟随账号与协议出口持久化。
 - AutoAuth 请求头字段 27 使用认证段字段 9 的 ServerId。早期隔离候选误填用户名，持续得到 `-20014`；此推断已经更正。字段 2 使用当前 UIN，18 为 1，25 为 17，7 为 0。
 - Hybrid 请求用 EncKey 包装同一 CEK；type 1 响应先验证 `ECDSA(SHA256(SHA256(请求密文 || 响应密文)))`，再通过 GCM 认证解密。YYB 与 PCMgr 样本使用相同静态验签公钥。
-- PSK 到期 / 失去传输资格，或取码收到应用 `-14` 时，优先尝试该出口保存的 AutoAuth。只建立一条连接、发送一次，不把不确定结果换节点重放。
+- v0.2.52–54 在 PSK 失去资格或取码应用 `-14` 时优先 AutoAuth；v0.2.55 针对回退反馈，将有效授权恢复为保存票据优先。`session_only` 仍可用该出口保存的 AutoAuth，只建立一条连接、发送一次，不把不确定结果换节点重放。详见[恢复顺序修复](code-recovery-20261031.md)。
 - 发送前用数据库 CAS 持久化已尝试标记；成功后的新 AutoKey、EncKey 和 PSK 先保存，再做应用取码。新密钥不会因后续 code 失败或浏览器请求取消而丢失。
 - `session_only` 可使用独立原生材料恢复协议会话，仍禁止使用已拒绝的 OAuth / buffer 做 ManualAuth，也不改回 `alive`。手动失效、删除、重扫和渠道切换继续清理旧会话，旧请求不能覆盖新授权。
 

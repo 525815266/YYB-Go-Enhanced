@@ -1320,7 +1320,9 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		return nil, callErr
 	}
 	var codeRecovery *protocol.CodeSessionRecoveryError
-	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || protocol.IsApplicationRequestRejection(callErr) || errors.As(callErr, &codeRecovery) {
+	var credentialRecovery *protocol.CodeCredentialRecoveryError
+	ticketAccessRejected := errors.As(callErr, &codeRecovery) && errors.As(callErr, &credentialRecovery)
+	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || protocol.IsApplicationRequestRejection(callErr) || codeRecovery != nil && !ticketAccessRejected {
 		// An empty code or a bare authenticated application -14 does not
 		// establish account expiry. Other apps may use this same session.
 		return nil, callErr
@@ -1333,7 +1335,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		// Preserve the session and original diagnostic; do not repeat a slow call.
 		return nil, callErr
 	}
-	if bufferRejected {
+	if bufferRejected && !ticketAccessRejected {
 		// ManualAuth rejected the saved buffer before sending the operation.
 		// The access token may still be usable: fetch a fresh buffer without
 		// rotating tokens or changing scan/expiry timestamps. Pool persists the
@@ -1360,7 +1362,9 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 			return nil, callErr
 		}
 	}
-	_ = a.db.InvalidateSessionForAccount(ctx, acc, proxyValue)
+	if !ticketAccessRejected {
+		_ = a.db.InvalidateSessionForAccount(ctx, acc, proxyValue)
+	}
 	// Credential recovery always uses the account's refresh route, even when
 	// this protocol call explicitly selected direct egress.
 	status, _, refreshErr := a.refreshAccount(ctx, acc, true)

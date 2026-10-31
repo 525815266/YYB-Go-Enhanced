@@ -301,17 +301,19 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	if len(expected) > 0 && !acc.SameAuthorization(expected[0]) {
 		return WmpfSession{}, store.ErrAccountAuthorizationChanged
 	}
-	if saved, err := p.nativeRecoveryState(ctx, accountID, tcpProxy); err == nil {
-		restored, restoreErr := p.restoreNativeSession(ctx, acc, saved)
-		if restoreErr != nil {
-			return WmpfSession{}, &CodeSessionRecoveryError{Cause: restoreErr}
-		}
-		restored.CachedOnly = acc.SessionOnly()
-		return restored, nil
-	}
 	if acc.SessionOnly() {
+		if saved, err := p.nativeRecoveryState(ctx, accountID, tcpProxy); err == nil {
+			restored, restoreErr := p.restoreNativeSession(ctx, acc, saved)
+			if restoreErr != nil {
+				return WmpfSession{}, &CodeSessionRecoveryError{Cause: restoreErr}
+			}
+			restored.CachedOnly = true
+			return restored, nil
+		}
 		return WmpfSession{}, ErrCachedSessionUnavailable
 	}
+	// Valid account credentials use saved-ticket login first, as in v0.2.49.
+	// Do not let an optional native recovery failure mask that usable path.
 	if err = acquire(ctx, p.loginSem); err != nil {
 		return WmpfSession{}, err
 	}
