@@ -213,6 +213,9 @@ func TestH5ComparisonLive(t *testing.T) {
 	if !control("control_before") {
 		return
 	}
+	if os.Getenv("YYB_SESSION_CONTROL_ONLY") == "1" {
+		return
+	}
 	auth, err := oauth.Build(oauth.Request{AppID: input.AppID, RedirectURI: input.RedirectURI, Scope: input.Scope})
 	if err != nil {
 		t.Fatal("invalid OAuth target")
