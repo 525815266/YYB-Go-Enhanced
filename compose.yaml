@@ -43,7 +43,7 @@ services:
       YYB_ENABLE_PC_LOGIN: ${YYB_ENABLE_PC_LOGIN:-false}
       YYB_UPDATE_PROXY: ${YYB_UPDATE_PROXY:-}
       YYB_UPDATE_VERSION_URL: ${YYB_UPDATE_VERSION_URL:-}
-      YYB_APPSTORE_REFRESH_MODE: ${YYB_APPSTORE_REFRESH_MODE:-source}
+      YYB_APPSTORE_REFRESH_MODE: ${YYB_APPSTORE_REFRESH_MODE:-legacy_auth}
     volumes:
       - ./data/db:/app/resource/db
       - ./data/avatars:/app/resource/avatars

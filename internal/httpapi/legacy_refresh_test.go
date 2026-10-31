@@ -101,3 +101,34 @@ func TestInvalidAppstoreRefreshModeRejectedBeforeResourceCreation(t *testing.T) 
 		t.Fatal("invalid refresh mode silently accepted")
 	}
 }
+
+func TestDefaultAndExplicitAppstoreRefreshRouting(t *testing.T) {
+	for _, mode := range []string{"", "  ", "legacy_auth", " LEGACY_AUTH ", "source"} {
+		t.Run(mode, func(t *testing.T) {
+			app, err := NewApp(Config{ResourceRoot: t.TempDir(), ASRefreshMode: mode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.Close()
+			wantMode, wantBusiness := "legacy_auth", "pc_yyb_auth"
+			if mode == "source" {
+				wantMode, wantBusiness = "source", "pc_yyb"
+			}
+			if app.cfg.ASRefreshMode != wantMode {
+				t.Fatalf("effective mode = %q, want %q", app.cfg.ASRefreshMode, wantMode)
+			}
+			calls := 0
+			app.refreshCredentials = func(_ context.Context, creds protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+				calls++
+				if creds.RefreshBusinessID != wantBusiness {
+					t.Fatalf("refresh business = %q, want %q", creds.RefreshBusinessID, wantBusiness)
+				}
+				return creds, nil
+			}
+			fresh, err := app.refreshCredentialsWithProxy(context.Background(), protocol.LoginBufferCredentials{Provider: "appstore", RefreshBusinessID: "pc_yyb"}, "", false)
+			if err != nil || calls != 1 || fresh.RefreshBusinessID != "pc_yyb" {
+				t.Fatal("default/explicit route changed credential origin or call count", err)
+			}
+		})
+	}
+}

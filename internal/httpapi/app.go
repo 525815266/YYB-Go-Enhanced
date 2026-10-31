@@ -113,9 +113,9 @@ var swaggerDocsHandler = httpSwagger.Handler(
 func NewApp(cfg Config) (*App, error) {
 	cfg.ASRefreshMode = strings.ToLower(strings.TrimSpace(cfg.ASRefreshMode))
 	switch cfg.ASRefreshMode {
-	case "", "source":
-		cfg.ASRefreshMode = "source"
-	case "legacy_auth":
+	case "", "legacy_auth":
+		cfg.ASRefreshMode = "legacy_auth"
+	case "source":
 	default:
 		return nil, errors.New("YYB_APPSTORE_REFRESH_MODE must be source or legacy_auth")
 	}
