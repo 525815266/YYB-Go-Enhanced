@@ -48,6 +48,8 @@ v0.2.53 在管理员左侧新增“运行日志”，支持分类、等级、账
 
 v0.2.55 针对回退 v0.2.49 后恢复取码的反馈，恢复同渠道保存票据优先的取码重建路径；候选取码成功后才替换共享缓存，明确的新票据 access 拒绝才允许一次凭据刷新。失败按目标退避，成功不再阻塞后续恢复。保留渠道隔离与并发授权保护；已清空的授权需重新扫码，长期续期仍未验证，见[恢复顺序与验证边界](docs/code-recovery-20261031.md)。
 
+v0.2.56 合入 AS 早期 `_auth` 刷新兼容模式：设置 `YYB_APPSTORE_REFRESH_MODE=legacy_auth` 后，后台、手动及恢复刷新使用同一历史入口；默认 `source` 保留现有路由，PM 独立续期不变。旧版样本约4小时后仍可取码，但存在按需刷新，尚未验证后台长期续期，见[配置与对照结果](docs/legacy-refresh-mode.md)。
+
 已对 #116 提供的独立 runtime 包完成真实扫码验证：登录成功，取码仍被 `-12 / no permission` 拒绝，包内未实现续期。见[请求通路与实测记录](docs/runtime-transfer-review-20261030.md)；目前未作为正式扫码渠道接入。
 
 此前的[失效误判修复](docs/proxy-keepalive.md#约两小时后失效的排查96)、[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)、[管理员密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)与[面板变量原位更新](docs/panel-integration.md#重复变量处理)继续保留。

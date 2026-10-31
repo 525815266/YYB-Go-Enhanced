@@ -25,7 +25,7 @@ func (a *App) startKeepAlive() {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.keepAliveCancel = cancel
 	a.keepAliveDone = make(chan struct{})
-	log.Printf("keepalive: enabled interval=%s refresh_ahead=%s", a.cfg.KeepAliveInterval, a.cfg.KeepAliveAhead)
+	log.Printf("keepalive: enabled interval=%s refresh_ahead=%s appstore_refresh=%s", a.cfg.KeepAliveInterval, a.cfg.KeepAliveAhead, a.cfg.ASRefreshMode)
 	go func() {
 		defer close(a.keepAliveDone)
 		a.keepAliveLoop(ctx)
@@ -398,7 +398,20 @@ func (a *App) accountRefreshAhead(ctx context.Context, accountID int64) (time.Du
 	return time.Duration(setting.RefreshAheadSeconds) * time.Second, nil
 }
 
-func (a *App) refreshCredentialsWithProxy(ctx context.Context, creds protocol.LoginBufferCredentials, proxyValue string, fallbackDirect bool) (protocol.LoginBufferCredentials, error) {
+func (a *App) refreshCredentialsWithProxy(ctx context.Context, creds protocol.LoginBufferCredentials, proxyValue string, fallbackDirect bool) (refreshed protocol.LoginBufferCredentials, err error) {
+	// The historical _auth route is an explicit AS compatibility policy, not
+	// a change to the QR credential's origin or to PCMgr's native renewal.
+	source := creds.RefreshBusinessID
+	legacy := a.cfg.ASRefreshMode == "legacy_auth" && (creds.Provider == "" || creds.Provider == "appstore") &&
+		(source == "" || source == "pc_yyb" || source == "pc_yyb_auth")
+	if legacy {
+		creds.RefreshBusinessID = "pc_yyb_auth"
+		defer func() {
+			if err == nil {
+				refreshed.RefreshBusinessID = source
+			}
+		}()
+	}
 	if proxyValue == "" {
 		return a.refreshCredentials(ctx, creds)
 	}

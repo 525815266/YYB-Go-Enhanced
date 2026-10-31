@@ -121,6 +121,7 @@ func main() {
 		QRSessionTTL:      5 * time.Minute,
 		KeepAliveInterval: *keepAliveInterval,
 		KeepAliveAhead:    *keepAliveAhead,
+		ASRefreshMode:     os.Getenv("YYB_APPSTORE_REFRESH_MODE"),
 		QingLongType:      panelType,
 		QingLongURL:       panelURL,
 		QingLongClientID:  clientID,

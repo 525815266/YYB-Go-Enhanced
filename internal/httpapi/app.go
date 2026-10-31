@@ -44,6 +44,7 @@ type Config struct {
 	QRSessionTTL      time.Duration
 	KeepAliveInterval time.Duration
 	KeepAliveAhead    time.Duration
+	ASRefreshMode     string
 	QingLongType      string
 	QingLongURL       string
 	QingLongClientID  string
@@ -110,6 +111,14 @@ var swaggerDocsHandler = httpSwagger.Handler(
 )
 
 func NewApp(cfg Config) (*App, error) {
+	cfg.ASRefreshMode = strings.ToLower(strings.TrimSpace(cfg.ASRefreshMode))
+	switch cfg.ASRefreshMode {
+	case "", "source":
+		cfg.ASRefreshMode = "source"
+	case "legacy_auth":
+	default:
+		return nil, errors.New("YYB_APPSTORE_REFRESH_MODE must be source or legacy_auth")
+	}
 	if cfg.ResourceRoot == "" {
 		cfg.ResourceRoot = filepath.Join(".", "resource")
 	}
