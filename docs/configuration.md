@@ -238,22 +238,31 @@ YYB_CIRCUIT_BREAKER=on
 - 记录：运行日志 `protocol.circuit_open` / `protocol.circuit_deferred`，v0.2.60 起事件带 `app_id` 与请求类型。
 - 设为 `off` 恢复旧行为；阈值为编译期默认值。详见[取码熔断与触发规律](code-circuit-breaker-20261101.md)。
 
-## 取码限速（v0.2.61 起）
+## 登录预算与取码限速（v0.2.61 起）
 
 ```dotenv
-YYB_CODE_MIN_GAP=2s
+YYB_LOGIN_BUDGET=3
+YYB_LOGIN_WINDOW=10m
+```
+
+同一账号因业务请求触发的 OAuth 层调用（新的登录票据、ManualAuth 恢复、强制刷新）在 `YYB_LOGIN_WINDOW` 内最多 `YYB_LOGIN_BUDGET` 次（默认 10 分钟 3 次）。用完后，本来要重新登录的请求保持它自己的错误（取码是原来的 `-14`），不再向上游登录，也不登记该 AppID 的退避，缓存会话也不作废；窗口滑过后同一 AppID 仍可修复。后台续期和面板手动刷新不受限。`off` 或 `0` 关闭。拒绝只汇总成 `protocol.login_limited` 事件。依据和验证方法见[任务高峰、重新登录与登录预算](code-pacing-20261102.md)。
+
+可选的取码限速默认关闭：
+
+```dotenv
+YYB_CODE_MIN_GAP=0
 YYB_CODE_MAX_WAIT=20s
 ```
 
-同一账号向上游发出的取码 / 取号 / operateWxData 请求按 `YYB_CODE_MIN_GAP` 间隔排队（默认每分钟最多 30 次）；槽距现在超过 `YYB_CODE_MAX_WAIT` 的请求立即返回 HTTP `429`（带 `Retry-After`，`data.circuit_open` 为 `pacing`），不访问上游，也不修改账号状态。账号之间互不影响，空闲账号的第一个请求立即执行。`off` 或 `0` 关闭。
+设为 `2s` 之类的值后，同一账号向上游发出的取码 / 取号 / operateWxData 请求按该间隔排队，槽距现在超过 `YYB_CODE_MAX_WAIT` 的请求立即返回 HTTP `429`（带 `Retry-After`，`data.circuit_open` 为 `pacing`），不访问上游，也不修改账号状态。
 
 不重启就要调整时，在数据库目录（Compose 默认 `data/db`）放一个 `tuning.json`，一秒内生效：
 
 ```json
-{"code_min_gap_ms": 2000, "code_max_wait_ms": 20000}
+{"login_budget": 3, "login_window_ms": 600000, "code_min_gap_ms": 0, "code_max_wait_ms": 20000}
 ```
 
-缺少的键沿用上面的默认值，`0` 表示关闭，文件无法解析时保留上一次有效设置，删除文件恢复默认。一个突发只记一条 `protocol.paced` 事件。依据和验证方法见[任务高峰与取码限速](code-pacing-20261102.md)。
+缺少的键沿用上面的配置值，文件无法解析时保留上一次有效设置，删除文件恢复配置值。
 
 ## 数据目录与备份
 

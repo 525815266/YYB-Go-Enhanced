@@ -253,6 +253,14 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	}
 	previous, found := p.codeRepairs[key]
 	allowed := !found || !previous.Account.SameAuthorization(current) || time.Since(previous.At) >= 5*time.Minute
+	if allowed && !p.AllowLogin(current.ID) {
+		// The account has used its login budget. Keep the original error and
+		// start no backoff for this AppID: once the window has moved on, a later
+		// request may still repair it. The refusal is counted in the budget's own
+		// summary event, so a burst does not add a log row per request.
+		p.mu.Unlock()
+		return nil, original
+	}
 	if allowed {
 		p.codeRepairs[key] = codeRepairAttempt{Account: current, At: time.Now()}
 	}

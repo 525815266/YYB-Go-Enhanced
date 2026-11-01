@@ -32,6 +32,12 @@ type Config struct {
 	// DeviceIdentity is DeviceIdentityStable (one device per account) or
 	// DeviceIdentityRandom (the historical new device per login/request).
 	DeviceIdentity string
+	// LoginBudget caps the OAuth-layer calls traffic may cause per account
+	// inside LoginWindow (see login_budget.go). Zero disables it, which is what
+	// DefaultConfig gives; the service passes DefaultLoginBudget and
+	// DefaultLoginWindow unless configured otherwise.
+	LoginBudget int
+	LoginWindow time.Duration
 }
 
 func DefaultConfig() Config {
@@ -76,6 +82,8 @@ type Pool struct {
 	// verified remembers the last successful request per account and route,
 	// so a -14 right after it is not mistaken for an expired session.
 	verified map[string]verifiedSession
+	// budget limits how often traffic may reach the OAuth layer per account.
+	budget *loginBudget
 
 	loginSem     chan struct{}
 	shortlinkSem chan struct{}
@@ -117,6 +125,7 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 		codeLocks:    map[int64]chan struct{}{},
 		codeRepairs:  map[string]codeRepairAttempt{},
 		verified:     map[string]verifiedSession{},
+		budget:       newLoginBudget(cfg.LoginBudget, cfg.LoginWindow),
 		loginSem:     make(chan struct{}, cfg.MaxLoginConcurrency),
 		shortlinkSem: make(chan struct{}, cfg.MaxShortlinkConcurrency),
 	}

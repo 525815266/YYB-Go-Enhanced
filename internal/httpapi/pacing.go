@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"sync"
@@ -38,19 +39,31 @@ const (
 	maxPacedAccounts   = 4096
 )
 
-// pacingSettings are the two knobs. A zero MinGap turns pacing off.
+// pacingSettings are the knobs. A zero MinGap turns pacing off. The login
+// budget (see protocol/login_budget.go) rides along so that one tuning file
+// covers the whole traffic limiter; it is handed to the protocol pool through
+// accountPacer.onChange.
 type pacingSettings struct {
-	MinGap  time.Duration
-	MaxWait time.Duration
+	MinGap      time.Duration
+	MaxWait     time.Duration
+	LoginBudget int
+	LoginWindow time.Duration
 }
 
 // pacingFile is the optional runtime override (tuning.json beside the
 // database). A missing key keeps the configured default, so the file can change
-// one knob without restating the other.
+// one knob without restating the others.
 type pacingFile struct {
-	MinGapMS  *int64 `json:"code_min_gap_ms"`
-	MaxWaitMS *int64 `json:"code_max_wait_ms"`
+	MinGapMS      *int64 `json:"code_min_gap_ms"`
+	MaxWaitMS     *int64 `json:"code_max_wait_ms"`
+	LoginBudget   *int64 `json:"login_budget"`
+	LoginWindowMS *int64 `json:"login_window_ms"`
 }
+
+const (
+	maxLoginBudgetSetting = 1000
+	maxLoginWindow        = 24 * time.Hour
+)
 
 type fileStamp struct {
 	mod    time.Time
@@ -77,6 +90,9 @@ type accountPacer struct {
 	file     string
 	defaults pacingSettings
 	now      func() time.Time
+	// onChange, when set, receives the settings whenever they change, with the
+	// pacer's lock held; it must not call back into the pacer.
+	onChange func(pacingSettings)
 
 	mu       sync.Mutex
 	accounts map[int64]*pacedAccount
@@ -121,7 +137,8 @@ func (p *accountPacer) settingsLocked(now time.Time) pacingSettings {
 		if p.stamp.exists {
 			p.stamp = fileStamp{}
 			p.settings = p.defaults
-			log.Printf("pacing: %s is gone; using the configured defaults (gap %s, wait %s)", p.file, p.defaults.MinGap, p.defaults.MaxWait)
+			p.notifyLocked()
+			log.Printf("pacing: %s is gone; using the configured defaults (gap %s, wait %s, login budget %d per %s)", p.file, p.defaults.MinGap, p.defaults.MaxWait, p.defaults.LoginBudget, p.defaults.LoginWindow)
 		}
 		return p.settings
 	}
@@ -147,9 +164,22 @@ func (p *accountPacer) settingsLocked(now time.Time) pacingSettings {
 	if parsed.MaxWaitMS != nil {
 		settings.MaxWait = clampMS(*parsed.MaxWaitMS, pacingMaxWait)
 	}
+	if parsed.LoginBudget != nil {
+		settings.LoginBudget = int(min(max(*parsed.LoginBudget, 0), maxLoginBudgetSetting))
+	}
+	if parsed.LoginWindowMS != nil {
+		settings.LoginWindow = clampMS(*parsed.LoginWindowMS, maxLoginWindow)
+	}
 	p.settings = settings
-	log.Printf("pacing: %s applied (gap %s, wait %s)", p.file, settings.MinGap, settings.MaxWait)
+	p.notifyLocked()
+	log.Printf("pacing: %s applied (gap %s, wait %s, login budget %d per %s)", p.file, settings.MinGap, settings.MaxWait, settings.LoginBudget, settings.LoginWindow)
 	return settings
+}
+
+func (p *accountPacer) notifyLocked() {
+	if p.onChange != nil {
+		p.onChange(p.settings)
+	}
 }
 
 // reserve claims the next slot for the account. It returns how long the caller
@@ -216,6 +246,11 @@ func (p *accountPacer) pruneLocked(now time.Time) {
 		}
 	}
 }
+
+// errLoginBudget ends a request that failed and would have made the OAuth layer
+// work again (a new login ticket or a forced refresh) although the account has
+// used its login budget. The request keeps the error it already had.
+var errLoginBudget = errors.New("账号短时间内重新登录次数已达上限，本次不再重试；避免触发风控")
 
 // paceWXApp waits for the account's slot, or refuses the request when the queue
 // is full. A refusal is a *circuitOpenError, so every entry point maps it to the

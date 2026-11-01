@@ -9,11 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"yyb_go/internal/httpapi"
+	"yyb_go/internal/protocol"
 )
 
 func main() {
@@ -148,8 +150,12 @@ func main() {
 
 		DisableCircuitBreaker: strings.EqualFold(strings.TrimSpace(os.Getenv("YYB_CIRCUIT_BREAKER")), "off"),
 
-		CodeMinGap:  envDuration("YYB_CODE_MIN_GAP", 2*time.Second),
+		// Pacing stays off unless asked for; the login budget is what the burst
+		// replay showed to matter.
+		CodeMinGap:  envDuration("YYB_CODE_MIN_GAP", 0),
 		CodeMaxWait: envDuration("YYB_CODE_MAX_WAIT", 20*time.Second),
+		LoginBudget: envInt("YYB_LOGIN_BUDGET", protocol.DefaultLoginBudget),
+		LoginWindow: envDuration("YYB_LOGIN_WINDOW", protocol.DefaultLoginWindow),
 	}
 
 	if *resetAdmin != "" {
@@ -206,6 +212,24 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 	value, err := time.ParseDuration(raw)
 	if err != nil || value < 0 {
 		log.Printf("%s=%q is not a valid duration; using %s", key, raw, fallback)
+		return fallback
+	}
+	return value
+}
+
+// envInt reads a whole number. "off" means zero, which switches the setting
+// off; an unreadable value keeps the default and says so.
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	if strings.EqualFold(raw, "off") {
+		return 0
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		log.Printf("%s=%q is not a valid whole number; using %d", key, raw, fallback)
 		return fallback
 	}
 	return value
