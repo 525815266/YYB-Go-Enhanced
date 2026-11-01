@@ -129,16 +129,18 @@ func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID
 	}
 	defer release(codeLock)
 
-	result, err := p.getCode(ctx, loginBuffer, appID, accountID, tcpProxy, fallbackDirect, expected...)
-	if err == nil {
-		p.markSessionVerified(firstAccount(expected), accountID, tcpProxy)
-	}
-	return result, err
+	return p.getCode(ctx, loginBuffer, appID, accountID, tcpProxy, fallbackDirect, expected...)
 }
 
 func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	call := func(ctx context.Context, st WmpfSession) (map[string]any, error) {
-		return p.requestLoginCode(ctx, st, appID)
+		result, err := p.requestLoginCode(ctx, st, appID)
+		if err == nil {
+			// A non-empty wx.login code is the only proof, tied to this very
+			// session and the route it really used.
+			p.markSessionVerified(firstAccount(expected), accountID, st)
+		}
+		return result, err
 	}
 	if len(expected) > 0 && expected[0].SessionOnly() && !p.hasNativeRecovery(ctx, accountID, tcpProxy) {
 		return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, call, expected...)
@@ -189,7 +191,7 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 }
 
 func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
-	result, err := p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
+	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 		plain := buildPhoneRequest(st.Session.UIN, appID, st.Session.HostAppID, st.Device.SessDevice)
 		envelope, err := buildTransferPacket(st.Session, plain)
 		if err != nil {
@@ -201,14 +203,10 @@ func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, ac
 		}
 		return parseRawResponse(code, resp), nil
 	}, expected...)
-	if err == nil {
-		p.markSessionVerified(firstAccount(expected), accountID, tcpProxy)
-	}
-	return result, err
 }
 
 func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, payload map[string]any, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
-	result, err := p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
+	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 		plain, err := buildOperateRequest(st.Session.UIN, appID, payload, st.Session.HostAppID, st.Device.SessDevice)
 		if err != nil {
 			return nil, err
@@ -223,10 +221,6 @@ func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, pay
 		}
 		return parseRawResponse(code, resp), nil
 	}, expected...)
-	if err == nil {
-		p.markSessionVerified(firstAccount(expected), accountID, tcpProxy)
-	}
-	return result, err
 }
 
 func (p *Pool) Invalidate(ctx context.Context, accountID int64, tcpProxy string) error {

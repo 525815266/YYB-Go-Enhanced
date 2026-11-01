@@ -239,8 +239,17 @@ func TestActiveAccountDoesNotConsumeNativeKeyBeforeSavedTicket(t *testing.T) {
 	}
 }
 
-// A -14 inside the fresh-session window follows a request that just succeeded on
-// the same session, so it is the AppID's own refusal and must not log in again.
+func testSession(send string, proxy string) WmpfSession {
+	return WmpfSession{
+		Session:  AppSession{UIN: 1234, SendKey: []byte(send), RecvKey: []byte("recv-" + send)},
+		PSK:      pskEntry{PSKType: 1, PreSharedKey: "001122", TicketEntry: "aabbcc", ExpiredAt: time.Now().Add(time.Hour).Unix()},
+		TCPProxy: proxy,
+	}
+}
+
+// A -14 shortly after a wx.login returned a code on the session that is cached
+// now is more likely the AppID's own refusal than an expired session, so it must
+// not log in again. The marker belongs to that session and route only.
 func TestFreshSessionSuppressesRecovery(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(filepath.Join(t.TempDir(), "yyb.db"))
@@ -260,37 +269,62 @@ func TestFreshSessionSuppressesRecovery(t *testing.T) {
 		probes++
 		return WmpfSession{}, nil, errors.New("synthetic ticket refusal")
 	}
+	cache := func(st WmpfSession) {
+		t.Helper()
+		if err := db.PutSession(ctx, acc.ID, nil, st.toBlob(), st.PSK.ExpiredAt, st.TCPProxy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recoverFor := func(account *store.WechatAccount, target, proxy string) {
+		t.Helper()
+		_, _ = pool.recoverCodeSession(ctx, account, target, proxy, original, probe)
+	}
 
-	pool.markSessionVerified(acc, acc.ID, "")
+	first := testSession("first", "")
+	cache(first)
+	pool.markSessionVerified(acc, acc.ID, first)
 	for _, target := range []string{"wx-a", "wx-b"} {
 		if _, err := pool.recoverCodeSession(ctx, acc, target, "", original, probe); !errors.Is(err, original) {
 			t.Fatalf("suppressed recovery lost the original -14: %v", err)
 		}
 	}
 	if probes != 0 {
-		t.Fatal("recovery ran on a session that had just succeeded")
+		t.Fatal("recovery ran on a session that had just returned a code")
 	}
 
-	// The verification belongs to one route only.
-	_, _ = pool.recoverCodeSession(ctx, acc, "wx-a", "socks5://example.invalid:1080", original, probe)
+	// A replaced cache is a new session: the earlier success does not cover it.
+	cache(testSession("second", ""))
+	recoverFor(acc, "wx-a", "")
 	if probes != 1 {
-		t.Fatal("verification on one route suppressed recovery on another")
+		t.Fatal("a success on a replaced session suppressed recovery")
+	}
+
+	// The marker belongs to one route: a session on another route is not covered.
+	routed := testSession("routed", "socks5://example.invalid:1080")
+	cache(routed)
+	pool.markSessionVerified(acc, acc.ID, routed)
+	recoverFor(acc, "wx-c", "")
+	if probes != 2 {
+		t.Fatal("a success on another route suppressed recovery")
 	}
 
 	// After the window a -14 may repair the session again.
+	second := testSession("second", "")
+	cache(second)
+	pool.markSessionVerified(acc, acc.ID, second)
 	pool.mu.Lock()
 	key := sessionKey(acc.ID, "")
 	verified := pool.verified[key]
 	verified.At = time.Now().Add(-freshSessionWindow - time.Second)
 	pool.verified[key] = verified
 	pool.mu.Unlock()
-	_, _ = pool.recoverCodeSession(ctx, acc, "wx-b", "", original, probe)
-	if probes != 2 {
+	recoverFor(acc, "wx-b", "")
+	if probes != 3 {
 		t.Fatal("recovery stayed suppressed after the window")
 	}
 
-	// A re-scan is a new authorization; the earlier verification no longer applies.
-	pool.markSessionVerified(acc, acc.ID, "")
+	// A re-scan is a new authorization; the earlier success no longer applies.
+	pool.markSessionVerified(acc, acc.ID, second)
 	if err := db.SetAccountCredential(ctx, acc.ID, "new-scan-buffer", map[string]any{"accesstoken": "new-scan"}); err != nil {
 		t.Fatal(err)
 	}
@@ -298,8 +332,8 @@ func TestFreshSessionSuppressesRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = pool.recoverCodeSession(ctx, rescanned, "wx-c", "", original, probe)
-	if probes != 3 {
-		t.Fatal("a verification from before the re-scan suppressed recovery")
+	recoverFor(rescanned, "wx-d", "")
+	if probes != 4 {
+		t.Fatal("a success from before the re-scan suppressed recovery")
 	}
 }

@@ -204,12 +204,14 @@ func (a *App) refreshAccountWithPolicy(ctx context.Context, acc *store.WechatAcc
 	status, refreshed, err := a.refreshAccountOnce(ctx, acc, force, proxyValue, fallbackDirect, proxyResolved)
 	if source := refreshSource(ctx); source != "" {
 		fields := eventlog.ForAccount(acc).WithSource(source)
-		switch {
-		case refreshed:
+		if refreshed {
+			// The OAuth credentials were renewed, even when a later step failed.
 			a.events.Emit("account.refreshed", fields)
-		case err != nil:
-			fields.Rejections = eventRejections(err)
-			a.events.Emit("account.refresh_failed", fields)
+		}
+		if err != nil {
+			failed := fields
+			failed.Rejections = eventRejections(err)
+			a.events.Emit("account.refresh_failed", failed)
 		}
 	}
 	return status, refreshed, err

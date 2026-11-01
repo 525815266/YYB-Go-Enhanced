@@ -255,6 +255,10 @@ func TestBreakerTargetMapIsBounded(t *testing.T) {
 	if n := len(b.targets); n > maxBreakerTargets {
 		t.Fatalf("targets grew past the bound: %d", n)
 	}
+	// A full table makes room instead of leaving the newest target unprotected.
+	if _, ok := b.targets[targetKey{1, fmt.Sprintf("wx%d", maxBreakerTargets+199), ""}]; !ok {
+		t.Fatal("the newest target was not tracked once the table was full")
+	}
 	// Idle entries are pruned once they are an hour old, making room again.
 	*now = now.Add(2 * time.Hour)
 	b.record(1, "wxFresh", "", circuitAppReject)

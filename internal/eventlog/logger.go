@@ -33,6 +33,7 @@ var catalog = map[string]definition{
 	"protocol.failed":            {"protocol", "error", "协议调用失败"},
 	"protocol.recovery_started":  {"protocol", "info", "开始恢复取码会话"},
 	"protocol.recovery_deferred": {"protocol", "debug", "取码恢复处于退避期"},
+	"protocol.recovery_skipped":  {"protocol", "debug", "取码恢复已跳过：会话刚验证成功"},
 	"protocol.circuit_open":      {"protocol", "warn", "已熔断，暂停向上游重复请求"},
 	"protocol.circuit_deferred":  {"protocol", "debug", "请求处于熔断期，未发往上游"},
 	"protocol.ticket_requested":  {"protocol", "info", "请求新的登录票据"},

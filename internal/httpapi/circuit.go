@@ -244,9 +244,23 @@ func (c *circuitBreaker) targetLocked(key targetKey, now time.Time) *targetBreak
 				delete(c.targets, k)
 			}
 		}
-		if len(c.targets) >= maxBreakerTargets {
+	}
+	if len(c.targets) >= maxBreakerTargets {
+		// Still full of recent targets: make room for the new one by dropping the
+		// least recently active target that is not currently holding requests
+		// off, so a new target is never silently left unprotected.
+		var oldestKey targetKey
+		var oldest time.Time
+		found := false
+		for k, t := range c.targets {
+			if !now.Before(t.openUntil) && (!found || t.last.Before(oldest)) {
+				oldestKey, oldest, found = k, t.last, true
+			}
+		}
+		if !found {
 			return nil
 		}
+		delete(c.targets, oldestKey)
 	}
 	t := &targetBreaker{}
 	c.targets[key] = t

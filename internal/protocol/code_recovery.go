@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -35,11 +37,22 @@ type codeRepairAttempt struct {
 // upstream may count against the authorization.
 const freshSessionWindow = 2 * time.Minute
 
-// verifiedSession records the last request that succeeded on an account's
-// session for one route.
+// verifiedSession records the last wx.login that succeeded on an account's
+// session for one route. Fingerprint identifies that very session, so a cache
+// that was invalidated or replaced afterwards no longer counts as verified.
 type verifiedSession struct {
-	Account *store.WechatAccount
-	At      time.Time
+	Account     *store.WechatAccount
+	At          time.Time
+	Fingerprint string
+}
+
+// sessionFingerprint is a short digest of the session keys, never the keys.
+func sessionFingerprint(st WmpfSession) string {
+	h := sha256.New()
+	h.Write(st.Session.SendKey)
+	h.Write([]byte{0})
+	h.Write(st.Session.RecvKey)
+	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 func sessionKey(accountID int64, proxy string) string {
@@ -53,9 +66,11 @@ func firstAccount(expected []*store.WechatAccount) *store.WechatAccount {
 	return expected[0]
 }
 
-// markSessionVerified is called after a request succeeded. acc may be nil when
-// the caller did not pass the authorization snapshot.
-func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, proxy string) {
+// markSessionVerified is called after a wx.login returned a code on st. acc may
+// be nil when the caller did not pass the authorization snapshot; the route is
+// the one st really used, which differs from the configured one after a direct
+// fallback.
+func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, st WmpfSession) {
 	now := time.Now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -64,19 +79,25 @@ func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, pr
 			delete(p.verified, k)
 		}
 	}
-	p.verified[sessionKey(accountID, proxy)] = verifiedSession{Account: acc, At: now}
+	p.verified[sessionKey(accountID, st.TCPProxy)] = verifiedSession{Account: acc, At: now, Fingerprint: sessionFingerprint(st)}
 }
 
-// sessionRecentlyVerified reports whether a request succeeded on this account's
-// session for this route within freshSessionWindow under the same authorization.
-func (p *Pool) sessionRecentlyVerified(current *store.WechatAccount, proxy string) bool {
+// sessionRecentlyVerified reports whether a wx.login succeeded within
+// freshSessionWindow on the session that is cached for this account and route
+// now, under the same authorization. A replaced or invalidated cache never
+// matches, so a new session is not covered by an old success.
+func (p *Pool) sessionRecentlyVerified(ctx context.Context, current *store.WechatAccount, proxy string) bool {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	v, ok := p.verified[sessionKey(current.ID, proxy)]
+	p.mu.Unlock()
 	if !ok || time.Since(v.At) >= freshSessionWindow {
 		return false
 	}
-	return v.Account == nil || v.Account.SameAuthorization(current)
+	if v.Account != nil && !v.Account.SameAuthorization(current) {
+		return false
+	}
+	cached, err := p.cachedSession(ctx, current.ID, proxy)
+	return err == nil && sessionFingerprint(cached) == v.Fingerprint
 }
 
 func (p *Pool) requestLoginCode(ctx context.Context, st WmpfSession, appID string) (map[string]any, error) {
@@ -190,10 +211,11 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	if current.SessionOnly() && !p.hasNativeRecovery(ctx, current.ID, proxy) || current.Status != nil && *current.Status == "expired" {
 		return nil, original
 	}
-	if p.sessionRecentlyVerified(current, proxy) {
-		// A request just succeeded on this very session, so this -14 belongs to
-		// the AppID alone. Another ManualAuth and ticket would only add logins.
-		p.events.Emit("protocol.recovery_deferred", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
+	if p.sessionRecentlyVerified(ctx, current, proxy) {
+		// A wx.login just returned a code on this very session, so this -14 is
+		// more likely the AppID's own refusal than an expired session. Another
+		// ManualAuth and ticket would only add logins.
+		p.events.Emit("protocol.recovery_skipped", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
 		return nil, original
 	}
 	key := fmt.Sprintf("%d\x00%s\x00%s", acc.ID, proxy, appID)
@@ -240,7 +262,7 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		}
 	}
 	p.events.Emit("protocol.recovered", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
-	p.markSessionVerified(current, current.ID, proxy)
+	p.markSessionVerified(current, current.ID, st)
 	p.mu.Lock()
 	delete(p.codeRepairs, key)
 	p.mu.Unlock()
