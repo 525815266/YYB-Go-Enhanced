@@ -50,6 +50,8 @@ services:
       YYB_NOTIFY_TOPIC: ${YYB_NOTIFY_TOPIC:-}
       YYB_NOTIFY_ACCOUNT_PUSH: ${YYB_NOTIFY_ACCOUNT_PUSH:-true}
       YYB_CIRCUIT_BREAKER: ${YYB_CIRCUIT_BREAKER:-on}
+      YYB_CODE_MIN_GAP: ${YYB_CODE_MIN_GAP:-2s}
+      YYB_CODE_MAX_WAIT: ${YYB_CODE_MAX_WAIT:-20s}
     volumes:
       - ./data/db:/app/resource/db
       - ./data/avatars:/app/resource/avatars

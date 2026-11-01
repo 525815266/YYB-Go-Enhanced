@@ -54,6 +54,8 @@ v0.2.58 默认**每个账号固定一套协议设备**（`YYB_DEVICE_IDENTITY=st
 
 v0.2.59 新增[取码熔断](docs/code-circuit-breaker-20261101.md)（`YYB_CIRCUIT_BREAKER`，默认 `on`）：对反复被应用层拒绝的取码返回本地 `429`，不再继续冲击上游。v0.2.60 起运行日志记录被拒的 AppID 与请求类型，会话刚验证成功时 `-14` 不再触发重新登录，熔断按请求类型区分。后续统计发现新授权几乎都在偶数整点的批量取码之后失效，v0.2.58 取证里的“43 / 82 分钟”并非授权寿命，相关性与对照方法见[整点任务与新授权失效](docs/hour-mark-offline-20261101.md)（因果尚未验证）。
 
+v0.2.61 新增[取码限速](docs/code-pacing-20261102.md)（`YYB_CODE_MIN_GAP` 默认 `2s`、`YYB_CODE_MAX_WAIT` 默认 `20s`，可在数据库目录放 `tuning.json` 不重启调整）：同一账号向上游的取码请求按间隔排队，排不进的返回本地 `429`；同时加固 v0.2.60 的“会话刚验证成功”防护。这是流量控制，不保证授权不再被吊销，安全速率尚待重扫账号后验证。
+
 已对 #116 提供的独立 runtime 包完成真实扫码验证：登录成功，取码仍被 `-12 / no permission` 拒绝，包内未实现续期。见[请求通路与实测记录](docs/runtime-transfer-review-20261030.md)；目前未作为正式扫码渠道接入。
 
 此前的[失效误判修复](docs/proxy-keepalive.md#约两小时后失效的排查96)、[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)、[管理员密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)与[面板变量原位更新](docs/panel-integration.md#重复变量处理)继续保留。

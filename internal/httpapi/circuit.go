@@ -98,6 +98,9 @@ type circuitOpenError struct {
 }
 
 func (e *circuitOpenError) Error() string {
+	if e.Scope == "pacing" {
+		return fmt.Sprintf("该账号的请求过于密集，已排满，%ds 后再试；避免短时间内大量请求触发风控", int(e.RetryAfter.Seconds()+0.999))
+	}
 	scope := "目标"
 	if e.Scope == "session" {
 		scope = "账号会话"

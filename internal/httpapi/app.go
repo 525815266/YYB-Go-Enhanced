@@ -78,6 +78,13 @@ type Config struct {
 	// DisableCircuitBreaker turns off the local target/session hold-off that
 	// stops repeating an upstream-rejected request.
 	DisableCircuitBreaker bool
+
+	// CodeMinGap spaces the upstream requests of one account; zero turns
+	// pacing off. CodeMaxWait is the longest a request queues for its slot
+	// before it is refused locally. tuning.json beside the database overrides
+	// both without a restart.
+	CodeMinGap  time.Duration
+	CodeMaxWait time.Duration
 }
 
 type App struct {
@@ -97,6 +104,7 @@ type App struct {
 	auth               *auth.Store
 	notifier           *offlineNotifier
 	circuit            *circuitBreaker
+	pacer              *accountPacer
 
 	mu                sync.Mutex
 	qrSessions        map[string]*qrLoginSession
@@ -239,6 +247,7 @@ func NewApp(cfg Config) (*App, error) {
 		qinglong:           newQingLongClient(cfg.QingLongType, cfg.QingLongURL, cfg.QingLongClientID, cfg.QingLongSecret, cfg.RequestTimeout),
 		notifier:           newOfflineNotifier(offlineNotifyTimeout),
 		circuit:            newCircuitBreaker(circuitConfigFor(cfg.DisableCircuitBreaker)),
+		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), pacingSettings{MinGap: cfg.CodeMinGap, MaxWait: cfg.CodeMaxWait}),
 		qrSessions:         map[string]*qrLoginSession{},
 		quickSessions:      map[string]quickLoginSession{},
 		loginAttempts:      map[string]loginAttempt{},
@@ -1340,6 +1349,11 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		var open *circuitOpenError
 		switch {
 		case errors.As(errOut, &open):
+			if open.Scope == "pacing" {
+				// A burst can refuse hundreds of requests a minute; paceWXApp
+				// reports it as one summary event instead of filling the log.
+				return
+			}
 			// A locally short-circuited request never reached the upstream.
 			event = "protocol.circuit_deferred"
 		case errOut != nil:
@@ -1358,6 +1372,12 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	}
 	if breakerErr := a.circuit.check(acc.ID, appID, op); breakerErr != nil {
 		return nil, breakerErr
+	}
+	// Held-off requests above never take a slot. Everything that reaches the
+	// upstream is spaced per account, so a burst of scripts cannot turn into a
+	// burst of logins on one authorization.
+	if paceErr := a.paceWXApp(ctx, acc); paceErr != nil {
+		return nil, paceErr
 	}
 	proxyValue, fallbackDirect, err := a.resolveWXAppProxy(ctx, acc.ID)
 	if err != nil {

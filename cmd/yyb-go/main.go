@@ -147,6 +147,9 @@ func main() {
 		DisableAccountPushNotify: strings.EqualFold(strings.TrimSpace(os.Getenv("YYB_NOTIFY_ACCOUNT_PUSH")), "false"),
 
 		DisableCircuitBreaker: strings.EqualFold(strings.TrimSpace(os.Getenv("YYB_CIRCUIT_BREAKER")), "off"),
+
+		CodeMinGap:  envDuration("YYB_CODE_MIN_GAP", 2*time.Second),
+		CodeMaxWait: envDuration("YYB_CODE_MAX_WAIT", 20*time.Second),
 	}
 
 	if *resetAdmin != "" {
@@ -187,6 +190,25 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
+}
+
+// envDuration reads a Go duration such as "2s". "off" and "0" mean zero, which
+// switches the setting off. An empty or unreadable value keeps the default and
+// says so, instead of silently running with a different value.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	if strings.EqualFold(raw, "off") {
+		return 0
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil || value < 0 {
+		log.Printf("%s=%q is not a valid duration; using %s", key, raw, fallback)
+		return fallback
+	}
+	return value
 }
 
 func getEnvWithFallback(keys ...string) string {

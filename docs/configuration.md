@@ -238,6 +238,23 @@ YYB_CIRCUIT_BREAKER=on
 - 记录：运行日志 `protocol.circuit_open` / `protocol.circuit_deferred`，v0.2.60 起事件带 `app_id` 与请求类型。
 - 设为 `off` 恢复旧行为；阈值为编译期默认值。详见[取码熔断与触发规律](code-circuit-breaker-20261101.md)。
 
+## 取码限速（v0.2.61 起）
+
+```dotenv
+YYB_CODE_MIN_GAP=2s
+YYB_CODE_MAX_WAIT=20s
+```
+
+同一账号向上游发出的取码 / 取号 / operateWxData 请求按 `YYB_CODE_MIN_GAP` 间隔排队（默认每分钟最多 30 次）；槽距现在超过 `YYB_CODE_MAX_WAIT` 的请求立即返回 HTTP `429`（带 `Retry-After`，`data.circuit_open` 为 `pacing`），不访问上游，也不修改账号状态。账号之间互不影响，空闲账号的第一个请求立即执行。`off` 或 `0` 关闭。
+
+不重启就要调整时，在数据库目录（Compose 默认 `data/db`）放一个 `tuning.json`，一秒内生效：
+
+```json
+{"code_min_gap_ms": 2000, "code_max_wait_ms": 20000}
+```
+
+缺少的键沿用上面的默认值，`0` 表示关闭，文件无法解析时保留上一次有效设置，删除文件恢复默认。一个突发只记一条 `protocol.paced` 事件。依据和验证方法见[任务高峰与取码限速](code-pacing-20261102.md)。
+
 ## 数据目录与备份
 
 Compose 默认持久化：
