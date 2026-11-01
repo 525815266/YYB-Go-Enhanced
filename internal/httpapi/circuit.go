@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -136,6 +137,8 @@ type circuitBreaker struct {
 	mu       sync.Mutex
 	targets  map[targetKey]*targetBreaker
 	sessions map[int64]*sessionBreaker
+	// overflowLogged rate-limits the saturation warning.
+	overflowLogged time.Time
 }
 
 func newCircuitBreaker(cfg circuitConfig) *circuitBreaker {
@@ -258,6 +261,14 @@ func (c *circuitBreaker) targetLocked(key targetKey, now time.Time) *targetBreak
 			}
 		}
 		if !found {
+			// Every slot is holding requests off, which needs thousands of distinct
+			// refused targets within one cooldown. New targets pass untracked (the
+			// breaker is best effort and must not block healthy traffic), but the
+			// saturation is reported instead of staying silent.
+			if now.Sub(c.overflowLogged) >= time.Minute {
+				c.overflowLogged = now
+				log.Printf("protocol: code breaker table is full of open targets (%d); new targets are not tracked", maxBreakerTargets)
+			}
 			return nil
 		}
 		delete(c.targets, oldestKey)

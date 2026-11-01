@@ -334,3 +334,50 @@ func TestPhoneRejectionsDoNotBlockCodeThroughInvoke(t *testing.T) {
 		t.Fatalf("code request for the same AppID was blocked by phone rejections: err=%v calls=%d", err, codeCalls.Load())
 	}
 }
+
+// A table saturated with open breakers fails open for new targets instead of
+// dropping an open one or panicking; the open ones keep holding requests off.
+func TestBreakerSaturatedWithOpenTargetsFailsOpen(t *testing.T) {
+	b, _ := testBreaker(t)
+	for i := 0; i < maxBreakerTargets; i++ {
+		account := int64(i + 1)
+		b.record(account, "wx", "", circuitAppReject)
+		b.record(account, "wx", "", circuitAppReject) // opens this target
+	}
+	if n := len(b.targets); n != maxBreakerTargets {
+		t.Fatalf("expected a full table, got %d", n)
+	}
+	if scope := b.record(999999, "wxNew", "", circuitAppReject); scope != "" {
+		t.Fatalf("an untracked target cannot open a breaker: %q", scope)
+	}
+	if err := b.check(999999, "wxNew", ""); err != nil {
+		t.Fatalf("a new target was held off although the table could not track it: %v", err)
+	}
+	if err := b.check(1, "wx", ""); err == nil {
+		t.Fatal("an open target stopped holding requests off when the table filled up")
+	}
+}
+
+// The integration get-code endpoint must report a local hold-off as 429, like
+// the other entry points, so a client backs off instead of retrying a 502.
+func TestIntegrationGetCodeReportsALocalHoldOffAs429(t *testing.T) {
+	t.Setenv("GIN_MODE", "test")
+	app, err := NewApp(Config{ResourceRoot: t.TempDir(), IntegrationToken: "secret-token", RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("NewApp() error = %v", err)
+	}
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "openid-integration-429", time.Now().Add(time.Hour))
+	app.circuit.record(acc.ID, "wxHeldOff", eventlog.OpGetCode, circuitAppReject)
+	app.circuit.record(acc.ID, "wxHeldOff", eventlog.OpGetCode, circuitAppReject)
+
+	body := fmt.Sprintf(`{"ref":"%d","app_id":"wxHeldOff"}`, acc.ID)
+	request := httptest.NewRequest(http.MethodPost, "/integration/actions/get-code", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer secret-token")
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	app.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") == "" {
+		t.Fatalf("held-off integration request: status=%d retry-after=%q body=%s", recorder.Code, recorder.Header().Get("Retry-After"), recorder.Body.String())
+	}
+}

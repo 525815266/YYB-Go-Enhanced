@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/store"
 )
 
@@ -323,7 +325,19 @@ func TestFreshSessionSuppressesRecovery(t *testing.T) {
 		t.Fatal("recovery stayed suppressed after the window")
 	}
 
+	// An invalidated cache leaves nothing to vouch for: the success no longer counts.
+	cache(second)
+	pool.markSessionVerified(acc, acc.ID, second)
+	if err := db.InvalidateAccountSessions(ctx, acc.ID); err != nil {
+		t.Fatal(err)
+	}
+	recoverFor(acc, "wx-e", "")
+	if probes != 4 {
+		t.Fatal("a success on an invalidated session suppressed recovery")
+	}
+
 	// A re-scan is a new authorization; the earlier success no longer applies.
+	cache(second)
 	pool.markSessionVerified(acc, acc.ID, second)
 	if err := db.SetAccountCredential(ctx, acc.ID, "new-scan-buffer", map[string]any{"accesstoken": "new-scan"}); err != nil {
 		t.Fatal(err)
@@ -333,7 +347,94 @@ func TestFreshSessionSuppressesRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	recoverFor(rescanned, "wx-d", "")
-	if probes != 4 {
+	if probes != 5 {
 		t.Fatal("a success from before the re-scan suppressed recovery")
+	}
+}
+
+// Skipping a recovery because the session was just verified is reported under
+// its own event, apart from the failure cooldown.
+func TestFreshSessionSkipHasItsOwnEvent(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "yyb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	logger, err := eventlog.New(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := "alive"
+	acc, err := db.UpsertAccount(ctx, "synthetic-skip-account", "saved-buffer", nil, nil, nil, nil, map[string]any{"accesstoken": "synthetic-access"}, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := NewPool(DefaultConfig(), db)
+	pool.SetEventLogger(logger)
+	st := testSession("skip", "")
+	if err := db.PutSession(ctx, acc.ID, nil, st.toBlob(), st.PSK.ExpiredAt, ""); err != nil {
+		t.Fatal(err)
+	}
+	pool.markSessionVerified(acc, acc.ID, st)
+	original := &ShortlinkRejectedError{Code: -14}
+	if _, err := pool.recoverCodeSession(ctx, acc, "wx-skip", "", original, func(context.Context) (WmpfSession, map[string]any, error) {
+		t.Fatal("a just-verified session started a recovery")
+		return WmpfSession{}, nil, nil
+	}); !errors.Is(err, original) {
+		t.Fatalf("skipped recovery lost the original -14: %v", err)
+	}
+	logger.Close()
+	entries, err := db.ListSystemLogs(ctx, store.SystemLogFilter{Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var skipped, deferred int
+	for _, entry := range entries {
+		switch entry.Event {
+		case "protocol.recovery_skipped":
+			skipped++
+			if !strings.Contains(string(entry.Details), `"app_id":"wx-skip"`) {
+				t.Fatalf("skip event lacks the AppID: %s", entry.Details)
+			}
+		case "protocol.recovery_deferred":
+			deferred++
+		}
+	}
+	if skipped != 1 || deferred != 0 {
+		t.Fatalf("expected one recovery_skipped and no recovery_deferred, got %d and %d", skipped, deferred)
+	}
+}
+
+// A cancelled request must not register a repair attempt (and its five minute
+// backoff) that it can never run.
+func TestCancelledRecoveryDoesNotRegisterAnAttempt(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "yyb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	status := "alive"
+	acc, err := db.UpsertAccount(context.Background(), "synthetic-cancel-account", "saved-buffer", nil, nil, nil, nil, map[string]any{"accesstoken": "synthetic-access"}, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := NewPool(DefaultConfig(), db)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	original := &ShortlinkRejectedError{Code: -14}
+	_, err = pool.recoverCodeSession(ctx, acc, "wx-cancel", "", original, func(context.Context) (WmpfSession, map[string]any, error) {
+		t.Fatal("a probe ran on a cancelled context")
+		return WmpfSession{}, nil, nil
+	})
+	var repair *CodeSessionRecoveryError
+	if !errors.As(err, &repair) || !errors.Is(err, original) {
+		t.Fatalf("a cancelled recovery lost the original -14 or its type: %v", err)
+	}
+	pool.mu.Lock()
+	registered := len(pool.codeRepairs)
+	pool.mu.Unlock()
+	if registered != 0 {
+		t.Fatalf("a cancelled recovery registered %d repair attempts", registered)
 	}
 }

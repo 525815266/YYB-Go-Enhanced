@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -46,13 +47,18 @@ type verifiedSession struct {
 	Fingerprint string
 }
 
-// sessionFingerprint is a short digest of the session keys, never the keys.
+// sessionFingerprint identifies a session by a full SHA-256 over its key
+// material and PSK entry, each part length-prefixed so different splits cannot
+// collide. Only the digest is kept, never the keys.
 func sessionFingerprint(st WmpfSession) string {
 	h := sha256.New()
-	h.Write(st.Session.SendKey)
-	h.Write([]byte{0})
-	h.Write(st.Session.RecvKey)
-	return hex.EncodeToString(h.Sum(nil)[:8])
+	for _, part := range [][]byte{st.Session.SendKey, st.Session.RecvKey, []byte(st.PSK.PreSharedKey), []byte(st.PSK.TicketEntry)} {
+		var n [8]byte
+		binary.BigEndian.PutUint64(n[:], uint64(len(part)))
+		h.Write(n[:])
+		h.Write(part)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func sessionKey(accountID int64, proxy string) string {
@@ -211,7 +217,14 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	if current.SessionOnly() && !p.hasNativeRecovery(ctx, current.ID, proxy) || current.Status != nil && *current.Status == "expired" {
 		return nil, original
 	}
-	if p.sessionRecentlyVerified(ctx, current, proxy) {
+	verified := p.sessionRecentlyVerified(ctx, current, proxy)
+	if err := ctx.Err(); err != nil {
+		// A cancelled request must not register a repair attempt, and its
+		// backoff, that it can never run. This also covers a cancellation that
+		// made the session lookup above fail.
+		return fail(err)
+	}
+	if verified {
 		// A wx.login just returned a code on this very session, so this -14 is
 		// more likely the AppID's own refusal than an expired session. Another
 		// ManualAuth and ticket would only add logins.
