@@ -438,3 +438,96 @@ func TestCancelledRecoveryDoesNotRegisterAnAttempt(t *testing.T) {
 		t.Fatalf("a cancelled recovery registered %d repair attempts", registered)
 	}
 }
+
+// A request cancelled between the session lookup and the registration of its
+// repair attempt must not leave a five minute backoff behind. The hook cancels
+// at exactly that point, so removing the re-check inside the critical section
+// makes this test fail.
+func TestRecoveryCancelledWhileRegisteringLeavesNoBackoff(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "yyb.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	status := "alive"
+	acc, err := db.UpsertAccount(context.Background(), "synthetic-late-cancel", "saved-buffer", nil, nil, nil, nil, map[string]any{"accesstoken": "synthetic-access"}, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := NewPool(DefaultConfig(), db)
+	ctx, cancel := context.WithCancel(context.Background())
+	repairRegistrationHook = cancel
+	t.Cleanup(func() { repairRegistrationHook = nil })
+	original := &ShortlinkRejectedError{Code: -14}
+	probed := false
+	_, err = pool.recoverCodeSession(ctx, acc, "wx-late", "", original, func(context.Context) (WmpfSession, map[string]any, error) {
+		probed = true
+		return WmpfSession{}, nil, errors.New("synthetic probe failure")
+	})
+	var repair *CodeSessionRecoveryError
+	if !errors.As(err, &repair) || !errors.Is(err, original) {
+		t.Fatalf("a request cancelled while registering lost the original -14 or its type: %v", err)
+	}
+	if probed {
+		t.Fatal("a cancelled request still ran the probe")
+	}
+	pool.mu.Lock()
+	registered := len(pool.codeRepairs)
+	pool.mu.Unlock()
+	if registered != 0 {
+		t.Fatalf("a request cancelled while registering left %d backoff entries", registered)
+	}
+	repairRegistrationHook = nil
+	if _, err := pool.recoverCodeSession(context.Background(), acc, "wx-late", "", original, func(context.Context) (WmpfSession, map[string]any, error) {
+		probed = true
+		return WmpfSession{}, nil, errors.New("synthetic probe failure")
+	}); err == nil || !probed {
+		t.Fatalf("the next normal request must still be allowed to try: probed=%v err=%v", probed, err)
+	}
+}
+
+// The session identity digest changes when any of its four parts changes, is
+// stable for the same material, and does not confuse different splits.
+func TestSessionFingerprintCoversEveryPartAndSplit(t *testing.T) {
+	base := testSession("alpha", "")
+	same := testSession("alpha", "")
+	if sessionFingerprint(base) != sessionFingerprint(same) {
+		t.Fatal("identical material produced different digests")
+	}
+	changed := []func(*WmpfSession){
+		func(s *WmpfSession) { s.Session.SendKey = []byte("other") },
+		func(s *WmpfSession) { s.Session.RecvKey = []byte("other") },
+		func(s *WmpfSession) { s.PSK.PreSharedKey = "ffff" },
+		func(s *WmpfSession) { s.PSK.TicketEntry = "ffff" },
+	}
+	for i, mutate := range changed {
+		other := testSession("alpha", "")
+		mutate(&other)
+		if sessionFingerprint(other) == sessionFingerprint(base) {
+			t.Fatalf("changing part %d did not change the digest", i)
+		}
+	}
+	left := testSession("alpha", "")
+	left.Session.SendKey, left.Session.RecvKey = []byte("ab"), []byte("c")
+	right := testSession("alpha", "")
+	right.Session.SendKey, right.Session.RecvKey = []byte("a"), []byte("bc")
+	if sessionFingerprint(left) == sessionFingerprint(right) {
+		t.Fatal("different splits of the same bytes collided")
+	}
+	// A database round trip (JSON out and back in) must not change it.
+	raw, err := json.Marshal(base.toBlob())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	round, err := sessionFromBlob(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionFingerprint(round) != sessionFingerprint(base) {
+		t.Fatal("the digest changed across a persistence round trip")
+	}
+}

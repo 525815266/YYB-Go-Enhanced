@@ -38,6 +38,10 @@ type codeRepairAttempt struct {
 // upstream may count against the authorization.
 const freshSessionWindow = 2 * time.Minute
 
+// repairRegistrationHook runs just before a repair attempt is registered. Tests
+// use it to cancel a request at exactly that point.
+var repairRegistrationHook func()
+
 // verifiedSession records the last wx.login that succeeded on an account's
 // session for one route. Fingerprint identifies that very session, so a cache
 // that was invalidated or replaced afterwards no longer counts as verified.
@@ -74,7 +78,7 @@ func firstAccount(expected []*store.WechatAccount) *store.WechatAccount {
 
 // markSessionVerified is called after a wx.login returned a code on st. acc may
 // be nil when the caller did not pass the authorization snapshot; the route is
-// the one st really used, which differs from the configured one after a direct
+// the cache route key carried by st, which differs from the configured one after a direct
 // fallback.
 func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, st WmpfSession) {
 	now := time.Now()
@@ -232,11 +236,20 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		return nil, original
 	}
 	key := fmt.Sprintf("%d\x00%s\x00%s", acc.ID, proxy, appID)
+	if hook := repairRegistrationHook; hook != nil {
+		hook()
+	}
 	p.mu.Lock()
 	for k, attempt := range p.codeRepairs {
 		if time.Since(attempt.At) >= 5*time.Minute {
 			delete(p.codeRepairs, k)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		// Re-check inside the critical section: a request cancelled while it
+		// waited for the lock must not leave a five minute backoff behind.
+		p.mu.Unlock()
+		return fail(err)
 	}
 	previous, found := p.codeRepairs[key]
 	allowed := !found || !previous.Account.SameAuthorization(current) || time.Since(previous.At) >= 5*time.Minute

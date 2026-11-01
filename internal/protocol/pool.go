@@ -137,7 +137,7 @@ func (p *Pool) getCode(ctx context.Context, loginBuffer, appID string, accountID
 		result, err := p.requestLoginCode(ctx, st, appID)
 		if err == nil {
 			// A non-empty wx.login code is the only proof, tied to this very
-			// session and the route it really used.
+			// session and the cache route key it carries.
 			p.markSessionVerified(firstAccount(expected), accountID, st)
 		}
 		return result, err
