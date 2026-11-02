@@ -1,23 +1,36 @@
+<div align="center">
+
+<img src="docs/images/banner.svg" alt="YYB Go Enhanced" width="100%">
+
 # YYB Go Enhanced
 
-[![给项目点个 Star](https://img.shields.io/github/stars/525815266/YYB-Go-Enhanced?style=social&label=Star)](https://github.com/525815266/YYB-Go-Enhanced)
-[![Release](https://img.shields.io/github/v/release/525815266/YYB-Go-Enhanced?display_name=tag)](https://github.com/525815266/YYB-Go-Enhanced/releases)
-[![Docker](https://github.com/525815266/YYB-Go-Enhanced/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/525815266/YYB-Go-Enhanced/actions/workflows/docker-publish.yml)
-[![Go Release](https://github.com/525815266/YYB-Go-Enhanced/actions/workflows/release.yml/badge.svg)](https://github.com/525815266/YYB-Go-Enhanced/actions/workflows/release.yml)
+**面向自托管环境的 YYB 协议服务与微信账号管理平台**
 
-如果你喜欢这个项目，欢迎点击仓库右上角的 ⭐ **Star**，支持持续更新！
+微信扫码登录 · 账号与 OpenID 管理 · `wx.login` code 获取 · 凭据续期 · 账号独立代理 · 青龙 / 呆呆 / Arcadia 接入
 
-面向自托管环境的 YYB 协议服务与微信账号管理平台。提供微信扫码登录、账号与 OpenID 管理、`wx.login` code 获取、凭据续期、账号独立代理，以及青龙、呆呆和 Arcadia 面板接入。
+[![Release](https://img.shields.io/github/v/release/525815266/YYB-Go-Enhanced?display_name=tag&style=flat-square&logo=github)](https://github.com/525815266/YYB-Go-Enhanced/releases)
+[![Docker 构建](https://img.shields.io/github/actions/workflow/status/525815266/YYB-Go-Enhanced/docker-publish.yml?branch=main&style=flat-square&logo=docker&label=docker)](https://github.com/525815266/YYB-Go-Enhanced/actions/workflows/docker-publish.yml)
+[![Release 构建](https://img.shields.io/github/actions/workflow/status/525815266/YYB-Go-Enhanced/release.yml?branch=main&style=flat-square&label=release)](https://github.com/525815266/YYB-Go-Enhanced/actions/workflows/release.yml)
+[![Go 版本](https://img.shields.io/github/go-mod/go-version/525815266/YYB-Go-Enhanced?style=flat-square&logo=go)](go.mod)
+[![最近提交](https://img.shields.io/github/last-commit/525815266/YYB-Go-Enhanced?style=flat-square)](https://github.com/525815266/YYB-Go-Enhanced/commits/main)
 
-[在线演示](https://525815266.github.io/YYB-Go-Enhanced/) · [备用演示](https://raw.githack.com/525815266/YYB-Go-Enhanced/main/docs/demo/index.html) · [版本发布](https://github.com/525815266/YYB-Go-Enhanced/releases) · [更新日志](CHANGELOG.md) · [脚本目录](scripts/README.md) · [问题反馈](https://github.com/525815266/YYB-Go-Enhanced/issues)
+[![Stars](https://img.shields.io/github/stars/525815266/YYB-Go-Enhanced?style=flat-square&logo=github)](https://github.com/525815266/YYB-Go-Enhanced)
+[![Forks](https://img.shields.io/github/forks/525815266/YYB-Go-Enhanced?style=flat-square&logo=github)](https://github.com/525815266/YYB-Go-Enhanced/forks)
+[![下载量](https://img.shields.io/github/downloads/525815266/YYB-Go-Enhanced/total?style=flat-square&logo=github)](https://github.com/525815266/YYB-Go-Enhanced/releases)
+[![Docker 镜像](https://img.shields.io/badge/ghcr.io-yyb--go--enhanced-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/525815266/YYB-Go-Enhanced/pkgs/container/yyb-go-enhanced)
+[![平台](https://img.shields.io/badge/platform-linux%20%7C%20windows%20%7C%20macos%20%7C%20android-lightgrey?style=flat-square)](https://github.com/525815266/YYB-Go-Enhanced/releases)
 
-> 在线演示使用虚构账号和数据，可体验账号切换、扫码、代理、运行日志与接口调试，不连接真实 YYB 服务，也不会保存输入。
+[**在线演示**](https://525815266.github.io/YYB-Go-Enhanced/) · [快速开始](#docker-compose-快速开始) · [配置速查](#配置速查) · [文档](docs/README.md) · [更新日志](CHANGELOG.md) · [问题反馈](https://github.com/525815266/YYB-Go-Enhanced/issues)
+
+</div>
+
+> 在线演示使用虚构账号和数据，可体验账号切换、扫码、代理、运行日志与接口调试，不连接真实 YYB 服务，也不会保存输入。打不开时可用[备用演示](https://raw.githack.com/525815266/YYB-Go-Enhanced/main/docs/demo/index.html)。
 
 ## 界面预览
 
-![账号工作台：搜索、状态筛选与有效期（全部为虚构演示数据）](docs/images/console-demo-1440.png)
-
-工作台支持昵称、备注、ID、OpenID 搜索和状态筛选。v0.2.22 使用紧凑卡片网格，电脑端可在卡片内直接更新扫码、管理代理；手机以单列卡片展示，选中账号后在其下方显示快捷操作。点击“待确认”可确认账号状态，新增账号和新增链接位于顶部。账号区随数量自然展开，已失效账号停止展示有效期倒计时。页面预览使用虚构账号。
+<p align="center">
+  <img src="docs/images/console-demo-1440.png" alt="账号工作台：搜索、状态筛选与有效期（全部为虚构演示数据）" width="100%">
+</p>
 
 <p align="center">
   <img src="docs/images/scan-sync-mobile.png" alt="扫码成功后一键添加到青龙" width="32%">
@@ -25,70 +38,62 @@
   <img src="docs/images/console-demo-390.png" alt="新版手机工作台（虚构数据）" width="32%">
 </p>
 
+<p align="center"><sub>账号工作台、扫码后一键添加到青龙、账号运行管理、手机工作台。截图均使用虚构账号和数据，更多说明见<a href="docs/console-features.md">控制台与账号管理</a>。</sub></p>
+
 ## 核心能力
 
-| 分类 | 能力 |
-| --- | --- |
-| 账号管理 | 手机扫码添加账号、重复扫码更新、账号备注、OpenID 查看、状态刷新、账号整理与安全删除 |
-| 工作台 | 账号搜索、状态筛选、凭据与扫码有效期、失效状态提示，支持桌面和手机 |
-| 用户系统 | 独立登录与注册、管理员与普通用户权限、用户启停、密码重置、会话管理 |
-| 协议接口 | `/wx/*` 与 `/wxapp/*` 兼容接口、小程序 code、用户信息、手机号、云函数与协议调试 |
-| 面板联动 | 青龙、呆呆、Arcadia OpenAPI；同步 `YYB_SERVER`；按账号创建、启停、运行任务并读取隔离日志 |
-| 代理与保活 | 每账号独立直连、静态代理、动态代理 API、品赞与巨量配置；凭据按需和后台续期 |
-| 脚本管理 | 统一收录审核后的 YYB 多账号脚本；支持整库同步、单脚本拉取、拉取并创建任务 |
-| 部署维护 | Docker Compose、Android ARM64 Magisk、跨平台内嵌资源二进制；按运行平台提供更新入口 |
+<table>
+  <tr>
+    <td width="50%" valign="top"><b>👤 账号管理</b><br>手机扫码添加账号、重复扫码更新、账号备注、OpenID 查看、状态刷新、账号整理与安全删除、合并账号</td>
+    <td width="50%" valign="top"><b>🖥️ 工作台</b><br>账号搜索、状态筛选、凭据与扫码有效期、失效状态提示，支持桌面和手机</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>🔀 双扫码渠道</b><br>YYB 与 PCMgr 两套渠道，纯 Go 实现，无需安装或常驻原客户端；可设个人默认和系统默认，也可临时切换</td>
+    <td width="50%" valign="top"><b>🔐 用户系统</b><br>独立登录与注册、管理员与普通用户权限、用户启停、密码重置、会话管理</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>🔌 协议接口</b><br><code>/wx/*</code> 与 <code>/wxapp/*</code> 兼容接口、小程序 code、用户信息、手机号、云函数与协议调试；内置 OpenAPI 页面（<code>/docs</code>）</td>
+    <td width="50%" valign="top"><b>🔗 面板联动</b><br>青龙、呆呆、Arcadia OpenAPI；同步 <code>YYB_SERVER</code>；按账号创建、启停、运行任务并读取隔离日志</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>🌐 代理与保活</b><br>每账号独立直连、静态代理、动态代理 API、品赞与巨量配置；凭据按需和后台续期</td>
+    <td width="50%" valign="top"><b>📜 脚本管理</b><br>统一收录审核后的 YYB 多账号脚本；支持整库同步、单脚本拉取、拉取并创建任务</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>🔔 掉线通知</b><br>授权被拒、需要重新扫码时推送一次，支持 Server酱、PushPlus、企业微信群机器人</td>
+    <td width="50%" valign="top"><b>🧾 运行日志</b><br>续期、票据、原生恢复及调用的独立事件，按分类、等级、账号、渠道、时间筛选；不采集密钥或请求正文</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>🛡️ 请求保护</b><br>取码熔断、登录预算、同账号请求限速，减少对上游的重复请求（流量控制，不保证授权不被吊销）</td>
+    <td width="50%" valign="top"><b>📦 部署维护</b><br>Docker Compose、Android ARM64 Magisk、跨平台内嵌资源二进制；按运行平台提供更新入口</td>
+  </tr>
+</table>
 
-v0.2.45 保留已认证短连接返回的应用 / 传输拒绝码及首次失败链，避免把上游无正文拒绝统称为解密失败。v0.2.44 修复单个应用空 code 误删共享会话、触发账号恢复的问题：应用取码失败返回 502，保留仍可用于其他应用的会话与凭据。v0.2.43 补齐主刷新与 check-login 两段错误链的诊断，v0.2.42 修正官方登录请求的版本字段层级；见[逐字段对照](docs/native-wire-layout-20261029.md)、[近期项目对照](docs/yyb-upstream-review-20261029.md)和[409 排查说明](docs/proxy-keepalive.md#scan-first-call-409)。默认每两分钟检查、提前四分钟续期，token 先保存、登录票据按需获取；多架构原生 Release 和 Magisk 正常维护。近期快速失效的共同根因和 30 天保活尚未验证解决。
+## 工作方式
 
-近期生产复测仍有凭据被上游明确拒绝；此前三个账号的短时取码通过不代表持续保活已恢复。这些修补不能恢复已被微信撤销的 refresh token，也未验证 30 天保活。实际结果与限制见[协议复核](docs/protocol-audit-20261028.md)和[官方客户端续期对照](docs/native-keepalive-audit-20261028.md)。
+1. **扫码**：在控制台用手机微信扫码，YYB Go 保存授权并在后台续期，可为每个账号设置独立代理。
+2. **同步**：把账号写入自动化面板的 `YYB_SERVER`，并可按账号创建、启停、运行任务。
+3. **取码**：面板里的脚本读取 `YYB_SERVER` 中的 `地址@账号`，调用 `POST /wxapp/getCode` 取得小程序 `wx.login` code。
 
-v0.2.52 补齐原生 AutoAuth：保存独立恢复密钥与设备，现有会话失去资格或取码被拒时优先恢复；发送前标记密钥已尝试，新密钥先保存、后探测，避免断线重放或取消请求丢失轮换。新授权已用正式代码完成独立新连接恢复及取码，长期续期继续验证。详见[原生恢复记录](docs/native-autoauth-recovery.md)，不将短时成功描述为 OAuth 或 30 天续期已解决。
+```mermaid
+flowchart LR
+    WX["手机微信<br/>扫码授权"] -->|"① 扫码"| YYB["YYB Go Enhanced<br/>Web 控制台 · 协议接口<br/>保存授权 · 后台续期<br/>账号独立代理"]
+    YYB -->|"② 同步 YYB_SERVER"| QL["青龙 · 呆呆 · Arcadia<br/>脚本读取 YYB_SERVER"]
+    QL -->|"③ POST /wxapp/getCode"| YYB
+    YYB <-->|"登录 · 续期 · 取码"| UP["上游协议<br/>YYB / PCMgr 两套渠道"]
 
-v0.2.53 在管理员左侧新增“运行日志”，支持分类、等级、账号、渠道和时间筛选，可查看续期、票据、原生恢复及调用的独立事件。日志重启保留，近 7 天最多 10,000 条，不采集密钥或请求正文。补齐 PCMgr 票据 / 主 key 错误链，并记录[官方持久状态与当前恢复差异](docs/pcmgr-official-state-20261030.md)；延时原生恢复仍有失败，另有按需新票据恢复成功样本，持续授权问题尚未解决。[最新反馈与候选方案复核](docs/issue-review-20261030.md)说明官方 demo 的依赖、版本差异及验证边界。
-
-v0.2.55 针对回退 v0.2.49 后恢复取码的反馈，恢复同渠道保存票据优先的取码重建路径；候选取码成功后才替换共享缓存，明确的新票据 access 拒绝才允许一次凭据刷新。失败按目标退避，成功不再阻塞后续恢复。保留渠道隔离与并发授权保护；已清空的授权需重新扫码，长期续期仍未验证，见[恢复顺序与验证边界](docs/code-recovery-20261031.md)。
-
-v0.2.57 起 AS **默认启用 `legacy_auth` 历史刷新策略**，无需另开开关；PM 独立续期不变。原默认策略已有延时失效记录，兼容路径目前仅验证即时刷新与取码，长期保活仍未证实。已有配置显式写了 `YYB_APPSTORE_REFRESH_MODE=source` 时需删除该项或改为 `legacy_auth`，Docker 更新后需重新创建容器；显式 `source` 仍可回退。见[问题对比与配置说明](docs/legacy-refresh-mode.md)。v0.2.56 首次引入该兼容策略，当时默认未开启。
-
-v0.2.58 默认**每个账号固定一套协议设备**（`YYB_DEVICE_IDENTITY=stable`），不再每次握手、每个请求都换新的随机设备；修复 legacy 模式下失效账号停在 `unknown` 并每 2 分钟重试的问题；新增[掉线通知](docs/configuration.md#掉线通知v0258-起)，授权被拒需要重新扫码时推送到管理员渠道和账号自己的推送渠道。正式环境取证显示授权在续期窗口前已被上游拒绝，本版不宣称长期保活已解决，见[取证与验证边界](docs/device-identity-offline-notify-20261101.md)。
-
-v0.2.59 新增[取码熔断](docs/code-circuit-breaker-20261101.md)（`YYB_CIRCUIT_BREAKER`，默认 `on`）：对反复被应用层拒绝的取码返回本地 `429`，不再继续冲击上游。v0.2.60 起运行日志记录被拒的 AppID 与请求类型，会话刚验证成功时 `-14` 不再触发重新登录，熔断按请求类型区分。后续统计发现新授权几乎都在偶数整点的批量取码之后失效，v0.2.58 取证里的“43 / 82 分钟”并非授权寿命，相关性与对照方法见[整点任务与新授权失效](docs/hour-mark-offline-20261101.md)（因果尚未验证）。
-
-v0.2.61 新增[登录预算](docs/code-pacing-20261102.md)（`YYB_LOGIN_BUDGET` 默认 `3`、`YYB_LOGIN_WINDOW` 默认 `10m`，可在数据库目录放 `tuning.json` 不重启调整）：同一账号因业务请求触发的重新登录和强制刷新有次数上限，用完后请求保持原来的错误、不再向上游登录。依据是一次高峰回放：约 150 秒内 38 次登录票据就让一个健康授权被拒，旧版代码同样 3.5 分钟内死亡，而没有任务触达的授权连续续期成功。同时加固 v0.2.60 的“会话刚验证成功”防护，并默认限制同一账号向上游发出请求的间隔（`YYB_CODE_MIN_GAP` 默认 `3s`）：正式环境里有一个授权在 7.5 秒内连续成功取到 12 个 code 后被每一层拒绝，熔断和登录预算都管不到成功的突发。这是流量控制，不保证授权不再被吊销，默认值是保守起点，尚待重扫账号后验证。
-
-已对 #116 提供的独立 runtime 包完成真实扫码验证：登录成功，取码仍被 `-12 / no permission` 拒绝，包内未实现续期。见[请求通路与实测记录](docs/runtime-transfer-review-20261030.md)；目前未作为正式扫码渠道接入。
-
-此前的[失效误判修复](docs/proxy-keepalive.md#约两小时后失效的排查96)、[脚本可用性记录](scripts/README.md#脚本可用性记录97-2026-10-19)、[管理员密码恢复](docs/configuration.md#忘记管理员密码v0232-起)、[LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时)与[面板变量原位更新](docs/panel-integration.md#重复变量处理)继续保留。
-
-v0.2.46 按服务端下发的 PSK 期限复用会话，兼容已有 30 分钟本地缓存记录，避免缓存到期就强制重新登录；不改 OAuth 到期或扫码时间。多架构 Release 已发布，Windows 正式文件实际启动与飞牛部署后的旧会话真实取码均通过；这不等于 OAuth 后台续期或 30 天保活已验证。若更新镜像后页面仍旧，见[整套 resource 挂载排错](docs/docker-deployment.md#更新后页面仍旧整套-resource-挂载覆盖镜像)。
-
-10 月 29 日第四轮 OAuth 拒绝后，原 ILink 会话仍可取码，确认两层不能合并判定；v0.2.51 已完成下述分层处理。原始证据保留于[第四轮终止记录](docs/native-keepalive-audit-20261028.md#第四轮终止oauth-拒绝与仍可用的原协议会话15411544)，长期续期仍未验证。
+    classDef brand fill:#fde8ef,stroke:#c51a63,color:#1f2328
+    class YYB brand
+```
 
 ## 部署选择
 
-v0.2.51 修复取码卡在旧会话 `-14`：保留原缓存，使用现有授权取得新票据，候选会话取码成功后才替换；失败不删原会话、不刷新凭据，且限制尝试频率。真实私有副本对照已复现旧缓存失败、新会话及再次复用成功。
-
-OAuth 拒绝与协议会话分开处理：授权被拒但仍有可尝试的 PSK 或独立原生恢复材料时显示“需补授权”，停止重试旧凭据，尝试保留的协议会话及原生恢复。材料缺失或手动标失效后停止使用。清除失效 token，保留扫码时间，不将取码当成 OAuth 续期成功，也不自动恢复历史失效账号。具体范围和真实验证见[分层处理说明](docs/credential-session-layers.md)。
-
-v0.2.50 根据 #105 / #112 的对照，停止因单独应用层 `-14` 删除共享会话或强制恢复账号，当前请求仍返回带阶段诊断的 502。真实授权拒绝和后台续期规则保留，快速失效与长期保活仍待验证。接口测试按能力分组并显示当前 YYB / PCMgr 渠道，展开“测试命令”可复制跟随访问地址、账号和参数的 Bash / PowerShell 示例；服务端自动判断渠道，无需改已有脚本路由。示例只引用环境变量，不填入页面中的真实令牌。详见[反馈复核与验证范围](docs/issue-review-20261029.md)。
-
-v0.2.49 修复 PCMgr 部分请求仍携带 YYB 身份的问题，并按原生路径拆分手机号请求。接口测试会显示当前渠道与能力限制；文章入口是未验证的兼容转发，公众号入口只生成授权 URL。旧授权曾在 Go 与本机官方 DLL 均返回 `20138/1`；重新扫码后，飞牛正式版本的取码、密钥和手机号响应已通过限定目标的真实复测，测试期间授权不变。旧构造在本次密钥对照中也成功，不能将此前失败全部归因于字段混用，或据此宣称长期续期已恢复。Windows 正式程序启动与飞牛部署均通过，详见[调用路径与实测范围](docs/pcmgr-api-paths-20261029.md)。
-
-v0.2.48 支持 YYB / PCMgr 两套扫码渠道，Linux / Docker / Windows 均使用纯 Go 实现，无需安装或常驻原客户端。“个人设置 → 扫码渠道”可设置个人默认，管理员可设置系统默认，优先级为本次手选 > 个人默认 > 系统默认。更新链接及扫码页可临时切换，先说明影响并确认，扫码成功后替换原 ID 的授权，保留代理、归属、任务和推送设置，不新增账号 ID。
-
-同渠道更新仍核对原 OpenID；跨渠道身份标识不同，无法仅凭 OpenID 自动证明是同一微信，请使用原微信扫码。若新身份已属于其他账号，拒绝替换。平台管理的面板变量自动迁移旧 OpenID 引用，数字 ID 引用保持不变；面板暂不可用时保留迁移记录，重新同步可重试。手动维护的外部 OpenID 引用需自行更新。
-
-误从“新增账号”录入了另一条记录时，可在账号区点击“合并账号”，选择来源与保留 ID，预览后确认。原 ID 的代理、归属、备注、任务和推送保留，来源授权移入后释放来源 ID。仅允许同一归属下合并；来源不可用或已有专属任务时先处理再合并，避免遗留指向旧 ID 的任务。系统不能自动证明跨渠道是同一微信，需自行核对两条记录。
-
-卡片右上角 logo 区分渠道。YYB 展示凭据与扫码周期两条进度，PCMgr 展示“下次续期”计划，不把它当成真实有效期。纯 Go 主动轮换、取新票据及小程序取码已通过本地实测；v0.2.49 完成新扫码后的飞牛 API 复测，长期自然续期仍未验证，详见[双路径实现与验证边界](docs/pcmgr-local-lab-20261029.md)。
-
 | 方式 | 适用场景 | 入口 |
 | --- | --- | --- |
-| Docker Compose | NAS、服务器、与青龙同机或同网络运行 | [快速开始](#docker-compose-快速开始) |
+| Docker Compose（优先） | NAS、服务器、与青龙同机或同网络运行 | [快速开始](#docker-compose-快速开始) |
+| 原生二进制 | Linux、Windows、macOS 独立运行 | [其他部署方式](#其他部署方式) |
 | Magisk | Android ARM64 设备常驻运行，不依赖 Termux | [Magisk 文档](docs/magisk.md) |
-| 原生二进制 | Linux、Windows、macOS 独立运行 | [Releases](https://github.com/525815266/YYB-Go-Enhanced/releases) |
-
-原生程序 v0.2.25 起支持自动读取程序旁的 `.env`，也可通过 `-env-file` 指定配置；Windows 不再需要逐项设置系统环境变量。具体用法见[配置方式](docs/configuration.md#配置方式)。
+| 源码构建 | 开发，或自行构建镜像 | [其他部署方式](#其他部署方式) |
 
 ## Docker Compose 快速开始
 
@@ -112,7 +117,7 @@ docker run --rm --user 0 --entrypoint sh \
 docker compose up -d --no-build
 ```
 
-打开 `http://服务器IP:8000`。未预设管理员时，第一个注册用户自动成为管理员。
+浏览器打开 `http://<服务器地址>:8000`（端口由 `YYB_PORT` 决定）。未预设管理员时，第一个注册用户自动成为管理员。容器自带健康检查（`/health`）。
 
 青龙也需要加入同一个用户自建网络；容器叫 `qinglong` 不代表网络也叫这个名字。若青龙目前只有 Docker 默认的 `bridge` 网络，可执行 `docker network connect qinglong_default qinglong`（最后一项替换为实际容器名）。已有其他网络时，在 `.env` 设置 `YYB_DOCKER_NETWORK=实际网络名`。青龙重建时还需在其 Compose 中保留该网络，详见 [Armbian / Docker 部署排错](docs/docker-deployment.md)。
 
@@ -128,6 +133,55 @@ YYB_COOKIE_SECURE=false
 
 需要复用 MySQL、预设管理员、启用 HTTPS Cookie 或配置协议令牌时，参阅 [配置与账号安全](docs/configuration.md)。
 
+## 其他部署方式
+
+**原生二进制**：从 [Releases](https://github.com/525815266/YYB-Go-Enhanced/releases) 下载对应平台的文件（Linux amd64 / arm64 / armv7，Windows amd64 / arm64，macOS amd64 / arm64），控制台页面已内嵌，下载后直接运行；`checksums.txt` 可用于校验 SHA256。
+
+```bash
+# Linux / macOS 示例，文件名以 Release 页面为准
+chmod +x yyb-go-linux-amd64
+./yyb-go-linux-amd64
+```
+
+```powershell
+# Windows PowerShell
+.\yyb-go-windows-amd64.exe
+```
+
+不配置时只监听本机 8000 端口；需要其他设备访问时，用 `-host` 或 `YYB_BIND_ADDRESS` 指定监听地址，并同时配置网页登录与协议令牌。原生程序 v0.2.25 起支持自动读取程序旁的 `.env`，也可通过 `-env-file` 指定配置；Windows 不再需要逐项设置系统环境变量。具体用法见[配置方式](docs/configuration.md#配置方式)。
+
+**Magisk**：Android ARM64、Magisk 20.4 或更新版本，随开机后台运行，不需要 Termux 常驻。下载 Release 中的 `yyb-go-magisk-arm64-<版本>.zip`，在官方 Magisk 应用中安装，安装、升级、数据目录和局域网监听见 [Magisk 文档](docs/magisk.md)。
+
+**源码构建**：`docker compose up -d --build` 会在镜像构建阶段运行 `go test ./...`；本地构建多平台产物见[构建与发布](docs/release-builds.md)。
+
+## 配置速查
+
+Docker Compose 部署把 `.env.example` 复制为 `.env` 后修改；原生程序读取程序旁的 `.env`。优先级为**显式命令行参数 > 已有进程环境变量 > 所选 `.env` > 默认值**。配置只在启动时读取，修改后需要重启；Docker 通常需要重新创建容器。
+
+| 变量 | 默认值与说明 |
+| --- | --- |
+| `YYB_PORT` | 默认 `8000`。服务端口；Compose 中是宿主机映射端口 |
+| `YYB_BIND_ADDRESS` | 监听地址。Compose 默认对所有网卡开放，原生程序不设置时只监听本机；只需本机访问时设为本机回环地址 |
+| `YYB_AUTH_DRIVER` / `YYB_AUTH_DSN` | 默认 `sqlite` / 空。网页登录库：`sqlite`、`mysql`（需要 DSN）、`none`（关闭登录，只适合受保护的本机调试） |
+| `YYB_ADMIN_USER` / `YYB_ADMIN_PASSWORD` | 默认空。预设管理员，仅初始化空用户库时生效；留空则第一个注册用户成为管理员 |
+| `YYB_COOKIE_SECURE` | 默认 `false`。通过 HTTPS 反向代理访问时设为 `true` |
+| `YYB_PROTOCOL_TOKEN` | 默认空。保护 `/wx/*` 与 `/wxapp/*`；公网或跨主机使用时必须设置 |
+| `YYB_INTEGRATION_TOKEN` | 默认空。可信控制面调用集成接口 |
+| `YYB_ACCOUNT_LINK_KEY` | 默认空。授权短链接历史 URL 的加密密钥；正式使用时请设置并保持不变 |
+| `PANEL_TYPE` | 默认 `qinglong`。面板类型：`qinglong`、`daidai`、`arcadia` |
+| `YYB_QINGLONG_SERVER` | 默认 `yyb-go:8000`。面板里的脚本回连 YYB Go 的地址 |
+| `YYB_QINGLONG_REPO` | 默认 `SuperNaiBA_YYB-GO-Script,525815266_YYB-Go-Enhanced/scripts`。账号运行管理读取的脚本目录，逗号分隔 |
+| `YYB_QINGLONG_REF_MODE` | 默认 `id`。写入 `YYB_SERVER` 的账号引用方式：`id` 或 `openid` |
+| `YYB_KEEPALIVE_INTERVAL` / `YYB_KEEPALIVE_AHEAD` | 默认 `2m` / `4m`。保活检查间隔与提前刷新时间 |
+| `YYB_DEVICE_IDENTITY` | 默认 `stable`。每个账号固定一套协议设备；`random` 恢复旧行为 |
+| `YYB_NOTIFY_CHANNEL` / `YYB_NOTIFY_TOKEN` | 默认空。掉线通知渠道：`serverchan`、`pushplus`、`qywx`，以及对应的 token |
+| `YYB_CIRCUIT_BREAKER` | 默认 `on`。取码熔断，`off` 关闭 |
+| `YYB_LOGIN_BUDGET` / `YYB_LOGIN_WINDOW` | 默认 `3` / `10m`。登录预算：窗口内因业务请求重新登录的次数上限 |
+| `YYB_CODE_MIN_GAP` / `YYB_CODE_MAX_WAIT` | 默认 `3s` / `20s`。同一账号向上游发出请求的最小间隔与最长排队时间 |
+| `YYB_UPDATE_PROXY` / `YYB_UPDATE_VERSION_URL` | 默认空。仅用于版本检查的代理与版本源 |
+
+完整变量、取值范围和注意事项见 [配置与账号安全](docs/configuration.md)；面板相关变量见下一节。
+
 ## 连接自动化面板
 
 可以在 Web 控制台填写连接信息，也可以编辑 `.env`。青龙最小配置如下：
@@ -140,6 +194,14 @@ QL_CLIENT_SECRET=你的 Client Secret
 YYB_QINGLONG_SERVER=yyb-go:8000
 YYB_QINGLONG_REPO=525815266_YYB-Go-Enhanced_main/scripts
 ```
+
+`QL_URL` 是 YYB Go 访问青龙的地址，`YYB_QINGLONG_SERVER` 是青龙脚本反向访问 YYB Go 的地址，两者方向不同；`YYB_QINGLONG_REPO` 是否带 `_main` 以青龙里的实际目录为准。呆呆和 Arcadia 的变量如下：
+
+| 面板 | `PANEL_TYPE` | 连接变量 |
+| --- | --- | --- |
+| 青龙 | `qinglong` | `QL_URL`、`QL_CLIENT_ID`、`QL_CLIENT_SECRET` |
+| 呆呆 | `daidai` | `DAIDAI_URL`、`DAIDAI_APP_KEY`、`DAIDAI_APP_SECRET` |
+| Arcadia | `arcadia` | `ARCADIA_URL`、`ARCADIA_TOKEN` |
 
 连接后可在扫码完成页将账号合并到 `YYB_SERVER`，并在“账号运行管理”中为每个账号独立创建任务、设置推送、执行脚本和查看日志。
 
@@ -171,10 +233,6 @@ bash /ql/data/scripts/yyb-scriptctl.sh install 麦富迪_code版.py \
 
 脚本来源、目录覆盖、任务去重和 Issue #66 的任务名修复说明见 [脚本管理文档](scripts/README.md#青龙脚本拉取工具)。
 
-手动上传的脚本不出现在“全部脚本”中？列表读取已配置目录内的**面板任务**，不是文件浏览器。请按[独立上传脚本接入步骤](docs/panel-integration.md#独立上传的脚本不在全部脚本里issue-73)配置目录、创建任务，再刷新列表。
-
-新增脚本集合后仍未显示？按[目录配置排查](docs/panel-integration.md#新增脚本集合后仍不显示issue-100)核对真实任务路径、Compose 变量覆盖和容器内生效值；仅重启容器不会加载修改后的环境变量。
-
 ## 调用协议接口
 
 `YYB_SERVER` 每行一个账号：
@@ -192,11 +250,12 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
   -d '{"ref":"1","app_id":"wx0000000000000000"}'
 ```
 
-如果配置了 `YYB_PROTOCOL_TOKEN`，请求还需携带 `Authorization: Bearer <token>`。接口清单、公众号 OAuth 边界和 `operateWxData` 参数说明见 [协议接口说明](docs/protocol-api.md)，运行中的服务也提供 OpenAPI 页面。
+- 配置了 `YYB_PROTOCOL_TOKEN` 时，请求还需携带 `Authorization: Bearer <token>`；正确令牌可直接用于青龙等自动化调用，无需网页登录。
+- v0.2.34 起所有协议入口（包括资料查询）统一校验令牌，旧版本仅配置令牌不足以保护，需要更新服务。
+- 运行中的服务在 `/docs` 提供 OpenAPI 页面，`/openapi.json` 是机器可读定义。
+- 接口清单、公众号 OAuth 边界和 `operateWxData` 参数说明见 [协议接口说明](docs/protocol-api.md)。
 
-控制台可在「接口测试 → 协议令牌」填写；接口文档使用 `Authorize → ProtocolBearer`（只填令牌值）。控制台输入仅用于当前页面，刷新后清空，不影响账号管理和青龙配置。
-
-v0.2.34 修复了 #101 的协议令牌校验遗漏，统一保护资料查询等所有协议入口。旧版本仅配置令牌不足以修复此问题，需要更新服务；正确令牌仍可直接用于青龙等自动化调用，无需网页登录。
+控制台可在「接口测试 → 协议令牌」填写令牌；接口文档使用 `Authorize → ProtocolBearer`（只填令牌值）。控制台输入仅用于当前页面，刷新后清空，不影响账号管理和青龙配置。
 
 ## 账号代理与保活
 
@@ -208,14 +267,44 @@ v0.2.34 修复了 #101 的协议令牌校验遗漏，统一保护资料查询等
 
 配置格式、地区匹配、刷新窗口和安全注意事项见 [代理与账号保活](docs/proxy-keepalive.md)。
 
+## 授权稳定性
+
+授权可能被上游拒绝而需要重新扫码，目前没有已验证的办法保证它长期不掉线；项目提供会话保护、取码熔断、登录预算和同账号请求限速（默认间隔 3 秒，是保守的起点）来减少重复请求，机制与验证边界见[授权稳定性](docs/authorization-stability.md)。
+
+## 常见问题与排障
+
+| 现象 | 先看这里 |
+| --- | --- |
+| 更新镜像后页面仍是旧的 | [整套 resource 挂载覆盖镜像](docs/docker-deployment.md#更新后页面仍旧整套-resource-挂载覆盖镜像) |
+| SQLite 报 `permission denied` 或 `unable to open database file` | [SQLite / permission denied](docs/docker-deployment.md#sqlite--permission-denied) |
+| YYB 与青龙互相连不上，或容器名无法解析 | [青龙容器名与网络名不同](docs/docker-deployment.md#青龙容器名与网络名不同)、[跨服务器排错](docs/panel-integration.md#跨服务器排错) |
+| 登录后马上回到登录页 | 通过 HTTP 访问却设置了 `YYB_COOKIE_SECURE=true`，见 [Cookie 与 HTTPS](docs/configuration.md#cookie-与-https) |
+| 忘记管理员密码 | [本地恢复命令](docs/configuration.md#忘记管理员密码v0232-起) |
+| 配置修改后没有生效 | 配置只在启动时读取，Docker 通常需要重新创建容器，见[配置方式](docs/configuration.md#配置方式) |
+| 手动上传的脚本不在“全部脚本”里 | 列表读取的是面板任务，不是文件浏览器，见[独立上传脚本接入步骤](docs/panel-integration.md#独立上传的脚本不在全部脚本里issue-73) |
+| 新增脚本集合后仍不显示 | 核对真实任务路径、Compose 变量覆盖和容器内生效值；仅重启容器不会加载修改后的环境变量，见[目录配置排查](docs/panel-integration.md#新增脚本集合后仍不显示issue-100) |
+| 面板里的 `YYB_SERVER` 出现重复项 | [重复变量处理](docs/panel-integration.md#重复变量处理) |
+| 扫码成功后第一次调用就返回 409 | [409 排查说明](docs/proxy-keepalive.md#scan-first-call-409) |
+| 保活成功但取码超时 | [LongLink 回退](docs/proxy-keepalive.md#保活成功但-getcode-超时) |
+| 约两小时后账号失效 | [失效误判排查](docs/proxy-keepalive.md#约两小时后失效的排查96) |
+| 取码返回 `429` | 这是本地熔断或限速，不是上游返回；按 `Retry-After` 退避，见[取码熔断](docs/configuration.md#取码熔断v0259-起)与[登录预算与取码限速](docs/configuration.md#登录预算与取码限速v0261-起) |
+| 账号显示“需补授权”或需要重新扫码 | [分层处理说明](docs/credential-session-layers.md)、[授权稳定性](docs/authorization-stability.md) |
+| 检查更新报连接重置或 HTTP 403 | [更新网络排错](docs/maintenance.md#检查更新报连接重置或-http-403issue-74) |
+
+提交 Issue 时请带上版本号、运行方式（Docker / 原生 / Magisk）和脱敏后的日志，不要贴令牌、Cookie、代理密码或 OpenID。
+
 ## 文档导航
 
 | 文档 | 内容 |
 | --- | --- |
+| [文档索引](docs/README.md) | 全部文档按用途分组 |
 | [配置与账号安全](docs/configuration.md) | SQLite/MySQL、管理员、用户权限、令牌、实验性本机微信授权 |
+| [Docker / Armbian 部署排错](docs/docker-deployment.md) | 官方镜像、resource 挂载覆盖、网络名、SQLite 权限、源码构建失败 |
+| [控制台与账号管理](docs/console-features.md) | 账号工作台、扫码渠道、合并账号、接口测试、运行日志 |
 | [面板接入与排错](docs/panel-integration.md) | 青龙、呆呆、Arcadia、跨服务器访问、运行管理与日志 |
 | [协议接口说明](docs/protocol-api.md) | `/wx/*`、`/wxapp/*`、OAuth、云函数与真实 payload 边界 |
 | [代理与账号保活](docs/proxy-keepalive.md) | 静态/动态代理、品赞、巨量、刷新策略与失效状态 |
+| [授权稳定性](docs/authorization-stability.md) | 防护与诊断措施、验证边界、按版本的记录 |
 | [脚本管理](scripts/README.md) | YYB 适配脚本、拉取工具、任务元数据与公共账号缓存 |
 | [Magisk 模块](docs/magisk.md) | Android ARM64 安装、升级、局域网监听与 DNS |
 | [系统维护](docs/maintenance.md) | Docker 在线检查、宿主机维护执行器、恢复和安全边界 |
@@ -223,11 +312,9 @@ v0.2.34 修复了 #101 的协议令牌校验遗漏，统一保护资料查询等
 
 ## 更新
 
-管理员可点击控制台顶栏版本号检查新版本。系统会识别当前运行环境：Windows、Linux、macOS 裸机提供匹配架构的 Release 下载，Magisk 提供模块 ZIP；Docker 仅在维护执行器已连接时提供在线更新和重启。
+管理员可点击控制台顶栏版本号检查新版本。系统会识别当前运行环境：Windows、Linux、macOS 裸机提供匹配架构的 Release 下载，Magisk 提供模块 ZIP；Docker 仅在维护执行器已连接时提供在线更新和重启，详见[系统维护](docs/maintenance.md)。升级前至少备份 `data/db`（使用外部 MySQL 时还要单独备份对应数据库），镜像回滚不等于数据库回滚。
 
-v0.2.24 根据 #74 的反馈，增加仅供版本检查使用的 `YYB_UPDATE_PROXY` 和可选的 `YYB_UPDATE_VERSION_URL`，并修复前端过早取消备用查询的问题。默认仍使用官方 Raw / API / Release 来源，不内置第三方镜像。遇到连接重置或 403，请按[更新网络排错](docs/maintenance.md#检查更新报连接重置或-http-403issue-74)检查容器到宿主机代理的可达性；Docker 拉取镜像使用宿主机的独立网络配置。感谢 @Xx1aoy1 提供 Armbian 实测排查过程。
-
-完整版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+完整版本变化见 [CHANGELOG.md](CHANGELOG.md)，安装包见 [Releases](https://github.com/525815266/YYB-Go-Enhanced/releases)。
 
 ## 安全边界
 
@@ -237,6 +324,32 @@ v0.2.24 根据 #74 的反馈，增加仅供版本检查使用的 `YYB_UPDATE_PRO
 - `wx.login` code 是短期且一次性的；公众号 OAuth code 必须由用户在微信内完成授权后回调产生。
 - 项目不会伪造微信返回值，也不会从缺失的业务参数中推导签名、加密数据或授权结果。
 
-## 来源
+## Star History
+
+如果你喜欢这个项目，欢迎点击仓库右上角的 ⭐ **Star**，支持持续更新！
+
+<div align="center">
+  <a href="https://www.star-history.com/#525815266/YYB-Go-Enhanced&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=525815266/YYB-Go-Enhanced&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=525815266/YYB-Go-Enhanced&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=525815266/YYB-Go-Enhanced&type=Date" width="720" />
+    </picture>
+  </a>
+</div>
+
+## 参与贡献与致谢
+
+欢迎通过 [Issues](https://github.com/525815266/YYB-Go-Enhanced/issues) 反馈问题、提供脱敏后的复现信息和修复建议。镜像构建阶段会运行 `go test ./...`，提交代码前建议先在本地运行；构建和发布流程见[构建与发布](docs/release-builds.md)。
+
+<div align="center">
+  <a href="https://github.com/525815266/YYB-Go-Enhanced/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=525815266/YYB-Go-Enhanced" alt="贡献者" />
+  </a>
+</div>
+
+感谢 [@Xx1aoy1](https://github.com/Xx1aoy1) 提供 Armbian 实测排查过程，也感谢所有提交 Issue、复现步骤和修复建议的反馈者。
+
+## 许可证与来源
 
 项目基于 [SuperNaiBA/YYB_GO](https://github.com/SuperNaiBA/YYB_GO) 整理和增强。使用和分发时请同时遵守上游授权条件、目标平台规则及所在地法律法规。
