@@ -247,19 +247,19 @@ YYB_LOGIN_WINDOW=10m
 
 同一账号因业务请求触发的 OAuth 层调用（新的登录票据、ManualAuth 恢复、强制刷新）在 `YYB_LOGIN_WINDOW` 内最多 `YYB_LOGIN_BUDGET` 次（默认 10 分钟 3 次）。用完后，本来要重新登录的请求保持它自己的错误（取码是原来的 `-14`），不再向上游登录，也不登记该 AppID 的退避，缓存会话也不作废；窗口滑过后同一 AppID 仍可修复。后台续期和面板手动刷新不受限。`off` 或 `0` 关闭。拒绝只汇总成 `protocol.login_limited` 事件。依据和验证方法见[任务高峰、重新登录与登录预算](code-pacing-20261102.md)。
 
-可选的取码限速默认关闭：
+取码限速默认开启：
 
 ```dotenv
-YYB_CODE_MIN_GAP=0
+YYB_CODE_MIN_GAP=3s
 YYB_CODE_MAX_WAIT=20s
 ```
 
-设为 `2s` 之类的值后，同一账号向上游发出的取码 / 取号 / operateWxData 请求按该间隔排队，槽距现在超过 `YYB_CODE_MAX_WAIT` 的请求立即返回 HTTP `429`（带 `Retry-After`，`data.circuit_open` 为 `pacing`），不访问上游，也不修改账号状态。
+同一账号向上游发出的取码 / 取号 / operateWxData 请求至少相隔 `YYB_CODE_MIN_GAP`，槽距现在超过 `YYB_CODE_MAX_WAIT` 的请求立即返回 HTTP `429`（带 `Retry-After`，`data.circuit_open` 为 `pacing`），不访问上游，也不修改账号状态；`0` 或 `off` 关闭。熔断和登录预算只统计失败与 OAuth 层调用，一个全部成功的突发它们拦不住，限速补的就是这个缺口。依据和限制见[任务高峰、重新登录与登录预算](code-pacing-20261102.md)。
 
 不重启就要调整时，在数据库目录（Compose 默认 `data/db`）放一个 `tuning.json`，一秒内生效：
 
 ```json
-{"login_budget": 3, "login_window_ms": 600000, "code_min_gap_ms": 0, "code_max_wait_ms": 20000}
+{"login_budget": 3, "login_window_ms": 600000, "code_min_gap_ms": 3000, "code_max_wait_ms": 20000}
 ```
 
 缺少的键沿用上面的配置值，文件无法解析时保留上一次有效设置，删除文件恢复配置值。

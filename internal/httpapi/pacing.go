@@ -16,14 +16,15 @@ import (
 // Pacing spaces the upstream requests of one account.
 //
 // Production logs show hundreds of scheduled scripts asking the same few
-// accounts for wx.login codes in the same minute: 14 successful codes in 7
+// accounts for wx.login codes in the same minute: 12 successful codes in 7.5
 // seconds for one account, 2500 requests in 5 minutes across the instance, and
-// two fresh authorizations rejected by every layer inside that burst. Nothing
-// else touched them. The breaker only reacts to failures, so a burst of
-// successful requests passes it untouched. Pacing is the missing part: it keeps
-// the request rate an account sees upstream close to what one person could
-// produce, and answers the excess with a local 429 that costs the upstream
-// nothing.
+// two fresh authorizations rejected by every layer inside that burst. The
+// first of them had received nothing but those 12 codes: no login ticket or
+// refresh of ours came before the rejection. The breaker only reacts to
+// failures, so a burst of successful requests passes it untouched. Pacing is
+// the missing part: it keeps the request rate an account sees upstream close to
+// what one person could produce, and answers the excess with a local 429 that
+// costs the upstream nothing.
 //
 // Every request takes the next free slot of its account. A slot is MinGap after
 // the previous one. A request whose slot is more than MaxWait away is refused

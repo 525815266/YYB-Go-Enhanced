@@ -52,7 +52,7 @@ services:
       YYB_CIRCUIT_BREAKER: ${YYB_CIRCUIT_BREAKER:-on}
       YYB_LOGIN_BUDGET: ${YYB_LOGIN_BUDGET:-3}
       YYB_LOGIN_WINDOW: ${YYB_LOGIN_WINDOW:-10m}
-      YYB_CODE_MIN_GAP: ${YYB_CODE_MIN_GAP:-0}
+      YYB_CODE_MIN_GAP: ${YYB_CODE_MIN_GAP:-3s}
       YYB_CODE_MAX_WAIT: ${YYB_CODE_MAX_WAIT:-20s}
     volumes:
       - ./data/db:/app/resource/db

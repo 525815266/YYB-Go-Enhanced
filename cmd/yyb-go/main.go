@@ -150,9 +150,10 @@ func main() {
 
 		DisableCircuitBreaker: strings.EqualFold(strings.TrimSpace(os.Getenv("YYB_CIRCUIT_BREAKER")), "off"),
 
-		// Pacing stays off unless asked for; the login budget is what the burst
-		// replay showed to matter.
-		CodeMinGap:  envDuration("YYB_CODE_MIN_GAP", 0),
+		// Upstream requests of one account are spaced by default. The breaker and
+		// the login budget only react to failures and OAuth calls, so a burst of
+		// successful codes would pass both.
+		CodeMinGap:  envDuration("YYB_CODE_MIN_GAP", defaultCodeMinGap),
 		CodeMaxWait: envDuration("YYB_CODE_MAX_WAIT", 20*time.Second),
 		LoginBudget: envInt("YYB_LOGIN_BUDGET", protocol.DefaultLoginBudget),
 		LoginWindow: envDuration("YYB_LOGIN_WINDOW", protocol.DefaultLoginWindow),
@@ -197,6 +198,12 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(ctx)
 }
+
+// defaultCodeMinGap is the least time between two upstream requests of one
+// account. It is a conservative starting point, not a measured safe rate: the
+// one burst that got an authorization rejected after successful requests alone
+// came in at about 1.6 requests a second.
+const defaultCodeMinGap = 3 * time.Second
 
 // envDuration reads a Go duration such as "2s". "off" and "0" mean zero, which
 // switches the setting off. An empty or unreadable value keeps the default and
