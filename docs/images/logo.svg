@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144" role="img" aria-labelledby="t">
+  <title id="t">YYB Go Enhanced</title>
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eb5487"/>
+      <stop offset="1" stop-color="#8f0b45"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <rect x="0" y="0" width="144" height="144" rx="34.00" fill="url(#mark)"/>
+    <rect x="1" y="1" width="142" height="142" rx="33.00" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-width="2"/>
+    <path d="M44.00 38.00 L72.00 76.00 L100.00 38.00 M72.00 76.00 L72.00 112.00" fill="none" stroke="#ffffff" stroke-width="15.00" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="112.00" cy="112.00" r="6.00" fill="#ffffff" fill-opacity=".55"/>
+  </g>
+</svg>
