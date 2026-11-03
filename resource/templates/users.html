@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>用户管理 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261001-compact">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
+  <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
   <style>
     .users-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
     .users-toolbar .input { width:min(320px,100%); }
@@ -118,6 +120,6 @@
     $("searchUsers").oninput = renderUsers;
     load().catch(error => toast(error.message, true));
   </script>
-  <script src="/static/js/platform.js?v=20261030-workspace"></script>
+  <script src="/static/js/platform.js?v=20261103-skin"></script>
 </body>
 </html>

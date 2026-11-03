@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>个人设置 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261001-compact">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
+  <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
 </head>
 <body>
   <header class="shell-header"></header>
@@ -33,6 +35,6 @@
     $("clearSessions").onclick = async () => { try { await api("/api/auth/sessions", { method: "DELETE" }); await load(); } catch (error) { alert(error.message); } };
     load().catch(() => { location.href = "/login"; });
   </script>
-  <script src="/static/js/platform.js?v=20261030-workspace"></script>
+  <script src="/static/js/platform.js?v=20261103-skin"></script>
 </body>
 </html>

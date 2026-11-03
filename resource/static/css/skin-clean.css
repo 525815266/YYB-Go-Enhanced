@@ -1,0 +1,119 @@
+/* Clean skin: a light sidebar layout with a single blue accent.
+   Everything is scoped to html[data-skin="clean"], so the classic look stays untouched.
+   The attribute is set by platform.js and, before first paint, by a small script in each page head. */
+
+html[data-skin="clean"] {
+  --platform-sidebar: 200px;
+  --platform-header: 56px;
+  --platform-bg: oklch(0.974 0.005 275);
+  --platform-surface: oklch(1 0 0);
+  --platform-ink: oklch(0.278 0.03 257);
+  --platform-muted: oklch(0.551 0.023 264);
+  --platform-line: oklch(0.931 0 0);
+  --platform-accent: oklch(0.567 0.197 261);
+  --platform-accent-hover: oklch(0.546 0.215 263);
+  --platform-accent-soft: oklch(0.97 0.014 255);
+  --platform-hover: oklch(0.967 0.003 265);
+  --platform-sidebar-bg: oklch(1 0 0);
+  --platform-sidebar-ink: oklch(0.278 0.03 257);
+  --platform-sidebar-muted: oklch(0.446 0.037 257);
+  --platform-shadow: 0 6px 20px oklch(0.18 0.025 252 / .06);
+  --platform-shadow-soft: 0 1px 3px oklch(0 0 0 / .06);
+}
+
+/* Pages declare their own tokens; this keeps every page on the skin palette. */
+html[data-skin="clean"] body.platform-ready {
+  --bg-soft: var(--platform-bg);
+  --surface: oklch(0.985 0 0);
+  --surface-strong: var(--platform-hover);
+  --ink: var(--platform-ink);
+  --muted: var(--platform-muted);
+  --faint: var(--platform-muted);
+  --line: var(--platform-line);
+  --primary: var(--platform-accent);
+  --primary-hover: var(--platform-accent-hover);
+  --accent: var(--platform-accent);
+  --accent-soft: var(--platform-accent-soft);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* Shell */
+html[data-skin="clean"] .platform-sidebar { border-right: 1px solid var(--platform-line); box-shadow: none; }
+html[data-skin="clean"] .platform-brand { gap: 10px; border-bottom-color: var(--platform-line); }
+html[data-skin="clean"] .platform-brand-mark { width: 28px; height: 28px; border: 0; border-radius: 7px; box-shadow: none; font-size: 15px; }
+html[data-skin="clean"] .platform-brand-copy strong { font-size: 16px; font-weight: 700; }
+html[data-skin="clean"] .platform-brand-copy span { display: none; }
+html[data-skin="clean"] .platform-nav { padding: 12px 8px; }
+html[data-skin="clean"] .platform-nav-section + .platform-nav-section { margin-top: 14px; }
+html[data-skin="clean"] .platform-nav-group { margin: 0 10px 6px; color: var(--platform-muted); font-weight: 600; }
+html[data-skin="clean"] .platform-nav a { min-height: 40px; margin: 2px 0; padding: 8px 12px; border: 0; border-radius: 6px; transition: background 150ms ease, color 150ms ease; }
+html[data-skin="clean"] .platform-nav a:hover { color: var(--platform-ink); background: var(--platform-hover); transform: none; }
+html[data-skin="clean"] .platform-nav a[aria-current="page"] { color: white; background: var(--platform-accent); font-weight: 600; box-shadow: none; }
+html[data-skin="clean"] .platform-nav a[aria-current="page"] .platform-nav-icon { color: white; }
+html[data-skin="clean"] .platform-nav-label { font-size: 14px; }
+html[data-skin="clean"] .platform-sidebar-foot { padding: 10px 8px; border-top-color: var(--platform-line); }
+html[data-skin="clean"] .platform-sidebar-foot button { min-height: 40px; padding: 8px 12px; border-radius: 6px; }
+html[data-skin="clean"] .platform-sidebar-foot button:hover { color: var(--platform-ink); background: var(--platform-hover); }
+html[data-skin="clean"] .platform-topbar { padding: 0 24px; background: var(--platform-surface); box-shadow: none; backdrop-filter: none; }
+html[data-skin="clean"] .platform-page-title { font-size: 16px; font-weight: 600; }
+html[data-skin="clean"] .platform-avatar { width: 32px; height: 32px; background: var(--platform-accent-soft); color: var(--platform-accent); font-weight: 700; }
+html[data-skin="clean"] .platform-main > main { padding: 20px 24px 40px !important; }
+
+/* Shared surfaces, buttons and fields */
+html[data-skin="clean"] .platform-main :is(.panel, .account-band, .links-panel, .table-wrap, .card) { border-color: var(--platform-line); }
+html[data-skin="clean"] .platform-main :is(.section-head, .link-toolbar) { background: var(--platform-surface); }
+html[data-skin="clean"] .platform-main .btn,
+html[data-skin="clean"] .platform-dialog .btn { min-height: 34px; padding: 7px 14px; border-radius: 6px; font-weight: 500; }
+html[data-skin="clean"] .platform-main .btn.primary:not(:disabled):hover,
+html[data-skin="clean"] .platform-dialog .btn.primary:not(:disabled):hover { background: var(--platform-accent-hover); border-color: var(--platform-accent-hover); filter: none; }
+html[data-skin="clean"] .platform-main :is(input, select, textarea) { border-radius: 6px; }
+
+/* Workbench: headings, counters and buttons */
+html[data-skin="clean"] .summary h2 { font-size: 20px; font-weight: 600; }
+html[data-skin="clean"] .section-title h3 { font-size: 16px; font-weight: 600; }
+html[data-skin="clean"] .stat-chip { min-height: 28px; padding: 3px 12px; border-radius: 14px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; }
+html[data-skin="clean"] .stat-chip strong { font-weight: 600; }
+html[data-skin="clean"] .stat-chip.ok { background: oklch(0.962 0.043 157); color: oklch(0.448 0.108 151); box-shadow: none; }
+html[data-skin="clean"] .stat-chip.warn { background: oklch(0.962 0.058 96); color: oklch(0.473 0.125 46); box-shadow: none; }
+html[data-skin="clean"] .stat-chip.fail { background: oklch(0.936 0.031 18); color: oklch(0.444 0.161 27); box-shadow: none; }
+html[data-skin="clean"] .stat-chip:is(.ok, .warn, .fail) strong { color: inherit; }
+html[data-skin="clean"] .btn.danger { background: transparent; border-color: oklch(0.885 0.058 18); }
+html[data-skin="clean"] .btn.danger:hover { background: oklch(0.971 0.013 17); }
+
+/* Account cards: neutral surface, state shown by a pill, blue selection, no neon alert or stamp */
+html[data-skin="clean"] .avatar { border: 0; border-radius: 50%; background: var(--platform-accent-soft); color: var(--primary); font-weight: 600; }
+html[data-skin="clean"] .account-card,
+html[data-skin="clean"] .account-card.alive,
+html[data-skin="clean"] .account-card.warning,
+html[data-skin="clean"] .account-card.expired { background: var(--bg); border-radius: var(--radius); }
+html[data-skin="clean"] .account-card .account-status { padding: 2px 8px; border-radius: 10px; background: var(--surface-strong); font-weight: 500; }
+html[data-skin="clean"] .account-card.alive .account-status { background: oklch(0.962 0.043 157); color: oklch(0.448 0.108 151); }
+html[data-skin="clean"] .account-card.warning .account-status { background: oklch(0.962 0.058 96); color: oklch(0.473 0.125 46); }
+html[data-skin="clean"] .account-card.expired .account-status { background: oklch(0.936 0.031 18); color: oklch(0.444 0.161 27); }
+html[data-skin="clean"] .account-card.expired .avatar,
+html[data-skin="clean"] .account-card.expired .account-main { filter: none; }
+html[data-skin="clean"] .account-card.expired .avatar { opacity: 0.6; }
+html[data-skin="clean"] .account-card.expired .account-name { color: var(--muted); }
+html[data-skin="clean"] .account-card.expired::after { display: none; }
+html[data-skin="clean"] .account-card.expired.expired-alert,
+html[data-skin="clean"] .account-card.expired.expired-alert::after,
+html[data-skin="clean"] .account-card.expired.expired-alert .avatar,
+html[data-skin="clean"] .account-card.expired.expired-alert .account-main { animation: none; }
+html[data-skin="clean"] .account-card:hover,
+html[data-skin="clean"] .account-card.expired:hover { background: var(--bg); border-color: oklch(0.87 0.03 258); box-shadow: var(--platform-shadow-soft); }
+html[data-skin="clean"] .account-card.selected,
+html[data-skin="clean"] .account-card.expired.selected { background: var(--platform-accent-soft); border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+
+/* Narrow screens */
+@media (max-width: 860px) {
+  html[data-skin="clean"] { --platform-sidebar: 244px; }
+  html[data-skin="clean"] .platform-topbar { padding: 0 14px; }
+  html[data-skin="clean"] .platform-main > main { padding: 16px 12px 28px !important; }
+  html[data-skin="clean"] .mobile-account-actions:not([hidden]) { background: var(--platform-accent-soft); }
+  html[data-skin="clean"] .account-card .account-status-toggle { background: transparent; }
+  html[data-skin="clean"] .account-card .account-status-toggle:hover,
+  html[data-skin="clean"] .account-card .account-status-toggle[aria-expanded="true"] { background: var(--warning-soft); }
+}
+@media (max-width: 760px) {
+  html[data-skin="clean"] .stat-chip { padding: 3px 10px; gap: 4px; }
+}

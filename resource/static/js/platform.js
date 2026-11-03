@@ -72,7 +72,7 @@
     <section class="platform-stage">
       <header class="platform-topbar">
         <div style="display:flex;align-items:center;gap:12px;min-width:0"><button class="platform-menu" id="platformMenu" type="button" aria-label="打开导航">☰</button><div class="platform-page-context"><div class="platform-breadcrumb">YYB Go / ${current[1]}</div><div class="platform-page-title">${current[0]}</div></div></div>
-        <div class="platform-user"><button class="platform-build" id="platformBuild" type="button" aria-label="当前版本读取中，点击检查更新" aria-haspopup="dialog" aria-controls="platformUpdateDialog" title="检查版本与更新"><span>当前版本</span><strong>读取中</strong></button><div class="platform-user-copy"><strong id="platformUserName">正在读取</strong><span id="platformUserRole">当前用户</span></div><span class="platform-avatar" id="platformAvatar">Y</span></div>
+        <div class="platform-user"><button class="platform-skin" id="platformSkin" type="button"></button><button class="platform-build" id="platformBuild" type="button" aria-label="当前版本读取中，点击检查更新" aria-haspopup="dialog" aria-controls="platformUpdateDialog" title="检查版本与更新"><span>当前版本</span><strong>读取中</strong></button><div class="platform-user-copy"><strong id="platformUserName">正在读取</strong><span id="platformUserRole">当前用户</span></div><span class="platform-avatar" id="platformAvatar">Y</span></div>
       </header>
       <div class="platform-main"></div>
     </section>
@@ -91,6 +91,26 @@
   document.body.insertBefore(shell, document.body.firstChild);
   shell.querySelector(".platform-main").appendChild(main);
   document.body.classList.add("platform-ready");
+
+  // Skins: the classic look stays the default; the clean skin is opt-in per browser.
+  const skinNames = { classic: "经典", clean: "清爽" };
+  const skinIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1a1.6 1.6 0 0 1 1.7-1.7H17c3 0 5.5-2.5 5.5-5.5C22 6 17.5 2 12 2z"/></svg>`;
+  const currentSkin = () => document.documentElement.dataset.skin === "clean" ? "clean" : "classic";
+  const skinButton = document.getElementById("platformSkin");
+  const showSkin = skin => {
+    if (skin === "clean") document.documentElement.dataset.skin = "clean";
+    else delete document.documentElement.dataset.skin;
+    skinButton.innerHTML = `${skinIcon}<span>皮肤：${skinNames[skin]}</span>`;
+    skinButton.setAttribute("aria-label", `切换皮肤，当前：${skinNames[skin]}`);
+    skinButton.title = `切换到${skinNames[skin === "clean" ? "classic" : "clean"]}皮肤`;
+  };
+  skinButton.onclick = () => {
+    const next = currentSkin() === "clean" ? "classic" : "clean";
+    try { localStorage.setItem("yyb-skin", next); } catch {}
+    showSkin(next);
+  };
+  window.addEventListener("storage", event => { if (event.key === "yyb-skin") showSkin(event.newValue === "clean" ? "clean" : "classic"); });
+  showSkin(currentSkin());
 
   const menu = document.getElementById("platformMenu");
   const sidebar = shell.querySelector(".platform-sidebar");
