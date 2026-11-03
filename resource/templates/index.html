@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>工作台 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261001-compact">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
+  <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
   <style>
     :root {
       color-scheme: light;
@@ -980,9 +982,9 @@
           <h2>账号工作台</h2>
           <div class="stat-row" aria-label="运行统计">
             <span class="stat-chip">账号 <strong id="accountCount">0</strong></span>
-            <span class="stat-chip">可用 <strong id="aliveCount">0</strong></span>
-            <span class="stat-chip">待确认 <strong id="pendingCount">0</strong></span>
-            <span class="stat-chip">已失效 <strong id="expiredCount">0</strong></span>
+            <span class="stat-chip ok">可用 <strong id="aliveCount">0</strong></span>
+            <span class="stat-chip warn">待确认 <strong id="pendingCount">0</strong></span>
+            <span class="stat-chip fail">已失效 <strong id="expiredCount">0</strong></span>
             <span hidden>能力 <strong id="featureCount">0</strong>权限 <strong id="currentRoleText">读取中</strong>调用额度 <strong id="currentQuotaText">无限制</strong>当前 <strong id="currentAccountText">未选择</strong></span>
           </div>
         </div>
@@ -2384,6 +2386,6 @@
   </script>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=048">
   <script src="/static/js/scan-channel.js?v=048"></script>
-  <script src="/static/js/platform.js?v=20261030-workspace"></script>
+  <script src="/static/js/platform.js?v=20261103-skin"></script>
 </body>
 </html>
