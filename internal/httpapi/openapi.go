@@ -456,6 +456,34 @@ func newOpenAPISpec() map[string]any {
 					}),
 				),
 			},
+			"/wx/h5code": map[string]any{
+				"post": openAPIOperation(
+					[]string{"wxapp"},
+					"获取公众号网页授权 code（H5 OAuth 自动确认）",
+					nil,
+					jsonRequestBody(map[string]any{
+						"type":     "object",
+						"required": []string{"ref", "app_id"},
+						"properties": map[string]any{
+							"ref":    map[string]any{"type": "string", "description": "账号引用：数字 ID 或 @OpenID"},
+							"app_id": map[string]any{"type": "string", "description": "公众号 AppID"},
+							"payload": map[string]any{
+								"type":     "object",
+								"required": []string{"redirect_uri"},
+								"properties": map[string]any{
+									"redirect_uri": map[string]any{"type": "string", "description": "授权后微信回跳的业务地址，code 附加在它的 query 上"},
+									"scope":        map[string]any{"type": "string", "enum": []string{"snsapi_base", "snsapi_userinfo"}, "description": "默认 snsapi_base"},
+									"state":        map[string]any{"type": "string", "description": "可选；缺省自动生成并在响应中返回"},
+								},
+							},
+						},
+					}),
+					defaulted(map[string]any{
+						"200": jsonResponse("网页授权 code（回调地址与 state 严格校验后返回 result.code）。", refSchema("WxappResponse")),
+					}),
+				),
+			},
+			"/wxapp/getH5Code": wxAliasOperation("获取公众号网页授权 code（H5 OAuth 自动确认；/wx/h5code 兼容入口）", "WxappRequest", "WxappResponse"),
 			"/wx/qrcodeauth/{session_id}/image": map[string]any{
 				"get": openAPIOperation([]string{"qr"}, "获取兼容二维码图片", []map[string]any{pathStringParam("session_id", "二维码会话 ID。")}, nil,
 					defaulted(map[string]any{"200": imageResponse("二维码图片。")})),

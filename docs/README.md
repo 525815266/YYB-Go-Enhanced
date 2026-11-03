@@ -34,6 +34,7 @@
 | [取码熔断与触发规律](code-circuit-breaker-20261101.md) | 两层本地熔断、触发规律与默认阈值 |
 | [整点任务与新授权失效](hour-mark-offline-20261101.md) | 整点批量取码与新授权失效的相关性（因果尚未验证） |
 | [网站应用 AppID 取码与授权失效](website-appid-getcode-20261103.md) | 对网站应用 AppID 取一次码后授权被拒的生产观察与备用号对照（一对一，机制未知），v0.2.63 默认拒绝的依据 |
+| [公众号网页授权 code 与动态 AppID 防护（2026-11-04）](h5-oauth-code.md) | /wx/h5code（1254 oauth_authorize 自动确认）的用法与失败语义；取码无 code 自学习黑名单的触发、查看与清除 |
 | [固定设备标识、legacy 续期结论与掉线通知](device-identity-offline-notify-20261101.md) | v0.2.58 的改动与验证边界 |
 | [AS 默认历史刷新策略](legacy-refresh-mode.md) | `legacy_auth` 与按来源刷新的差异、已知问题 |
 | [授权与缓存会话分层](credential-session-layers.md) | OAuth 拒绝与协议会话分开处理 |

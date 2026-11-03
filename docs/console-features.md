@@ -26,7 +26,7 @@ v0.2.48 支持 YYB / PCMgr 两套扫码渠道，Linux / Docker / Windows 均使�
 
 v0.2.53 在管理员左侧新增“运行日志”，支持分类、等级、账号、渠道和时间筛选，可查看续期、票据、原生恢复及调用的独立事件。日志重启保留，近 7 天最多 10,000 条，不采集密钥或请求正文。
 
-**掉线事件里的 `recent`（v0.2.66 起）：** 账号被上游拒绝时，`account.expired`（授权失效）和 `account.refresh_failed`（按需或手动刷新失败）事件的详情里带一个 `recent` 列表，写着这个账号刚刚做了什么：最近 3 分钟内最多 12 条取码、取号、转发请求，每条有 AppID、请求类型（`op`）、结果（`event`：`succeeded`、`failed`、`recovery_started`、`recovered`、`circuit_deferred` 等）、距离这条事件多少秒（`age_s`），以及失败时的上游拒绝码（`code`，例如 `-14`）。只含标识符，不含请求内容、凭据或 code；只在内存里记着，重启后清空。反馈“账号掉线”时，请把这一条事件的详情贴出来，它能直接说明掉线前最后几个 AppID 是什么。
+**掉线事件里的 `recent`（v0.2.67 起）：** 账号被上游拒绝时，`account.expired`（授权失效）和 `account.refresh_failed`（按需或手动刷新失败）事件的详情里带一个 `recent` 列表，写着这个账号刚刚做了什么：最近 3 分钟内最多 12 条取码、取号、转发请求，每条有 AppID、请求类型（`op`）、结果（`event`：`succeeded`、`failed`、`recovery_started`、`recovered`、`circuit_deferred` 等）、距离这条事件多少秒（`age_s`），以及失败时的上游拒绝码（`code`，例如 `-14`）。只含标识符，不含请求内容、凭据或 code；只在内存里记着，重启后清空。反馈“账号掉线”时，请把这一条事件的详情贴出来，它能直接说明掉线前最后几个 AppID 是什么。
 
 ## 皮肤
 
