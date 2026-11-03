@@ -1,0 +1,106 @@
+//go:build h5probe
+
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"testing"
+	"time"
+
+	"yyb_go/internal/eventlog"
+	"yyb_go/internal/protocol"
+	"yyb_go/internal/store"
+)
+
+// timeoutError satisfies net.Error so the probe can model a transport timeout.
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+var _ net.Error = timeoutError{}
+
+// TestH5RecoveryMatrix counts the OAuth-layer calls one failed request causes,
+// per request class and per kind of upstream failure. Nothing here reaches the
+// network: the "upstream" is the injected call, the ticket and refresh
+// endpoints are counters. It documents the current behavior of invokeWXApp for
+// docs/h5-vs-miniprogram-drops-20261102.md and is not part of normal CI:
+//
+//	go test -tags h5probe ./internal/httpapi -run TestH5RecoveryMatrix -v
+func TestH5RecoveryMatrix(t *testing.T) {
+	type failure struct {
+		name string
+		make func(call int) error // call is 1 for the first attempt, 2 for the retry
+	}
+	failures := []failure{
+		{"application -14", func(int) error { return &protocol.ShortlinkRejectedError{Code: -14} }},
+		{"payload parse/decrypt failure", func(int) error { return protocol.ErrShortlinkPayload }},
+		{"transport rejection (non -14)", func(int) error { return &protocol.ShortlinkRejectedError{Code: -1, Transport: true} }},
+		{"empty wx.login code", func(int) error { return protocol.ErrLoginCodeUnavailable }},
+		{"network timeout", func(int) error { return timeoutError{} }},
+		{"ManualAuth -10, retry ok", func(call int) error {
+			if call == 1 {
+				return &protocol.ManualAuthRejectedError{Code: -10}
+			}
+			return nil
+		}},
+		{"getCode recovery failed on a fresh-ticket access rejection", func(int) error {
+			return &protocol.CodeSessionRecoveryError{Cause: errors.Join(
+				&protocol.ShortlinkRejectedError{Code: -14},
+				&protocol.ManualAuthRejectedError{Code: -10},
+				&protocol.CodeCredentialRecoveryError{Cause: &protocol.LoginBufferRejectedError{Code: -101}},
+			)}
+		}},
+	}
+	type class struct {
+		name    string
+		op      string
+		payload map[string]any
+	}
+	classes := []class{
+		{"getCode (wx.login, cmd 1029)", eventlog.OpGetCode, nil},
+		{"getPhoneNumber (cmd 1020)", eventlog.OpGetPhoneNumber, nil},
+		{"operateWxData generic (cmd 1133)", eventlog.OpOperateWXData, map[string]any{"api_name": "webapi_getuserencryptkey"}},
+		{"operateWxData mpGetA8Key forward", eventlog.OpOperateWXData, map[string]any{"api_name": "mpGetA8Key"}},
+	}
+
+	fmt.Printf("%-34s | %-52s | calls | tickets | forced refreshes | outcome\n", "request class", "failure returned by the call")
+	n := 0
+	for _, c := range classes {
+		for _, f := range failures {
+			n++
+			app := newKeepAliveTestApp(t)
+			acc := insertKeepAliveTestAccount(t, app, fmt.Sprintf("probe-%d", n), time.Now().Add(time.Hour))
+			tickets, refreshes := 0, 0
+			app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+				tickets++
+				return "fresh-ticket", nil
+			}
+			app.refreshCredentials = func(_ context.Context, creds protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+				refreshes++
+				creds.AccessToken = fmt.Sprintf("rotated-%d", refreshes)
+				creds.ExpiresAt = time.Now().Add(2 * time.Hour).Unix()
+				return creds, nil
+			}
+			calls := 0
+			ctx := withWXOperationContext(context.Background(), c.op)
+			_, err := app.invokeWXApp(ctx, acc, "wx-probe", c.payload, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+				calls++
+				if err := f.make(calls); err != nil {
+					return nil, err
+				}
+				return map[string]any{"code": "synthetic"}, nil
+			})
+			outcome := "ok"
+			if err != nil {
+				outcome = "error"
+			}
+			fmt.Printf("%-34s | %-52s | %5d | %7d | %16d | %s\n", c.name, f.name, calls, tickets, refreshes, outcome)
+			app.Close()
+		}
+	}
+}
