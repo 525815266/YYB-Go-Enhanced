@@ -180,6 +180,7 @@ Docker Compose 部署把 `.env.example` 复制为 `.env` 后修改；原生程�
 | `YYB_FRESH_SESSION_WINDOW` | 默认 `2m`。会话刚取到 code 后这段时间内的 `-14` 不重新登录；`off` 或 `0` 关闭，批量取码被拦得太多时用，详见[配置](docs/configuration.md#刚成功后的--14-保护v0265-起可调) |
 | `YYB_CODE_MIN_GAP` / `YYB_CODE_MAX_WAIT` | 默认 `3s` / `20s`。同一账号向上游发出请求的最小间隔与最长排队时间 |
 | `YYB_CODE_ALLOW_APPIDS` / `YYB_CODE_DENY_APPIDS` | 默认都为空。取码请求默认拒绝已知的网站应用 AppID（腾讯电脑管家、京东护照）；前者放行指定 AppID，后者追加自己的禁用名单，逗号分隔 |
+| `YYB_CODE_DYNAMIC_DENY` / `YYB_CODE_DYNAMIC_DENY_THRESHOLD` | 默认 `1` / `1`。自学习黑名单：某 AppID 取码到上游但拿不到 code（网站应用/公众号特征）即自动禁用并持久化，防未知 H5 脚本打死账号；`0` 关闭，`/api/appid-deny` 可查看与清除 |
 | `YYB_UPDATE_PROXY` / `YYB_UPDATE_VERSION_URL` | 默认空。仅用于版本检查的代理与版本源 |
 
 完整变量、取值范围和注意事项见 [配置与账号安全](docs/configuration.md)；面板相关变量见下一节。

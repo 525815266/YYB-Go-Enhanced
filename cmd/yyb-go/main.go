@@ -168,6 +168,14 @@ func main() {
 		// authorization, so code requests refuse the known ones by default.
 		CodeDenyAppIDs:  envList("YYB_CODE_DENY_APPIDS"),
 		CodeAllowAppIDs: envList("YYB_CODE_ALLOW_APPIDS"),
+
+		// An AppID whose code request reaches the upstream and comes back
+		// without a code is learned as dangerous and denied for every account;
+		// YYB_CODE_DYNAMIC_DENY=0 switches the learning off.
+		DisableDynamicAppIDDeny: !envBool("YYB_CODE_DYNAMIC_DENY", true),
+
+		// How many code-less outcomes deny an AppID; default is one.
+		CodeDynamicDenyThreshold: envInt("YYB_CODE_DYNAMIC_DENY_THRESHOLD", 1),
 	}
 
 	if *resetAdmin != "" {
@@ -268,6 +276,24 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+// envBool reads a switch: 1/true/on enable, 0/false/off disable. An unset or
+// unreadable value keeps the fallback.
+func envBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "on", "yes":
+		return true
+	case "0", "false", "off", "no":
+		return false
+	default:
+		log.Printf("%s=%q is not a valid switch; using %v", key, raw, fallback)
+		return fallback
+	}
 }
 
 func getEnvWithFallback(keys ...string) string {
