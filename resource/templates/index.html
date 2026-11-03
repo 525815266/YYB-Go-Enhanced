@@ -1264,7 +1264,9 @@
       proxyConfigs: new Map(),
       selectedOpenID: "",
       lastResult: "",
-      expiredIntroPlayed: false,
+      // Ids that were already expired at the last render. It stays null until the
+      // first render, so opening the page never replays failures that are old.
+      expiredSeen: null,
       syncingAccount: false
     };
 
@@ -1548,7 +1550,7 @@
       }
 
       strip.innerHTML = "";
-      const playExpiredIntro = !state.expiredIntroPlayed;
+      const previouslyExpired = state.expiredSeen;
       if (!visible.length) strip.innerHTML = '<div class="empty-state">没有匹配的账号，试试其他关键词或状态。</div>';
       for (const account of visible) {
         const name = accountName(account);
@@ -1558,7 +1560,8 @@
         const status = isExpired ? "已失效" : account.status === "session_only" ? "需补授权" : account.rescan_recommended ? "建议重扫" : statusText(account.status);
         const pendingConfirmation = account.status !== "alive" && account.status !== "expired" && account.status !== "session_only";
         const button = document.createElement("article");
-        button.className = `account-card ${cls}${isExpired && playExpiredIntro ? " expired-alert" : ""}`;
+        const justExpired = isExpired && previouslyExpired !== null && !previouslyExpired.has(account.id);
+        button.className = `account-card ${cls}${justExpired ? " expired-alert" : ""}`;
         button.dataset.openid = account.openid;
         if (isExpired) button.dataset.stateLabel = "已失效";
         const number = accountNumber(account);
@@ -1632,7 +1635,7 @@
         }));
         strip.appendChild(button);
       }
-      state.expiredIntroPlayed = true;
+      state.expiredSeen = new Set(state.accounts.filter(item => item.status === "expired").map(item => item.id));
       renderStats();
     }
 
