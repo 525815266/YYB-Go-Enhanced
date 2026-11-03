@@ -264,6 +264,17 @@ YYB_CODE_MAX_WAIT=20s
 
 缺少的键沿用上面的配置值，文件无法解析时保留上一次有效设置，删除文件恢复配置值。
 
+## 取码 AppID 保护
+
+v0.2.63 起，取码请求带着已知的网站应用 AppID（腾讯电脑管家 `wx5cd60c5d4817a188`、京东网页登录护照 `wx2f5d8f9715c59d10`）时，服务端直接返回 `403`，请求不发往上游。依据见[网站应用 AppID 取码与授权失效](website-appid-getcode-20261103.md)。
+
+```dotenv
+YYB_CODE_ALLOW_APPIDS=
+YYB_CODE_DENY_APPIDS=
+```
+
+两项都是逗号或空格分隔的 AppID 列表，大小写不敏感。`YYB_CODE_ALLOW_APPIDS` 放行指定 AppID，优先级最高；`YYB_CODE_DENY_APPIDS` 在内置名单之外追加自己的禁用名单。被拒绝的请求不占限速槽位、不进熔断计数，日志里记为 `protocol.appid_denied`。只影响取码请求，取号和 operateWxData 不受影响。
+
 ## 数据目录与备份
 
 Compose 默认持久化：

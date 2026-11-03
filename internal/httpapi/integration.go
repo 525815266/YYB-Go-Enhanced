@@ -168,7 +168,7 @@ func (a *App) handleIntegrationGetCode(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := a.invokeWXApp(withWXOperationContext(r.Context(), eventlog.OpGetCode), account, strings.TrimSpace(body.AppID), nil, a.invokeGetCode)
 	if err != nil {
-		if writeIfCircuitOpen(w, err) {
+		if writeIfCircuitOpen(w, err) || writeIfAppIDDenied(w, err) {
 			return
 		}
 		writeError(w, http.StatusBadGateway, err.Error())

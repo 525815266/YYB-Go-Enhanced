@@ -178,6 +178,7 @@ Docker Compose 部署把 `.env.example` 复制为 `.env` 后修改；原生程�
 | `YYB_CIRCUIT_BREAKER` | 默认 `on`。取码熔断，`off` 关闭 |
 | `YYB_LOGIN_BUDGET` / `YYB_LOGIN_WINDOW` | 默认 `3` / `10m`。登录预算：窗口内因业务请求重新登录的次数上限 |
 | `YYB_CODE_MIN_GAP` / `YYB_CODE_MAX_WAIT` | 默认 `3s` / `20s`。同一账号向上游发出请求的最小间隔与最长排队时间 |
+| `YYB_CODE_ALLOW_APPIDS` / `YYB_CODE_DENY_APPIDS` | 默认都为空。取码请求默认拒绝已知的网站应用 AppID（腾讯电脑管家、京东护照）；前者放行指定 AppID，后者追加自己的禁用名单，逗号分隔 |
 | `YYB_UPDATE_PROXY` / `YYB_UPDATE_VERSION_URL` | 默认空。仅用于版本检查的代理与版本源 |
 
 完整变量、取值范围和注意事项见 [配置与账号安全](docs/configuration.md)；面板相关变量见下一节。

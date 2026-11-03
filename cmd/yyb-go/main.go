@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"yyb_go/internal/httpapi"
 	"yyb_go/internal/protocol"
@@ -157,6 +158,11 @@ func main() {
 		CodeMaxWait: envDuration("YYB_CODE_MAX_WAIT", 20*time.Second),
 		LoginBudget: envInt("YYB_LOGIN_BUDGET", protocol.DefaultLoginBudget),
 		LoginWindow: envDuration("YYB_LOGIN_WINDOW", protocol.DefaultLoginWindow),
+
+		// Website-application AppIDs never get a code and cost the account its
+		// authorization, so code requests refuse the known ones by default.
+		CodeDenyAppIDs:  envList("YYB_CODE_DENY_APPIDS"),
+		CodeAllowAppIDs: envList("YYB_CODE_ALLOW_APPIDS"),
 	}
 
 	if *resetAdmin != "" {
@@ -204,6 +210,12 @@ func main() {
 // one burst that got an authorization rejected after successful requests alone
 // came in at about 1.6 requests a second.
 const defaultCodeMinGap = 3 * time.Second
+
+// envList reads a list separated by commas or white space. An unset or empty
+// value gives no entries.
+func envList(key string) []string {
+	return strings.FieldsFunc(os.Getenv(key), func(r rune) bool { return r == ',' || unicode.IsSpace(r) })
+}
 
 // envDuration reads a Go duration such as "2s". "off" and "0" mean zero, which
 // switches the setting off. An empty or unreadable value keeps the default and

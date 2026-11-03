@@ -91,6 +91,12 @@ type Config struct {
 	// LoginWindow; zero disables it. tuning.json overrides both at run time.
 	LoginBudget int
 	LoginWindow time.Duration
+
+	// CodeDenyAppIDs adds AppIDs that code requests refuse on top of the
+	// built-in website-application AppIDs; CodeAllowAppIDs lifts a refusal and
+	// wins over both lists.
+	CodeDenyAppIDs  []string
+	CodeAllowAppIDs []string
 }
 
 type App struct {
@@ -110,6 +116,7 @@ type App struct {
 	auth               *auth.Store
 	notifier           *offlineNotifier
 	circuit            *circuitBreaker
+	appIDs             *appIDPolicy
 	pacer              *accountPacer
 
 	mu                sync.Mutex
@@ -259,6 +266,7 @@ func NewApp(cfg Config) (*App, error) {
 		qinglong:           newQingLongClient(cfg.QingLongType, cfg.QingLongURL, cfg.QingLongClientID, cfg.QingLongSecret, cfg.RequestTimeout),
 		notifier:           newOfflineNotifier(offlineNotifyTimeout),
 		circuit:            newCircuitBreaker(circuitConfigFor(cfg.DisableCircuitBreaker)),
+		appIDs:             newAppIDPolicy(cfg.CodeDenyAppIDs, cfg.CodeAllowAppIDs),
 		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), trafficSettings),
 		qrSessions:         map[string]*qrLoginSession{},
 		quickSessions:      map[string]quickLoginSession{},
@@ -1106,6 +1114,7 @@ func (a *App) callWXApp(w http.ResponseWriter, r *http.Request, requirePayload b
 		case errors.As(err, &expired):
 			writeAccountExpired(w, expired)
 		case writeIfCircuitOpen(w, err):
+		case writeIfAppIDDenied(w, err):
 		default:
 			writeProtocolCallError(w, err)
 		}
@@ -1361,6 +1370,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		fields.Rejections = eventRejections(errOut)
 		event := "protocol.succeeded"
 		var open *circuitOpenError
+		var denied *appIDDeniedError
 		switch {
 		case errors.As(errOut, &open):
 			if open.Scope == "pacing" {
@@ -1370,11 +1380,20 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 			}
 			// A locally short-circuited request never reached the upstream.
 			event = "protocol.circuit_deferred"
+		case errors.As(errOut, &denied):
+			event = "protocol.appid_denied"
 		case errOut != nil:
 			event = "protocol.failed"
 		}
 		a.events.Emit(event, fields)
 	}()
+	// A website-application AppID never gets a code and costs the account its
+	// authorization, so it is refused before anything else looks at the request.
+	if op == eventlog.OpGetCode {
+		if denied := a.appIDs.check(appID); denied != nil {
+			return nil, denied
+		}
+	}
 	// Bound queueing, protocol login and any credential recovery together.
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout+35*time.Second)
 	defer cancel()
