@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,10 @@ type ExchangeRejectedError struct{ Code int }
 func (e *ExchangeRejectedError) Error() string {
 	return fmt.Sprintf("GameAssist code exchange rejected: code=%d", e.Code)
 }
+
+// errNotJSONEnvelope marks a callback answer that is neither the credential
+// envelope nor the flat login state; callers enrich it with shape diagnostics.
+var errNotJSONEnvelope = errors.New("not a JSON envelope")
 
 // Credentials mirrors the login state the official client receives after the
 // syzs_oauth exchange (GameAssist.log: openId, accessToken "1_...",
@@ -108,10 +113,28 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 	}
 	creds, err := parseExchange(data)
 	if err != nil {
+		if errors.Is(err, errNotJSONEnvelope) {
+			// Bounded diagnostics: shape only, never body text — the page may
+			// carry the raw tokens.
+			finalURL := sanitizeURLForLog(resp.Request.URL.String())
+			return Credentials{}, fmt.Errorf("invalid GameAssist code exchange response: HTTP %d type=%q len=%d set_cookies=%v url=%s",
+				resp.StatusCode, resp.Header.Get("Content-Type"), len(data), cookieNames(resp.Cookies()), finalURL)
+		}
 		return Credentials{}, err
 	}
 	if creds.OpenID == "" || creds.AccessToken == "" {
 		creds.fillFromCookies(client.Jar, cb)
+	}
+	if creds.OpenID == "" || creds.AccessToken == "" {
+		// The official flow hands the callback an HTML hop whose script writes
+		// the .qq.com cookies login_result.html later reads; parse the literals
+		// out of that page when the gateway answers with HTML instead of JSON.
+		if fillFromHTML(&creds, data) && creds.Validate() == nil {
+			if err := validateScope(creds.Scope); err != nil {
+				return Credentials{}, err
+			}
+			return creds, nil
+		}
 	}
 	if err := validateScope(creds.Scope); err != nil {
 		return Credentials{}, err
@@ -130,7 +153,7 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 func parseExchange(data []byte) (Credentials, error) {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(data, &top); err != nil {
-		return Credentials{}, errors.New("invalid GameAssist code exchange response")
+		return Credentials{}, errNotJSONEnvelope
 	}
 	if raw, ok := top["code"]; ok {
 		n, err := decodeInt(raw)
@@ -182,10 +205,91 @@ func parseExchange(data []byte) (Credentials, error) {
 	return creds, nil
 }
 
+// fillFromHTML extracts the credential literals an HTML callback hop writes
+// via document.cookie / setCookie(...) style script assignments. Values stay
+// out of error paths; the page is never logged.
+func fillFromHTML(c *Credentials, data []byte) bool {
+	text := string(data)
+	picked := false
+	set := func(name, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || value == "null" {
+			return
+		}
+		switch strings.ToLower(name) {
+		case "openid":
+			if c.OpenID == "" {
+				c.OpenID, picked = value, true
+			}
+		case "accesstoken":
+			if c.AccessToken == "" {
+				c.AccessToken, picked = value, true
+			}
+		case "refreshtoken":
+			if c.RefreshToken == "" {
+				c.RefreshToken, picked = value, true
+			}
+		case "logintype":
+			if c.LoginType == "" {
+				c.LoginType, picked = value, true
+			}
+		case "scope":
+			if c.Scope == "" {
+				c.Scope, picked = value, true
+			}
+		}
+	}
+	// Matches document.cookie="name=value;..." and setCookie("name","value")
+	// with either quote style, honoring JS escapes crudely.
+	re := regexp.MustCompile(`(?i)(?:document\.cookie|setCookie)\s*[(=]\s*"((?:[^"\\]|\\.)*)"|"((?:[^"\\]|\\.)+?)"\s*,\s*"((?:[^"\\]|\\.)+?)"`)
+	for _, m := range re.FindAllStringSubmatch(text, 200) {
+		if m[1] != "" {
+			for _, part := range strings.Split(m[1], ";") {
+				kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+				if len(kv) == 2 {
+					set(unquoteJS(kv[0]), unquoteJS(kv[1]))
+				}
+			}
+			continue
+		}
+		set(unquoteJS(m[2]), unquoteJS(m[3]))
+	}
+	return picked
+}
+
+func unquoteJS(s string) string {
+	if v, err := strconv.Unquote(`"` + s + `"`); err == nil {
+		return v
+	}
+	return s
+}
+
+func cookieNames(cookies []*http.Cookie) []string {
+	names := make([]string, 0, len(cookies))
+	for _, ck := range cookies {
+		names = append(names, ck.Name)
+	}
+	return names
+}
+
+func sanitizeURLForLog(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "[unparsed]"
+	}
+	q := u.Query()
+	for _, key := range []string{"code", "openid", "accesstoken", "refreshtoken", "access_token", "refresh_token", "open_id"} {
+		if q.Get(key) != "" {
+			q.Set(key, "[redacted]")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // fillFromCookies recovers the token set when the gateway delivers it as
 // cookies, matching the pc_yyb_oauth callback behavior.
-func (c *Credentials) fillFromCookies(jar http.CookieJar, rawURL string) {
-	if jar == nil {
+func (c *Credentials) fillFromCookies(jar http.CookieJar, rawURL string) {	if jar == nil {
 		return
 	}
 	u, err := url.Parse(rawURL)

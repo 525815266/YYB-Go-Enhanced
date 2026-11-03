@@ -44,6 +44,12 @@
 
 **凭据生命周期说明**：gameassist 初扫凭据 `expires_at` 为官方约 30 天窗口；首次经 `pc_yyb` 主路由刷新后 `expires_in` 收敛为网关返回值（通常 7200 秒），保活节奏随之自动转为小时级——与 appstore 扫码凭据行为一致。
 
+## 实机验收记录（2026-11-04，生产 v0.2.69）
+
+1. **pcmgr 渠道接入成功**：生产扫码 → 授权 → confirm 首次 `20138 code=6`（loginkey 签发侧到原生网关的传播延迟，约 1 分钟后同凭据重试成功）→ 账号 id=14（`pcmgr:487970106`）→ `/wx/code` 真码 `login:ok`。v0.2.69 起确认阶段自动吸收该瞬态拒绝。
+2. **gameassist state 校验实锤**：首次生产扫码授权成功后 `syzs_oauth` 返回 `-109 RC_PARAMS_INVALID`。假 code 参数矩阵探测（参数形状/UA/Referer/缺参均不改变结果）：`state=web` → `-109`，`state=49.57735723381141`（官方 `state=100*Math.random()` 形状）→ `-107 RC_NO_AUTH_ERR`（进入码校验层，与 pcyyb_oauth 假 code 行为一致）。结论：**网关要求 state 为纯数字**；v0.2.69 起扫码会话生成官方形状浮点 state 并原样回传。
+3. 回调页 `imgcache.qq.com/syzs/syzsweb/login/login_result.html`（已抓源码）逻辑：读 cookie `syzs_prefix` + `openid`/`logintype`，成功即 `postMessage` 父窗口——证实凭据经 **cookie 签发**（domain=.qq.com），客户端再从 cookie 读取完整 token 集合传给 `SetLoginParam`。
+
 ## 未验证边界（发布时必须如实告知）
 
 以下两项依赖实机扫码，**发布时尚未验证**，静态证据只能说明"应当可行"：

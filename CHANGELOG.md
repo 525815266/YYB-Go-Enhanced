@@ -2,6 +2,10 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.70 - 2026-11-04
+
+- **gameassist 换票第二跳适配（实机推进）：** 数字 state 修复后，`syzs_oauth` 对有效 code 不再返回 JSON 信封，而是官方流程中的 HTML 中转跳（凭据经 .qq.com cookie 交给 `login_result.html`）。ExchangeCode 现在按三种形态收尾：JSON 信封 / 会话 jar 里的 cookie / **HTML 中转页里的 `document.cookie`/`setCookie` 字面量**；解析失败时报错只带形态指纹（HTTP 状态、Content-Type、长度、Set-Cookie 名单、脱敏后的最终 URL），绝不带正文，防止凭据进日志。
+
 ## v0.2.69 - 2026-11-04
 
 - **修复 gameassist 扫码换票被拒（实机定位）：state 必须是数字。** 首次生产扫码授权成功后 `syzs_oauth` 返回 `-109 RC_PARAMS_INVALID`；用假 code 做参数矩阵探测，`state=web` 稳定复现 -109，而 `state=49.57735723381141`（官方客户端 JS `state=100*Math.random()` 的形状）立即推进到 `-107 RC_NO_AUTH_ERR`（与 pcyyb_oauth 假 code 的"码无效"层一致）。现在扫码会话生成官方形状的随机浮点 state 并原样带到回调换取；非数字 state 在本地直接拒绝。
