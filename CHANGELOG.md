@@ -2,6 +2,10 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.72 - 2026-11-04
+
+- **修复 gameassist 换票提取顺序（实机定位，v0.2.71 流程缺陷）：** 逐跳指纹显示 `syzs_oauth` 302 已正确种下全部凭据 cookie（`openid/accesstoken/refreshtoken/logintype/scope/expires_in/appid/syzs_prefix`）再跳官方 `login_result.html`，但 HTML 正文令 JSON 解析先报错短路，cookie 提取代码根本没执行到。现在三种来源（JSON 信封 / jar / 逐跳 Set-Cookie / HTML 字面量）统一先尝试、全部落空才报诊断指纹；cookie 提取补齐 `scope`（容忍 `%2C` 转义）与 `expires_in`（无信号时回退约 30 天窗口，避免账号生而过期）。
+
 ## v0.2.71 - 2026-11-04
 
 - **gameassist 换票逐跳捕获 cookie（实机定位）：** 形态指纹显示换票 302 链正常终结在官方 `login_result.html`（len=2322 与该静态页完全一致），但凭据 cookie 在中间跳的 Set-Cookie 上、会话 jar 跨域没收住。ExchangeCode 现在用逐跳记录传输层抓取**每一跳**的 Set-Cookie 并按名提取凭据（不再依赖 jar 的跨域语义），同时回调请求补上官方浏览器形态的 Referer/Chrome UA；失败指纹改为整条重定向链（每跳状态+脱敏 URL+Set-Cookie 名单）。

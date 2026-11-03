@@ -127,17 +127,12 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 	if err != nil {
 		return Credentials{}, errors.New("invalid GameAssist code exchange response")
 	}
-	creds, err := parseExchange(data)
-	if err != nil {
-		if errors.Is(err, errNotJSONEnvelope) {
-			// Bounded diagnostics: shape only, never body text — the page may
-			// carry the raw tokens.
-			finalURL := sanitizeURLForLog(resp.Request.URL.String())
-			return Credentials{}, fmt.Errorf("invalid GameAssist code exchange response: HTTP %d type=%q len=%d hops=%v url=%s",
-				resp.StatusCode, resp.Header.Get("Content-Type"), len(data), recorder.hopSummary(), finalURL)
-		}
-		return Credentials{}, err
-	}
+	// The callback can answer JSON, or the official HTML hop chain whose
+	// credential cookies ride the redirect Set-Cookie headers (production
+	// fingerprint 2026-11-04: the syzs_oauth 302 sets openid/accesstoken/
+	// refreshtoken/logintype/scope/expires_in before landing on
+	// login_result.html). Try every source before diagnosing.
+	creds, parseErr := parseExchange(data)
 	if creds.OpenID == "" || creds.AccessToken == "" {
 		creds.fillFromCookies(client.Jar, cb)
 	}
@@ -145,23 +140,33 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 		creds.fillFromCookies(recorder.cookiesFor(cb), cb)
 	}
 	if creds.OpenID == "" || creds.AccessToken == "" {
-		// The official flow hands the callback an HTML hop whose script writes
-		// the .qq.com cookies login_result.html later reads; parse the literals
-		// out of that page when the gateway answers with HTML instead of JSON.
-		if fillFromHTML(&creds, data) && creds.Validate() == nil {
-			if err := validateScope(creds.Scope); err != nil {
-				return Credentials{}, err
-			}
-			return creds, nil
+		// The HTML hop itself may write the cookies via script literals.
+		fillFromHTML(&creds, data)
+	}
+	if creds.Validate() == nil {
+		// The cookie path carries expires_in but not always; without any
+		// signal fall back to the observed ~30-day scan window so the account
+		// is not born expired.
+		if creds.ExpiresAt <= 0 {
+			creds.ExpiresIn = 30 * 86400
+			creds.ExpiresAt = time.Now().Unix() + creds.ExpiresIn
 		}
+		if err := validateScope(creds.Scope); err != nil {
+			return Credentials{}, err
+		}
+		return creds, nil
 	}
-	if err := validateScope(creds.Scope); err != nil {
-		return Credentials{}, err
+	if parseErr != nil {
+		if errors.Is(parseErr, errNotJSONEnvelope) {
+			// Bounded diagnostics: shape only, never body text — the page may
+			// carry the raw tokens.
+			finalURL := sanitizeURLForLog(resp.Request.URL.String())
+			return Credentials{}, fmt.Errorf("invalid GameAssist code exchange response: HTTP %d type=%q len=%d hops=%v url=%s",
+				resp.StatusCode, resp.Header.Get("Content-Type"), len(data), recorder.hopSummary(), finalURL)
+		}
+		return Credentials{}, parseErr
 	}
-	if err := creds.Validate(); err != nil {
-		return Credentials{}, err
-	}
-	return creds, nil
+	return Credentials{}, creds.Validate()
 }
 
 // parseExchange decodes the syzs gateway answer. Observed shapes: the
@@ -231,31 +236,10 @@ func fillFromHTML(c *Credentials, data []byte) bool {
 	text := string(data)
 	picked := false
 	set := func(name, value string) {
-		value = strings.TrimSpace(value)
-		if value == "" || value == "null" {
-			return
-		}
-		switch strings.ToLower(name) {
-		case "openid":
-			if c.OpenID == "" {
-				c.OpenID, picked = value, true
-			}
-		case "accesstoken":
-			if c.AccessToken == "" {
-				c.AccessToken, picked = value, true
-			}
-		case "refreshtoken":
-			if c.RefreshToken == "" {
-				c.RefreshToken, picked = value, true
-			}
-		case "logintype":
-			if c.LoginType == "" {
-				c.LoginType, picked = value, true
-			}
-		case "scope":
-			if c.Scope == "" {
-				c.Scope, picked = value, true
-			}
+		before := *c
+		c.fillFromCookie(name, strings.TrimSpace(value))
+		if *c != before {
+			picked = true
 		}
 	}
 	// Matches document.cookie="name=value;..." and setCookie("name","value")
@@ -371,30 +355,61 @@ func (c *Credentials) fillFromCookies(jar http.CookieJar, rawURL string) {
 			continue
 		}
 		for _, ck := range jar.Cookies(target) {
-			switch ck.Name {
-			case "openid":
-				if c.OpenID == "" {
-					c.OpenID = ck.Value
-				}
-			case "accesstoken":
-				if c.AccessToken == "" {
-					c.AccessToken = ck.Value
-				}
-			case "refreshtoken":
-				if c.RefreshToken == "" {
-					c.RefreshToken = ck.Value
-				}
-			case "logintype":
-				if c.LoginType == "" {
-					c.LoginType = ck.Value
-				}
-			case "nickname":
-				if c.Nickname == "" {
-					c.Nickname = ck.Value
-				}
+			c.fillFromCookie(ck.Name, ck.Value)
+		}
+	}
+}
+
+// fillFromCookie applies one callback cookie. Values may be URL-encoded by
+// the gateway (observed scope with %2C); decode tolerantly.
+func (c *Credentials) fillFromCookie(name, value string) {
+	value = decodeCookieValue(value)
+	if value == "" {
+		return
+	}
+	switch strings.ToLower(name) {
+	case "openid":
+		if c.OpenID == "" {
+			c.OpenID = value
+		}
+	case "accesstoken":
+		if c.AccessToken == "" {
+			c.AccessToken = value
+		}
+	case "refreshtoken":
+		if c.RefreshToken == "" {
+			c.RefreshToken = value
+		}
+	case "logintype":
+		if c.LoginType == "" {
+			c.LoginType = value
+		}
+	case "nickname":
+		if c.Nickname == "" {
+			c.Nickname = value
+		}
+	case "scope":
+		if c.Scope == "" {
+			c.Scope = value
+		}
+	case "expires_in":
+		if c.ExpiresIn <= 0 {
+			if n, err := strconv.ParseInt(value, 10, 64); err == nil && n > 0 {
+				c.ExpiresIn = n
+				c.ExpiresAt = time.Now().Unix() + n
 			}
 		}
 	}
+}
+
+func decodeCookieValue(value string) string {
+	if !strings.Contains(value, "%") {
+		return value
+	}
+	if decoded, err := url.QueryUnescape(value); err == nil {
+		return decoded
+	}
+	return value
 }
 
 func validateScope(scope string) error {
