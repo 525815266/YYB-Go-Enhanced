@@ -84,6 +84,9 @@ type Fields struct {
 	// Waited and Refused summarise a burst that pacing queued or turned away.
 	Waited  uint64 `json:"waited,omitempty"`
 	Refused uint64 `json:"refused,omitempty"`
+	// Recent is what the account had just asked for; it is attached to the
+	// events that report a death (account.expired, account.refresh_failed).
+	Recent []RecentRequest `json:"recent,omitempty"`
 }
 
 // Refresh sources outside the background keepalive loop, which reports its own
@@ -154,13 +157,14 @@ type Logger struct {
 	queue   chan store.SystemLog
 	done    chan struct{}
 	dropped atomic.Uint64
+	recent  *recentBook
 }
 
 func New(db *store.DB) (*Logger, error) {
 	if err := db.InitSystemLogs(context.Background()); err != nil {
 		return nil, err
 	}
-	l := &Logger{db: db, queue: make(chan store.SystemLog, 256), done: make(chan struct{})}
+	l := &Logger{db: db, queue: make(chan store.SystemLog, 256), done: make(chan struct{}), recent: newRecentBook()}
 	go l.run()
 	return l, nil
 }
@@ -206,6 +210,8 @@ func (l *Logger) Emit(event string, f Fields) {
 		}
 	}
 	f.Rejections = clean
+	l.recent.observe(event, f)
+	f.Recent = cleanRecent(f.Recent)
 	raw, _ := json.Marshal(f)
 	item := store.SystemLog{CreatedAt: time.Now().UnixMilli(), Level: d.level, Category: d.category, Event: event, Message: d.message, AccountID: f.AccountID, Channel: f.Channel, Details: raw}
 	l.mu.RLock()
