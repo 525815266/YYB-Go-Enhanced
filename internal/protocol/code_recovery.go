@@ -32,11 +32,44 @@ type codeRepairAttempt struct {
 	At      time.Time
 }
 
-// freshSessionWindow is how long after a successful request on a session a -14
-// is treated as the AppID's own refusal. Sessions do not expire within seconds,
-// so a new login inside this window cannot help and only adds logins that the
-// upstream may count against the authorization.
-const freshSessionWindow = 2 * time.Minute
+// DefaultFreshSessionWindow is how long after a successful request on a session
+// a -14 is treated as the AppID's own refusal. Sessions do not expire within
+// seconds, so a new login inside this window cannot help and only adds logins
+// that the upstream may count against the authorization. YYB_FRESH_SESSION_WINDOW
+// and tuning.json change it; zero switches the guard off.
+//
+// The guard rests on one assumption: that a session which just served a code can
+// serve the next AppID too. On accounts whose session is used up by one code the
+// next request needs a login, and the guard then refuses exactly the repair that
+// would have worked (see docs/dense-batch-lab-20261103.md).
+const DefaultFreshSessionWindow = 2 * time.Minute
+
+// EffectiveFreshWindow turns Config.FreshSessionWindow into the window the pool
+// applies: zero keeps the default, a negative value switches the guard off (0).
+func EffectiveFreshWindow(configured time.Duration) time.Duration {
+	switch {
+	case configured == 0:
+		return DefaultFreshSessionWindow
+	case configured < 0:
+		return 0
+	default:
+		return configured
+	}
+}
+
+// FreshSessionWindow reports the window in force; zero means the guard is off.
+func (p *Pool) FreshSessionWindow() time.Duration {
+	return time.Duration(p.freshWindow.Load())
+}
+
+// SetFreshSessionWindow changes the window at run time; zero or less switches
+// the guard off.
+func (p *Pool) SetFreshSessionWindow(window time.Duration) {
+	if window < 0 {
+		window = 0
+	}
+	p.freshWindow.Store(int64(window))
+}
 
 // repairRegistrationHook runs just before a repair attempt is registered. Tests
 // use it to cancel a request at exactly that point.
@@ -81,26 +114,34 @@ func firstAccount(expected []*store.WechatAccount) *store.WechatAccount {
 // the cache route key carried by st, which differs from the configured one after a direct
 // fallback.
 func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, st WmpfSession) {
+	window := p.FreshSessionWindow()
 	now := time.Now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for k, v := range p.verified {
-		if now.Sub(v.At) >= freshSessionWindow {
+		if now.Sub(v.At) >= window {
 			delete(p.verified, k)
 		}
+	}
+	if window <= 0 {
+		return
 	}
 	p.verified[sessionKey(accountID, st.TCPProxy)] = verifiedSession{Account: acc, At: now, Fingerprint: sessionFingerprint(st)}
 }
 
 // sessionRecentlyVerified reports whether a wx.login succeeded within
-// freshSessionWindow on the session that is cached for this account and route
+// the fresh-session window on the session that is cached for this account and route
 // now, under the same authorization. A replaced or invalidated cache never
 // matches, so a new session is not covered by an old success.
 func (p *Pool) sessionRecentlyVerified(ctx context.Context, current *store.WechatAccount, proxy string) bool {
+	window := p.FreshSessionWindow()
+	if window <= 0 {
+		return false
+	}
 	p.mu.Lock()
 	v, ok := p.verified[sessionKey(current.ID, proxy)]
 	p.mu.Unlock()
-	if !ok || time.Since(v.At) >= freshSessionWindow {
+	if !ok || time.Since(v.At) >= window {
 		return false
 	}
 	if v.Account != nil && !v.Account.SameAuthorization(current) {

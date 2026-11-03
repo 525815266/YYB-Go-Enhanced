@@ -92,6 +92,13 @@ type Config struct {
 	LoginBudget int
 	LoginWindow time.Duration
 
+	// FreshSessionWindow is how long after a successful code a -14 is treated as
+	// the AppID's own refusal and not repaired with a new login. Zero keeps the
+	// default (protocol.DefaultFreshSessionWindow), so a Config that does not
+	// set it behaves as before; a negative value switches the guard off.
+	// tuning.json overrides it at run time.
+	FreshSessionWindow time.Duration
+
 	// CodeDenyAppIDs adds AppIDs that code requests refuse on top of the
 	// built-in website-application AppIDs; CodeAllowAppIDs lifts a refusal and
 	// wins over both lists.
@@ -247,10 +254,11 @@ func NewApp(cfg Config) (*App, error) {
 	// embedders) keeps the previous behaviour; main supplies the defaults.
 	poolCfg.LoginBudget = cfg.LoginBudget
 	poolCfg.LoginWindow = cfg.LoginWindow
+	poolCfg.FreshSessionWindow = cfg.FreshSessionWindow
 	pool := protocol.NewPool(poolCfg, db)
 	qrClient := qr.NewClient(cfg.RequestTimeout)
 	// The traffic limiter's configured values; tuning.json may override them at run time.
-	trafficSettings := pacingSettings{MinGap: cfg.CodeMinGap, MaxWait: cfg.CodeMaxWait, LoginBudget: cfg.LoginBudget, LoginWindow: cfg.LoginWindow}
+	trafficSettings := pacingSettings{MinGap: cfg.CodeMinGap, MaxWait: cfg.CodeMaxWait, LoginBudget: cfg.LoginBudget, LoginWindow: cfg.LoginWindow, FreshWindow: protocol.EffectiveFreshWindow(cfg.FreshSessionWindow)}
 	app := &App{
 		updates:            newUpdateChecker(cfg.UpdateProxy, cfg.UpdateVersionURL),
 		cfg:                cfg,
@@ -276,8 +284,12 @@ func NewApp(cfg Config) (*App, error) {
 		proxyLeaseLocks:    map[int64]chan struct{}{},
 		keepAliveRetryAt:   map[int64]time.Time{},
 	}
-	// tuning.json changes the login budget of the running pool without a restart.
-	app.pacer.onChange = func(s pacingSettings) { pool.SetLoginBudget(s.LoginBudget, s.LoginWindow) }
+	// tuning.json changes the login budget and the fresh-session guard of the
+	// running pool without a restart.
+	app.pacer.onChange = func(s pacingSettings) {
+		pool.SetLoginBudget(s.LoginBudget, s.LoginWindow)
+		pool.SetFreshSessionWindow(s.FreshWindow)
+	}
 	authDriver, authDSN, err := cfg.AuthDatabase()
 	if err != nil {
 		_ = db.Close()
