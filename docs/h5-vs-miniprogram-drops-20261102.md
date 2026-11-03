@@ -1,20 +1,20 @@
 # H5（非小程序）与小程序取码：谁让授权掉线（2026-11-02 到 11-03）
 
-状态：读飞牛上的脚本、日志、数据库都是只读，没有运行任何青龙脚本，没有对生产实例做任何操作。另外在用户同意下，用本机 127.0.0.1 的独立实例和一次性备用微信做了一组对照实验（第 3 节），这些授权可能被打死，也确实被打死了几个。结论分三层写：**观察到的事实**、**推断**、**未知**，没有对照证据的地方不宣称根因。本文基线是 v0.2.64（`9732429`）；对照实验跑在 v0.2.61 的构建上，当时还没有 v0.2.63 的默认拒绝。相关背景见 [website-appid-getcode-20261103.md](website-appid-getcode-20261103.md)、[code-pacing-20261102.md](code-pacing-20261102.md)、[hour-mark-offline-20261101.md](hour-mark-offline-20261101.md)、[code-circuit-breaker-20261101.md](code-circuit-breaker-20261101.md)。
+状态：读飞牛上的脚本、日志、数据库都是只读，没有运行任何青龙脚本，没有对生产实例做任何操作。另外在用户同意下，用本机 127.0.0.1 的独立实例和一次性备用微信做了一组对照实验（第 3 节），这些授权可能被打死，也确实被打死了几个。结论分三层写：**观察到的事实**、**推断**、**未知**，没有对照证据的地方不宣称根因。本文基线是 v0.2.64（`9732429`）；对照实验跑在 v0.2.61 的构建上，当时还没有 v0.2.63 的默认拒绝。11-04 合并 main（v0.2.66）后，只更新了与 `/wx/h5code` 和动态黑名单有关的几处（标有“v0.2.66”或“写作时”的地方），实验数据和结论没有改。相关背景见 [website-appid-getcode-20261103.md](website-appid-getcode-20261103.md)、[code-pacing-20261102.md](code-pacing-20261102.md)、[hour-mark-offline-20261101.md](hour-mark-offline-20261101.md)、[code-circuit-breaker-20261101.md](code-circuit-breaker-20261101.md)。
 
 ## 先说结论
 
 - **致命的不是“H5”这个词，而是把上游认识、但不是小程序的 AppID（公众号、网站应用等）放进小程序登录命令（`/wxapp/getCode`，命令 1029）。** 干净对照实验里，新授权扫码后只发一个这样的取码：网站应用 `wx5cd60c5d4817a188`（腾讯电脑管家）两次（两个不同微信）、京东护照 `wx2f5d8f9715c59d10` 一次，请求后约 36 秒的探测，三次都发现 `refresh_token -109`、`check_login -109`，授权已被撤销。同样的流程下，发一次小程序取码（2 次）、一次不存在的 AppID（1 次）、一次真正的 H5 网页授权（命令 1254，1 次）、什么都不发（1 次），授权都活着。
 - **生产日志与此一致。** 昨晚账号 1、4 各在一次 `wx5cd6…` 取码到达上游后失效，被本地熔断挡住、没到上游的账号都活着；停用前的京东任务（每个账号都发护照 AppID 取码）有 12 次吊销。
 - **拿不到 code 本身不致命**：不存在的 AppID 同样回“无 code”，授权没事。YYB Go 对“无 code”不做任何恢复，致命测试里每个实例只记了一条失败事件，没有发出任何 OAuth 层调用：撤销发生在上游，不是我们的恢复链引起的。
-- **真正的 H5 命令（`/wxapp/oauthAuthorize`，命令 1254，尚未合并的 `feat/h5-oauth-authorize` 分支）对同一个护照公众号拿到了 code，授权没掉**，但只有 1 个样本。
+- **真正的 H5 命令（命令 1254）对同一个护照公众号拿到了 code，授权没掉**，但只有 1 个样本，而且测的是实验时尚未合并的 `feat/h5-oauth-authorize` 分支快照（`/wxapp/oauthAuthorize`）；主线 v0.2.66 起这条通道是 `/wx/h5code`，没有在本文的实验里测过。
 - **还有第二条致死路径**：高速的成功小程序请求之后，会话开始 `-14`，恢复链连续取票据（02:10 回放里一个新授权连续 38 次取码成功后死亡，其中没有任何“无 code”）。v0.2.61 的限速和登录预算针对它，对上一条没有作用。
 - 样本很小（每格 1 到 2 个授权，非盲法），机制未知，见第 9 节。
 
 ### 现状和还要做的事
 
-- **已经做了**：青龙里的 `腾讯电脑管家_code版` 任务已被停用（11-03 上午，生产侧只读核对）；v0.2.63 起服务端默认拒绝 `wx5cd60c5d4817a188` 和 `wx2f5d8f9715c59d10`（`403 appid_denied`，不发往上游；`YYB_CODE_ALLOW_APPIDS` 可放行），生产在 11-03 09:59 起运行 v0.2.63，现为 v0.2.64。京东取码任务保持停用。详见 [website-appid-getcode-20261103.md](website-appid-getcode-20261103.md)。本文的对照实验是它“另外记录”的那一部分：换号互换、护照 AppID、空白对照、真正的 H5 命令。
-- **还没做**：（1）仓库自带的 `scripts/腾讯电脑管家_code版.py`（`wx5cd6…`）和 `scripts/京东CK采集_code版.py`（`wx2f5d…`）现在只会得到 `403`，应下架或标注；`docs/code-circuit-breaker-20261101.md` 里“项目内置的 204 个脚本全部只用小程序接口”的说法需要更正。（2）内置名单只有两个已知 AppID，其他公众号、网站应用、APP 的 AppID 不在其中；脚本里凡是这类 AppID 传给 `getCode` 的，都不要再跑。（3）真要 H5 授权，等 `/wxapp/oauthAuthorize` 通道合并后改走它，合并前先补重复测试（第 8 节）。（4）按 AppID 跨账号的“学习式”拒绝（任一账号收到一次“无 code”后全局拒绝）还没有，不在名单里的致命 AppID 仍会让每个存活账号各挨第一下。
+- **已经做了**：青龙里的 `腾讯电脑管家_code版` 任务已被停用（11-03 上午，生产侧只读核对）；v0.2.63 起服务端默认拒绝 `wx5cd60c5d4817a188` 和 `wx2f5d8f9715c59d10`（`403 appid_denied`，不发往上游；`YYB_CODE_ALLOW_APPIDS` 可放行），生产在 11-03 09:59 起运行 v0.2.63（本文写作时为 v0.2.64）。京东取码任务保持停用。详见 [website-appid-getcode-20261103.md](website-appid-getcode-20261103.md)。本文的对照实验是它“另外记录”的那一部分：换号互换、护照 AppID、空白对照、真正的 H5 命令。
+- **写作时还没做**：（1）仓库自带的 `scripts/腾讯电脑管家_code版.py`（`wx5cd6…`）和 `scripts/京东CK采集_code版.py`（`wx2f5d…`）现在只会得到 `403`，应下架或标注；`docs/code-circuit-breaker-20261101.md` 里“项目内置的 204 个脚本全部只用小程序接口”的说法需要更正。（2）内置名单只有两个已知 AppID，其他公众号、网站应用、APP 的 AppID 不在其中；脚本里凡是这类 AppID 传给 `getCode` 的，都不要再跑。（3）H5 授权改走 `/wx/h5code`（v0.2.66 已合并，见 [h5-oauth-code.md](h5-oauth-code.md)），但本文只有分支快照上的 1 个样本，重复测试（第 8 节）仍然没做。（4）按 AppID 跨账号的“学习式”拒绝在写作时还没有；v0.2.66 已加上（取码到达上游且仍拿不到 code 时，默认 1 次即禁用该 AppID，持久化，所有账号本地 `403`，见 [h5-oauth-code.md](h5-oauth-code.md)），名单外的致命 AppID 现在至多让一次请求到上游。
 
 ## 1. 数据来源与限制
 
@@ -51,7 +51,7 @@
 
 ### 3.1 设计
 
-- **环境**：本机 Windows，4 个独立实例，只监听 127.0.0.1:18101 到 18104，各有自己的 `-resource-root`，清空了青龙、推送、维护代理等环境变量，面板登录关闭。`yyb-main` 是 `9973842`（v0.2.61，生产当时的默认保护，**没有** v0.2.63 的默认拒绝，所以致命请求才会到达上游）；A1 用的 `yyb-h5` 是 `feat/h5-oauth-authorize` 分支（当时未提交）的工作区快照（含 `/wxapp/oauthAuthorize`，内容哈希前缀 `0662b2d3a0ad843b`）。
+- **环境**：本机 Windows，4 个独立实例，只监听 127.0.0.1:18101 到 18104，各有自己的 `-resource-root`，清空了青龙、推送、维护代理等环境变量，面板登录关闭。`yyb-main` 是 `9973842`（v0.2.61，生产当时的默认保护，**没有** v0.2.63 的默认拒绝，所以致命请求才会到达上游）；A1 用的 `yyb-h5` 是 `feat/h5-oauth-authorize` 分支（当时未提交）的工作区快照（含 `/wxapp/oauthAuthorize`，内容哈希前缀 `0662b2d3a0ad843b`）；该通道后来以 `/wx/h5code` 进入主线（v0.2.66），实现可能与快照不同，主线版本没有在本文的实验里测过。
 - **授权**：用户用 3 个备用微信各扫一次码（两个在旧试验实例里用过，一个全新）。每一轮开始前清库、重新扫，所以每个授权都是新鲜的。第一轮还多出一个微信，恰好就是生产账号 18（它的生产授权 11-02 00:23 起已是 `session_only`）。
 - **流程**：扫码后 180 秒，通过实例的 HTTP 接口只发**一个**第一次请求；再过 30 秒，只做**一次** OAuth 层探测；这一段里不做任何别的请求或刷新。
 - **探测**：用 `-keepalive-ahead 3h` 重启实例，凭据立即到期，保活循环启动时做一次真实的 `refresh_token`（被拒时再试 `check_login`），读实例自己的事件，随后用默认参数重启。“死”指 `refresh_token -109` 加 `check_login -109`（微信 `42007`），状态变为 `session_only`。
@@ -139,11 +139,11 @@
 | 手机号 | `/wxapp/getPhoneNumber`、`/wx/getphonenumber` | 命令 1020，`js-getuserwxphone`（PCMgr 渠道为 1141 加 JSON） | 直接返回 | 进入强制刷新 |
 | operateWxData 与转发 | `/wxapp/operateWxData`、`/wx/cloud`、`/wx/mpgeta8key`、`/wx/appmsgext`、`/wx/appmsglike`、`/wx/encryptkey`、`/wx/getlatestuserkey` | 命令 1133，`js-operatewxdata`，把 `api_name` 等 JSON 原样放进去 | 直接返回 | 进入强制刷新 |
 | 公众号授权链接 | `/wx/oauth` | **不发任何上游请求**，只解析账号并拼 URL | — | — |
-| 网页授权（`feat/h5-oauth-authorize` 分支，未合并） | `/wxapp/oauthAuthorize`，命令 1254 | 复用同一会话 | 不进恢复 | 不进恢复 |
+| 网页授权（实验时是 `feat/h5-oauth-authorize` 分支，主线 v0.2.66 起） | 分支 `/wxapp/oauthAuthorize`，主线 `/wx/h5code`（兼容 `/wxapp/getH5Code`）；命令 1254 | 复用同一会话 | 不进恢复 | 不进恢复，失败原样返回（据 [h5-oauth-code.md](h5-oauth-code.md)） |
 
 - 三类 wire 请求共用同一个会话、同一个封包，只有内层 URL、命令号和正文不同。AppID 只是正文里的一个字段，**YYB Go 自己不区分 AppID 类型**：区分的是上游。
 - 同一账号的取码串行（每账号一把锁）；手机号和 operateWxData 不串行。所有会到上游的请求每账号至少间隔 `YYB_CODE_MIN_GAP`（默认 3 秒）。
-- 目标熔断的键是（账号、AppID、请求类型），“无 code”要连续 3 次才开启（冷却 10 分钟）；它按账号计数，不跨账号，所以挡不住“每个存活账号各自的第一下”。v0.2.63 在 `invokeWXApp` 入口对取码请求另加了 AppID 名单（`appid_policy.go`），已知的两个网站应用 AppID 在本地被拒，不进熔断计数，也不占限速槽位。
+- 目标熔断的键是（账号、AppID、请求类型），“无 code”要连续 3 次才开启（冷却 10 分钟）；它按账号计数，不跨账号，所以挡不住“每个存活账号各自的第一下”。v0.2.63 在 `invokeWXApp` 入口对取码请求另加了 AppID 名单（`appid_policy.go`），已知的两个网站应用 AppID 在本地被拒，不进熔断计数，也不占限速槽位。v0.2.66 又加了动态黑名单（见 [h5-oauth-code.md](h5-oauth-code.md)）：取码到达上游且仍拿不到 code 的 AppID 被自动禁用，这条规则在本文写作时不存在。
 - `invokeWXApp` 对非 `-14` 的失败有一个共同的尾巴：先检查登录预算，作废缓存会话，**强制刷新凭据**（`refresh_token`、必要时 `check_login`，再取一张票据），然后重试一次。
 
 **离线探针**（源码见 [attachments/h5_recovery_probe_test.go.txt](attachments/h5_recovery_probe_test.go.txt)，用法见第 10 节）注入各种失败，数 OAuth 层调用。四类请求（取码、手机号、operateWxData 通用、`mpGetA8Key` 转发）在这一层结果相同：
@@ -187,8 +187,8 @@
 | --- | --- | --- | --- |
 | 1 | **观察止血是否够**（已做：任务停用、v0.2.63 默认拒绝）：之后几个夜晚新扫码的账号在 00:19 批量内不再被吊销，后台续期成功，`protocol.appid_denied` 有记录 | 连续几晚没有无法解释的吊销 | 仍有吊销：还有别的致命输入（第二条路径，或名单之外的 AppID） |
 | 2 | **审计名单之外的 AppID**：脚本里凡出现 `qrconnect`、`snsapi_*`、公众号或 APP 的 AppID 传给 `getCode`，一律先查；飞牛上只找到上述两个 | 审计清单为空，或每个新发现的 AppID 都有单独的对照测试 | 找到一个致命但不在名单里的 AppID |
-| 3 | **学习式跨账号拒绝**：任一账号对某个 AppID 收到一次“无 code”后，这个 AppID 对所有账号拒绝若干小时。不存在的 AppID 也会触发，但无害（实验里同样回“无 code”，授权活着） | 离线测试：第二个账号不会再发出该 AppID | 发现致命但不回“无 code”的 AppID（防护不到） |
-| 4 | **H5 需求改走 `/wxapp/oauthAuthorize`**，合并前补测：至少 3 个不同微信重复；`snsapi_userinfo`；另一个公众号；连续两次调用（会话只放行一次，第二次是 `-14`，不要让它触发恢复）；仓库自带 `baihua_vote.py` 用的 `/wx/mpgeta8key` 转发也测一次 | 重复后仍然全活 | 任一次 1254 之后授权被撤销 |
+| 3 | **学习式跨账号拒绝**（v0.2.66 已加，见 [h5-oauth-code.md](h5-oauth-code.md)；与这里的设想不同处：持久化、手动清除，不是“若干小时”）：任一账号对某个 AppID 收到一次“无 code”后，这个 AppID 对所有账号拒绝若干小时。不存在的 AppID 也会触发，但无害（实验里同样回“无 code”，授权活着） | 离线测试：第二个账号不会再发出该 AppID | 发现致命但不回“无 code”的 AppID（防护不到） |
+| 4 | **H5 需求改走 `/wx/h5code`**（v0.2.66 已合并，见 [h5-oauth-code.md](h5-oauth-code.md)），补测仍然要做：至少 3 个不同微信重复；`snsapi_userinfo`；另一个公众号；连续两次调用（会话只放行一次，第二次是 `-14`，不要让它触发恢复）；仓库自带 `baihua_vote.py` 用的 `/wx/mpgeta8key` 转发也测一次 | 重复后仍然全活 | 任一次 1254 之后授权被撤销 |
 | 5 | **补实验**：其他类型 AppID（订阅号、APP 授权、小游戏）；探测间隔缩短到 5 秒；请求次数和速率的影响；撤销发生在请求还是回应时 | 缩小触发条件 | — |
 | 6 | **观测量**：给“无 code”打独立事件（带 AppID），在日志页面高亮；记录请求前会话年龄和账号近 60 秒请求数 | 离线统计 | — |
 | 7 | **第二条路径继续观察**：限速、登录预算、账号级取票据冷却（v0.2.61 已有预算） | `protocol.login_limited` 次数与授权存活的对应 | 冷却开着仍被吊销 |
@@ -213,13 +213,13 @@
 **未知**
 
 1. 撤销的精确触发条件：请求被接收，还是“无 code”回应；比 30 秒更快是否也会；其他类型的非小程序 AppID。
-2. 命令 1254 在重复、别的公众号、`snsapi_userinfo` 下是否安全（目前 1 个样本）。
+2. 命令 1254 在重复、别的公众号、`snsapi_userinfo` 下是否安全（目前 1 个样本，测的是分支快照，主线的 `/wx/h5code` 没有测过）。
 3. 为什么有的会话可以连续取多个 AppID 的 code，有的只放行一次。
 4. 账号 18 在 00:23 的死亡是否也有隐藏的非小程序请求（保留的日志里看不到）。
 5. 本机实验与飞牛生产的差别（Windows、出口、时间）是否影响结论。
 
 ## 10. 复现与数据
 
-- 离线探针：源码是 [attachments/h5_recovery_probe_test.go.txt](attachments/h5_recovery_probe_test.go.txt)。故意不放进 `internal/`，免得一个只含测试的改动在合并后触发镜像发布；使用时复制为 `internal/httpapi/h5_recovery_probe_test.go`，运行 `go test -tags h5probe ./internal/httpapi -run TestH5RecoveryMatrix -v`，用完删掉。它在 v0.2.64 上跑过，数字与第 5 节的表一致。
+- 离线探针：源码是 [attachments/h5_recovery_probe_test.go.txt](attachments/h5_recovery_probe_test.go.txt)。故意不放进 `internal/`，免得一个只含测试的改动在合并后触发镜像发布；使用时复制为 `internal/httpapi/h5_recovery_probe_test.go`，运行 `go test -tags h5probe ./internal/httpapi -run TestH5RecoveryMatrix -v`，用完删掉。它在 v0.2.64 和 v0.2.66 上都跑过，数字与第 5 节的表一致（v0.2.66 的动态黑名单在 `invokeWXApp` 里记录“无 code”，但不发上游请求，所以不改变探针数的次数；探针每个用例用新的 App，没有测黑名单本身）。
 - 对照实验的脚本（驱动、探测、清库重启，不含任何凭据）、逐条时间线（精确到秒）和日志聚合表保存在研究者的本机笔记里，没有放进仓库；文中的数字都来自它们。
 - 本文不包含任何 token、cookie、密码、IP 或 OpenID。
