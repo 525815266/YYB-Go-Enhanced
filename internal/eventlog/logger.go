@@ -66,6 +66,7 @@ const (
 	OpGetCode        = "get_code"
 	OpGetPhoneNumber = "get_phone_number"
 	OpOperateWXData  = "operate_wx_data"
+	OpH5Code         = "h5_code"
 )
 
 type Fields struct {
@@ -133,7 +134,7 @@ func safeSource(source string) bool {
 
 func safeOperation(op string) bool {
 	switch op {
-	case OpGetCode, OpGetPhoneNumber, OpOperateWXData:
+	case OpGetCode, OpGetPhoneNumber, OpOperateWXData, OpH5Code:
 		return true
 	}
 	return false

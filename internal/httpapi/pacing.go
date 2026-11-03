@@ -49,6 +49,10 @@ type pacingSettings struct {
 	MaxWait     time.Duration
 	LoginBudget int
 	LoginWindow time.Duration
+	// FreshWindow is the protocol pool's fresh-session guard (see
+	// protocol/code_recovery.go); zero switches the guard off. It rides along
+	// for the same reason as the login budget.
+	FreshWindow time.Duration
 }
 
 // pacingFile is the optional runtime override (tuning.json beside the
@@ -59,11 +63,14 @@ type pacingFile struct {
 	MaxWaitMS     *int64 `json:"code_max_wait_ms"`
 	LoginBudget   *int64 `json:"login_budget"`
 	LoginWindowMS *int64 `json:"login_window_ms"`
+	// FreshWindowMS is the fresh-session guard; 0 switches it off.
+	FreshWindowMS *int64 `json:"fresh_session_window_ms"`
 }
 
 const (
 	maxLoginBudgetSetting = 1000
 	maxLoginWindow        = 24 * time.Hour
+	maxFreshWindow        = time.Hour
 )
 
 type fileStamp struct {
@@ -139,7 +146,7 @@ func (p *accountPacer) settingsLocked(now time.Time) pacingSettings {
 			p.stamp = fileStamp{}
 			p.settings = p.defaults
 			p.notifyLocked()
-			log.Printf("pacing: %s is gone; using the configured defaults (gap %s, wait %s, login budget %d per %s)", p.file, p.defaults.MinGap, p.defaults.MaxWait, p.defaults.LoginBudget, p.defaults.LoginWindow)
+			log.Printf("pacing: %s is gone; using the configured defaults (gap %s, wait %s, login budget %d per %s, fresh-session window %s)", p.file, p.defaults.MinGap, p.defaults.MaxWait, p.defaults.LoginBudget, p.defaults.LoginWindow, p.defaults.FreshWindow)
 		}
 		return p.settings
 	}
@@ -171,9 +178,12 @@ func (p *accountPacer) settingsLocked(now time.Time) pacingSettings {
 	if parsed.LoginWindowMS != nil {
 		settings.LoginWindow = clampMS(*parsed.LoginWindowMS, maxLoginWindow)
 	}
+	if parsed.FreshWindowMS != nil {
+		settings.FreshWindow = clampMS(*parsed.FreshWindowMS, maxFreshWindow)
+	}
 	p.settings = settings
 	p.notifyLocked()
-	log.Printf("pacing: %s applied (gap %s, wait %s, login budget %d per %s)", p.file, settings.MinGap, settings.MaxWait, settings.LoginBudget, settings.LoginWindow)
+	log.Printf("pacing: %s applied (gap %s, wait %s, login budget %d per %s, fresh-session window %s)", p.file, settings.MinGap, settings.MaxWait, settings.LoginBudget, settings.LoginWindow, settings.FreshWindow)
 	return settings
 }
 

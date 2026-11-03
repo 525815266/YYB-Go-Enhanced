@@ -259,10 +259,20 @@ YYB_CODE_MAX_WAIT=20s
 不重启就要调整时，在数据库目录（Compose 默认 `data/db`）放一个 `tuning.json`，一秒内生效：
 
 ```json
-{"login_budget": 3, "login_window_ms": 600000, "code_min_gap_ms": 3000, "code_max_wait_ms": 20000}
+{"login_budget": 3, "login_window_ms": 600000, "code_min_gap_ms": 3000, "code_max_wait_ms": 20000, "fresh_session_window_ms": 120000}
 ```
 
 缺少的键沿用上面的配置值，文件无法解析时保留上一次有效设置，删除文件恢复配置值。
+
+## 刚成功后的 `-14` 保护（v0.2.65 起可调）
+
+```dotenv
+YYB_FRESH_SESSION_WINDOW=2m
+```
+
+同一账号的会话刚取到过 code 后的这段时间内，单个 AppID 的 `-14` 被当成该 AppID 自己的拒绝，不再取新票据重新登录（v0.2.60 起，之前写死为 2 分钟）。默认 `2m`，行为不变；`off` 或 `0` 关闭；也可以写成其他时长。`tuning.json` 的 `fresh_session_window_ms` 不重启生效（`0` 关闭，上限 1 小时）。
+
+什么时候需要动它：脚本在同一账号上批量取不同 AppID 的 code，而这个账号的会话用一次就要重新登录才能换下一个 AppID 时，这个保护会把本来能修好的 `-14` 放弃，随后会话熔断（3 个不同 AppID 的 `-14` 暂停整号 15 分钟）又把这些 `-14` 当成整个会话被拒。实验室里同样的 40 个 AppID，默认只拿到 1 个，关闭后拿到 40 个。要接近这个取码量，还要同时放开 `YYB_LOGIN_BUDGET` 和 `YYB_CODE_MIN_GAP`；熔断可以保持开启。代价是本机不再替你限制密集登录，而密集登录是否会让授权被吊销目前没有答案，所以默认值没有改。数据、限制和复现方式见[取码量对照实验](dense-batch-lab-20261103.md)。
 
 ## 取码 AppID 保护
 
