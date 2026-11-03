@@ -2,6 +2,10 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.71 - 2026-11-04
+
+- **gameassist 换票逐跳捕获 cookie（实机定位）：** 形态指纹显示换票 302 链正常终结在官方 `login_result.html`（len=2322 与该静态页完全一致），但凭据 cookie 在中间跳的 Set-Cookie 上、会话 jar 跨域没收住。ExchangeCode 现在用逐跳记录传输层抓取**每一跳**的 Set-Cookie 并按名提取凭据（不再依赖 jar 的跨域语义），同时回调请求补上官方浏览器形态的 Referer/Chrome UA；失败指纹改为整条重定向链（每跳状态+脱敏 URL+Set-Cookie 名单）。
+
 ## v0.2.70 - 2026-11-04
 
 - **gameassist 换票第二跳适配（实机推进）：** 数字 state 修复后，`syzs_oauth` 对有效 code 不再返回 JSON 信封，而是官方流程中的 HTML 中转跳（凭据经 .qq.com cookie 交给 `login_result.html`）。ExchangeCode 现在按三种形态收尾：JSON 信封 / 会话 jar 里的 cookie / **HTML 中转页里的 `document.cookie`/`setCookie` 字面量**；解析失败时报错只带形态指纹（HTTP 状态、Content-Type、长度、Set-Cookie 名单、脱敏后的最终 URL），绝不带正文，防止凭据进日志。

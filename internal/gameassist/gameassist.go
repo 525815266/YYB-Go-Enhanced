@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -97,9 +98,24 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 	if err != nil {
 		return Credentials{}, err
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	resp, err := client.Do(req)
+	// Record every redirect hop's Set-Cookie: the credentials ride .qq.com
+	// cookies on an intermediate hop, and relying on the cookie jar alone has
+	// proven unreliable across domains (production fingerprint 2026-11-04:
+	// the chain ends on login_result.html with no jar-visible cookie).
+	recorder := &hopRecorder{rt: client.Transport}
+	if recorder.rt == nil {
+		recorder.rt = http.DefaultTransport
+	}
+	hopClient := &http.Client{
+		Transport:     recorder,
+		Timeout:       client.Timeout,
+		Jar:           client.Jar,
+		CheckRedirect: client.CheckRedirect,
+	}
+	req.Header.Set("Accept", "text/html,application/json")
+	req.Header.Set("Referer", "https://open.weixin.qq.com/")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+	resp, err := hopClient.Do(req)
 	if err != nil {
 		return Credentials{}, errors.New("GameAssist code exchange transport failed")
 	}
@@ -117,13 +133,16 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 			// Bounded diagnostics: shape only, never body text — the page may
 			// carry the raw tokens.
 			finalURL := sanitizeURLForLog(resp.Request.URL.String())
-			return Credentials{}, fmt.Errorf("invalid GameAssist code exchange response: HTTP %d type=%q len=%d set_cookies=%v url=%s",
-				resp.StatusCode, resp.Header.Get("Content-Type"), len(data), cookieNames(resp.Cookies()), finalURL)
+			return Credentials{}, fmt.Errorf("invalid GameAssist code exchange response: HTTP %d type=%q len=%d hops=%v url=%s",
+				resp.StatusCode, resp.Header.Get("Content-Type"), len(data), recorder.hopSummary(), finalURL)
 		}
 		return Credentials{}, err
 	}
 	if creds.OpenID == "" || creds.AccessToken == "" {
 		creds.fillFromCookies(client.Jar, cb)
+	}
+	if creds.OpenID == "" || creds.AccessToken == "" {
+		creds.fillFromCookies(recorder.cookiesFor(cb), cb)
 	}
 	if creds.OpenID == "" || creds.AccessToken == "" {
 		// The official flow hands the callback an HTML hop whose script writes
@@ -272,6 +291,55 @@ func cookieNames(cookies []*http.Cookie) []string {
 	return names
 }
 
+// hopRecorder remembers the Set-Cookie of every redirect hop along the
+// exchange. Only cookie names travel into error paths; values stay in
+// cookiesFor until they land in Credentials.
+type hopRecorder struct {
+	rt      http.RoundTripper
+	mu      sync.Mutex
+	hops    []string
+	cookies []*http.Cookie
+}
+
+func (h *hopRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := h.rt.RoundTrip(req)
+	if err == nil && resp != nil {
+		h.mu.Lock()
+		h.hops = append(h.hops, fmt.Sprintf("%d:%s", resp.StatusCode, sanitizeURLForLog(req.URL.String())))
+		h.cookies = append(h.cookies, resp.Cookies()...)
+		h.mu.Unlock()
+	}
+	return resp, err
+}
+
+func (h *hopRecorder) hopSummary() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	summary := make([]string, 0, len(h.hops)+1)
+	summary = append(summary, h.hops...)
+	summary = append(summary, "set:"+strings.Join(cookieNames(h.cookies), ","))
+	return summary
+}
+
+// cookiesFor returns the recorded cookies that would be visible to rawURL
+// (host suffix or .qq.com wide), regardless of jar semantics.
+func (h *hopRecorder) cookiesFor(rawURL string) http.CookieJar {
+	return &staticCookieJar{cookies: func() []*http.Cookie {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		out := make([]*http.Cookie, len(h.cookies))
+		copy(out, h.cookies)
+		return out
+	}()}
+}
+
+// staticCookieJar serves a fixed cookie set for any URL; extraction filters
+// by name, so per-domain scoping is unnecessary here.
+type staticCookieJar struct{ cookies []*http.Cookie }
+
+func (j *staticCookieJar) Cookies(*url.URL) []*http.Cookie     { return j.cookies }
+func (j *staticCookieJar) SetCookies(*url.URL, []*http.Cookie) {}
+
 func sanitizeURLForLog(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -289,7 +357,8 @@ func sanitizeURLForLog(raw string) string {
 
 // fillFromCookies recovers the token set when the gateway delivers it as
 // cookies, matching the pc_yyb_oauth callback behavior.
-func (c *Credentials) fillFromCookies(jar http.CookieJar, rawURL string) {	if jar == nil {
+func (c *Credentials) fillFromCookies(jar http.CookieJar, rawURL string) {
+	if jar == nil {
 		return
 	}
 	u, err := url.Parse(rawURL)
