@@ -317,7 +317,7 @@ func TestFreshSessionSuppressesRecovery(t *testing.T) {
 	pool.mu.Lock()
 	key := sessionKey(acc.ID, "")
 	verified := pool.verified[key]
-	verified.At = time.Now().Add(-freshSessionWindow - time.Second)
+	verified.At = time.Now().Add(-DefaultFreshSessionWindow - time.Second)
 	pool.verified[key] = verified
 	pool.mu.Unlock()
 	recoverFor(acc, "wx-b", "")

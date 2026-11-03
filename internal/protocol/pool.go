@@ -10,6 +10,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"yyb_go/internal/eventlog"
@@ -38,6 +39,12 @@ type Config struct {
 	// DefaultLoginWindow unless configured otherwise.
 	LoginBudget int
 	LoginWindow time.Duration
+	// FreshSessionWindow is the guard that treats a -14 within this long after a
+	// successful request as the AppID's own refusal and does not log in again
+	// (see code_recovery.go). Zero keeps DefaultFreshSessionWindow, so a Config
+	// that does not set it behaves as before; a negative value switches the guard
+	// off.
+	FreshSessionWindow time.Duration
 }
 
 func DefaultConfig() Config {
@@ -84,6 +91,8 @@ type Pool struct {
 	verified map[string]verifiedSession
 	// budget limits how often traffic may reach the OAuth layer per account.
 	budget *loginBudget
+	// freshWindow is the guard window in force, in nanoseconds; zero is off.
+	freshWindow atomic.Int64
 
 	loginSem     chan struct{}
 	shortlinkSem chan struct{}
@@ -118,7 +127,7 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 	if cfg.DeviceIdentity == "" {
 		cfg.DeviceIdentity = def.DeviceIdentity
 	}
-	return &Pool{
+	p := &Pool{
 		cfg:          cfg,
 		db:           db,
 		locks:        map[string]chan struct{}{},
@@ -129,6 +138,8 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 		loginSem:     make(chan struct{}, cfg.MaxLoginConcurrency),
 		shortlinkSem: make(chan struct{}, cfg.MaxShortlinkConcurrency),
 	}
+	p.freshWindow.Store(int64(EffectiveFreshWindow(cfg.FreshSessionWindow)))
+	return p
 }
 
 func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
