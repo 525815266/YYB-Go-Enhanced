@@ -57,6 +57,7 @@ type Session struct {
 	ID            string
 	WXUUID        string
 	QRCodeURL     string
+	State         string
 	CreatedAt     time.Time
 	HTTPClient    *http.Client
 	Jar           http.CookieJar
@@ -137,12 +138,15 @@ func OAuthURL(product string) (string, error) {
 	case "gameassist":
 		// GameAssist.exe fast-login page (GameAssist.log): its own open-platform
 		// appid redirecting into the syzslogin callback on the shared gateway.
+		// The official client sends state=100*Math.random() and the gateway
+		// rejects non-numeric state at the callback (-109), so the session
+		// must carry the same numeric state through to the exchange.
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{
 			"appid":         {gameassist.OAuthAppID},
 			"redirect_uri":  {gameassist.OAuthRedirectURI + "?" + url.Values{"login_type": {"wx"}, "domain": {"1"}, "syzs_prefix": {""}}.Encode()},
 			"response_type": {"code"},
 			"scope":         {gameassist.OAuthScope},
-			"state":         {"web"},
+			"state":         {gameassist.RandomState()},
 			"fast_login":    {"1"},
 			"self_redirect": {"true"},
 			"style":         {"black"},
@@ -186,11 +190,16 @@ func (c *Client) CreateSessionForProduct(ctx context.Context, product string) (*
 	if err != nil {
 		return nil, err
 	}
+	state := ""
+	if parsed, perr := url.Parse(oauth); perr == nil {
+		state = parsed.Query().Get("state")
+	}
 	return &Session{
 		Product: product, ClientGUID: guid,
 		ID:         id,
 		WXUUID:     wxuuid,
 		QRCodeURL:  qrBase + wxuuid,
+		State:      state,
 		CreatedAt:  time.Now(),
 		HTTPClient: hc,
 		Jar:        jar,
@@ -312,7 +321,7 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 	}
 	if sess.Product == "gameassist" {
 		if sess.Credentials == nil {
-			ga, err := gameassist.ExchangeCode(ctx, sess.HTTPClient, sess.AuthorizeCode)
+			ga, err := gameassist.ExchangeCode(ctx, sess.HTTPClient, sess.AuthorizeCode, sess.State)
 			if err != nil {
 				return protocol.LoginBufferResult{}, err
 			}

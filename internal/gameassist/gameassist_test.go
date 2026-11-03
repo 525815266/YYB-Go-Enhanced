@@ -124,8 +124,32 @@ func TestFillFromCookies(t *testing.T) {
 }
 
 func TestExchangeCodeInputValidation(t *testing.T) {
-	if _, err := ExchangeCode(context.Background(), nil, "  "); err == nil {
+	if _, err := ExchangeCode(context.Background(), nil, "  ", "49.57735723381141"); err == nil {
 		t.Fatal("empty code must fail")
+	}
+	if _, err := ExchangeCode(context.Background(), nil, "1_x", "web"); err == nil {
+		t.Fatal("non-numeric state must fail: the gateway rejects it with -109")
+	}
+}
+
+func TestIsNumericState(t *testing.T) {
+	for _, ok := range []string{"49.57735723381141", "7", "0.5", "100.00000000000001"} {
+		if !isNumericState(ok) {
+			t.Fatalf("%q should be numeric", ok)
+		}
+	}
+	for _, bad := range []string{"", "web", ".5", "5.", "1..2", "0x10", strings.Repeat("1", 40)} {
+		if isNumericState(bad) {
+			t.Fatalf("%q should not be numeric", bad)
+		}
+	}
+}
+
+func TestRandomStateIsNumeric(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		if !isNumericState(RandomState()) {
+			t.Fatalf("RandomState produced %q", RandomState())
+		}
 	}
 }
 

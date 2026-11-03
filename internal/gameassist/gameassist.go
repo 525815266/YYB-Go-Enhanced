@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -66,19 +68,25 @@ func (c Credentials) Validate() error {
 // The gateway answers with the credential envelope on success; when it
 // chooses to hand the tokens over through cookies instead, the session jar
 // (carried by QR sessions) still yields them.
-func ExchangeCode(ctx context.Context, client *http.Client, code string) (Credentials, error) {
+func ExchangeCode(ctx context.Context, client *http.Client, code, state string) (Credentials, error) {
 	if strings.TrimSpace(code) == "" {
 		return Credentials{}, errors.New("GameAssist authorize code missing")
 	}
 	if client == nil {
 		client = &http.Client{}
 	}
+	// The gateway rejects non-numeric state with -109 RC_PARAMS_INVALID; the
+	// official client sends state=100*Math.random(), a plain float. Echo the
+	// state the QR session used so the flow matches the official redirect.
+	if !isNumericState(state) {
+		return Credentials{}, errors.New("GameAssist exchange state must be numeric")
+	}
 	cb := OAuthRedirectURI + "?" + url.Values{
 		"login_type":  {"wx"},
 		"domain":      {"1"},
 		"syzs_prefix": {""},
 		"code":        {code},
-		"state":       {"web"},
+		"state":       {state},
 	}.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cb, nil)
 	if err != nil {
@@ -226,6 +234,31 @@ func validateScope(scope string) error {
 		}
 	}
 	return errors.New("GameAssist authorization missing mini-program scope")
+}
+
+// isNumericState mirrors the official client's state=100*Math.random(): a
+// plain decimal float such as "49.57735723381141".
+func isNumericState(state string) bool {
+	s := strings.TrimSpace(state)
+	if s == "" || len(s) > 32 {
+		return false
+	}
+	dot := false
+	for i, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+		case r == '.' && !dot && i > 0 && i < len(s)-1:
+			dot = true
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// RandomState generates a fresh numeric state in the official shape.
+func RandomState() string {
+	return strconv.FormatFloat(rand.Float64()*100, 'f', 14, 64)
 }
 
 func decodeString(m map[string]json.RawMessage, keys ...string) string {

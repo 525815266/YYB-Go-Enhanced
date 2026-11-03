@@ -2,6 +2,11 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.69 - 2026-11-04
+
+- **修复 gameassist 扫码换票被拒（实机定位）：state 必须是数字。** 首次生产扫码授权成功后 `syzs_oauth` 返回 `-109 RC_PARAMS_INVALID`；用假 code 做参数矩阵探测，`state=web` 稳定复现 -109，而 `state=49.57735723381141`（官方客户端 JS `state=100*Math.random()` 的形状）立即推进到 `-107 RC_NO_AUTH_ERR`（与 pcyyb_oauth 假 code 的"码无效"层一致）。现在扫码会话生成官方形状的随机浮点 state 并原样带到回调换取；非数字 state 在本地直接拒绝。
+- **扫码确认吸收电脑管家票据的瞬态拒绝：** 首次生产扫码接入 pcmgr 账号时，刚换到的 loginkey 立刻调原生 20138 得 `code=6`，约一分钟后手动重试同一凭据成功——是签发侧到原生网关的传播延迟。现在确认阶段的 8 秒重试窗口把 `pcmgr.BufferRejectedError` 一并纳入（重试不轮换 key、不重放 OAuth），扫码确认不再需要手动补一次。
+
 ## v0.2.68 - 2026-11-04
 
 - **新增腾讯手游助手（GameAssist）扫码渠道 `gameassist`：** 第三条客户端凭据链。逆向实证（详见[手游助手渠道接入复核](docs/gameassist-protocol-20261104.md)）：手游助手 6.10 是应用宝 Androws 源码树改版，WMPF host_appid 同为 `wxd44977328b36e647`、ilink 取码栈同构，差异只在凭据签发——OAuth appid `wxef99873dbfab493c`、回调 `yybadaccess.3g.qq.com/syzslogin/syzs_oauth` 换取 `{openId, accessToken "1_…", refreshToken}`（camelCase 信封，同网关同结构已由探测证实），之后复用与 appstore 完全相同的 `pcyyb_get_wx_login_buffer_auth` 换 login_buffer。新包 `internal/gameassist` 兼容 camelCase/snake_case/cookie 三种签发形态并校验 `snsapi_runtime_pcsdk` scope；`product=gameassist` 贯通扫码、面板、OpenAPI 枚举、事件渠道、离线通知与账号渠道展示。刷新走默认 `pc_yyb` 主路由（`-109` 自动转 check-login），初扫约 30 天窗口、首次刷新后收敛为网关 `expires_in`。
