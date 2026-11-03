@@ -174,8 +174,10 @@ func main() {
 		// YYB_CODE_DYNAMIC_DENY=0 switches the learning off.
 		DisableDynamicAppIDDeny: !envBool("YYB_CODE_DYNAMIC_DENY", true),
 
-		// How many code-less outcomes deny an AppID; default is one.
-		CodeDynamicDenyThreshold: envInt("YYB_CODE_DYNAMIC_DENY_THRESHOLD", 1),
+		// How many distinct accounts must fail an AppID before it is denied
+		// (or dynamicAppIDDenyTotalStrikes failures in total); default is 2,
+		// so one bursted account cannot deny AppIDs other accounts still use.
+		CodeDynamicDenyThreshold: envInt("YYB_CODE_DYNAMIC_DENY_THRESHOLD", 2),
 	}
 
 	if *resetAdmin != "" {
