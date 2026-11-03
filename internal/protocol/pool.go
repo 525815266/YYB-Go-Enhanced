@@ -142,6 +142,16 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 	return p
 }
 
+// ProviderOf returns the credential provider marker of an account. Appstore
+// accounts store none; pcmgr and gameassist carry their channel name.
+func ProviderOf(acc *store.WechatAccount) string {
+	if acc == nil {
+		return ""
+	}
+	provider, _ := acc.Credentials["provider"].(string)
+	return provider
+}
+
 func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	codeLock := p.codeLockFor(accountID)
 	if err := acquire(ctx, codeLock); err != nil {

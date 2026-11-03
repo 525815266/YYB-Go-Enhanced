@@ -163,8 +163,10 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 	if creds.Provider == "pcmgr" {
 		return pcmgr.FetchBuffer(ctx, c.httpClient, creds.PCMgr)
 	}
-	if creds.Provider != "" && creds.Provider != "appstore" {
-		return "", fmt.Errorf("unsupported credential provider")
+	// gameassist shares the YYB request path: GameAssist is an Androws rebuild
+	// with the same WMPF host identity, only the credential issuance differs.
+	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" {
+		return "", fmt.Errorf("unsupported credential provider %q", creds.Provider)
 	}
 	body, err := json.Marshal(loginBufferRequest{
 		ExtInfo: loginExtInfo{
@@ -216,8 +218,8 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		creds.ExpiresIn = creds.ExpiresAt - pc.RenewedAt
 		return creds, nil
 	}
-	if creds.Provider != "" && creds.Provider != "appstore" {
-		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential provider")
+	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" {
+		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential provider %q", creds.Provider)
 	}
 	// QR credentials come from /pc_yyb/pcyyb_oauth, including legacy records
 	// without a source marker. wxapp's separate authorization uses _auth.
@@ -333,9 +335,37 @@ func (c *LoginBufferClient) FetchUserInfo(ctx context.Context, creds LoginBuffer
 		"Ual-Access-Timestamp":    ts,
 	}, &data)
 	if err != nil {
+		if creds.Provider == "gameassist" {
+			// GameAssist credentials are issued by the syzs business; when the
+			// pc_yyb user-info endpoint will not take them, degrade to the
+			// locally captured profile instead of failing the caller.
+			return gameAssistLocalProfile(creds), nil
+		}
 		return nil, err
 	}
+	// The user-info endpoint surfaces business rejections as a code-carrying
+	// map rather than an error. Only gameassist needs to degrade on it: its
+	// tokens come from a different business than pc_yyb.
+	if creds.Provider == "gameassist" && businessRejection(data) {
+		return gameAssistLocalProfile(creds), nil
+	}
 	return data, nil
+}
+
+func gameAssistLocalProfile(creds LoginBufferCredentials) map[string]any {
+	return map[string]any{"nickname": creds.Nickname, "openid": creds.OpenID, "logintype": defaultString(creds.LoginType, "WX")}
+}
+
+func businessRejection(data map[string]any) bool {
+	switch v := data["code"].(type) {
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	case string:
+		return v != "" && v != "0"
+	}
+	return false
 }
 
 func (c *LoginBufferClient) requestJSON(ctx context.Context, method, url string, body []byte, headers map[string]string, out any) error {

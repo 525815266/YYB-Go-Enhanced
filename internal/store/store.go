@@ -963,8 +963,15 @@ func (db *DB) GetFeatureByName(ctx context.Context, name string) (*Feature, erro
 
 func (a *WechatAccount) Public() AccountPublic {
 	product := "appstore"
-	if strings.HasPrefix(a.OpenID, "pcmgr:") {
+	switch {
+	case strings.HasPrefix(a.OpenID, "pcmgr:"):
 		product = "pcmgr"
+	case stringCredential(a.Credentials, "provider") == "pcmgr":
+		product = "pcmgr"
+	case stringCredential(a.Credentials, "provider") == "gameassist":
+		// GameAssist accounts keep their real WeChat openId, so the provider
+		// marker is the only channel signal.
+		product = "gameassist"
 	}
 	var refreshTokenObservedAt *int64
 	rescanRecommended := a.SessionOnly()

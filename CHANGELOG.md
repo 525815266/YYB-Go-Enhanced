@@ -2,6 +2,12 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.68 - 2026-11-04
+
+- **新增腾讯手游助手（GameAssist）扫码渠道 `gameassist`：** 第三条客户端凭据链。逆向实证（详见[手游助手渠道接入复核](docs/gameassist-protocol-20261104.md)）：手游助手 6.10 是应用宝 Androws 源码树改版，WMPF host_appid 同为 `wxd44977328b36e647`、ilink 取码栈同构，差异只在凭据签发——OAuth appid `wxef99873dbfab493c`、回调 `yybadaccess.3g.qq.com/syzslogin/syzs_oauth` 换取 `{openId, accessToken "1_…", refreshToken}`（camelCase 信封，同网关同结构已由探测证实），之后复用与 appstore 完全相同的 `pcyyb_get_wx_login_buffer_auth` 换 login_buffer。新包 `internal/gameassist` 兼容 camelCase/snake_case/cookie 三种签发形态并校验 `snsapi_runtime_pcsdk` scope；`product=gameassist` 贯通扫码、面板、OpenAPI 枚举、事件渠道、离线通知与账号渠道展示。刷新走默认 `pc_yyb` 主路由（`-109` 自动转 check-login），初扫约 30 天窗口、首次刷新后收敛为网关 `expires_in`。
+- **渠道大一统补齐（脚本零改动）：** 青龙脚本本就渠道无关（`ref@appserver → /wx/code`，渠道由服务端按账号凭据自动路由；生产 13 个账号全是 appstore、pcmgr/gameassist 尚未在生产接入）。本次把审计出的边缘差异全部抹平：`/integration/accounts` 每条增加 `scan_product`（脚本可按渠道统计分流）；`protocol.login_limited` 限流事件按账号真实渠道打标（此前硬编码 `yyb`，新增 `eventlog.ChannelFor`）；`/wx/getuserinfo` 补齐与 `/wx/code` 一致的过期拦截（unknown 状态且缓存已过期的账号不再先打上游再 502）；gameassist 凭据在 pc_yyb 用户信息端点被拒时降级返回本地资料（与 pcmgr 行为对齐，appstore 保持原样）；`unsupported credential provider` 错误带出实际 provider 值。主链路 `/wx/code`、`/wx/h5code`、手机号、operateWxData、cloud、encryptkey 三渠道行为在代码层完全一致（2026-11-04 审计：身份取自 buffer 字段 3，gameassist 必然落入 yyb 分支，pcmgr 票据有字段 3 强校验反向保护）。
+- **已知边界（如实告知）：** `syzs_oauth` 成功响应形态与 `pcyyb_get_wx_login_buffer_auth` 对 syzs 票据的接受度依赖实机扫码验证——静态证据支持可行，若被拒按文档后备路径（GameAssistant.exe 的 syzs Ual 头族 / launch_param 路线）迭代；`/wx/h5code` 等公众号类接口对 pcmgr/gameassist 会话尚未真机回归。
+
 ## v0.2.67 - 2026-11-04
 
 - **修复 `YYB_CODE_ALLOW_APPIDS` 未覆盖动态黑名单的缺陷：** v0.2.66 里放行名单只作用于内置黑名单，动态学习的禁用不受它影响。现在启动时会直接从持久化的动态名单里移除被放行的 AppID（并清除其计数），文档承诺的"放行优先级最高"生效。

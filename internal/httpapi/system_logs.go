@@ -77,7 +77,7 @@ func (a *App) handleSystemLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		return false
 	}
-	if !allowed(f.Category, "system", "api", "protocol", "keepalive", "account", "management", "auth") || !allowed(f.Level, "debug", "info", "warn", "error") || !allowed(f.Channel, "yyb", "pcmgr") {
+	if !allowed(f.Category, "system", "api", "protocol", "keepalive", "account", "management", "auth") || !allowed(f.Level, "debug", "info", "warn", "error") || !allowed(f.Channel, "yyb", "pcmgr", "gameassist") {
 		writeError(w, 400, "日志筛选条件无效")
 		return
 	}

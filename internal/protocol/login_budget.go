@@ -135,12 +135,13 @@ func (b *loginBudget) pruneLocked(now time.Time) {
 // AllowLogin is asked before traffic makes the OAuth layer do work for an
 // account. A false answer means the account has used its budget: the caller
 // should fail the request with the error it already has and must not retry.
-func (p *Pool) AllowLogin(accountID int64) bool {
+// The provider only labels the resulting event with the account's channel.
+func (p *Pool) AllowLogin(accountID int64, provider string) bool {
 	ok, summary := p.budget.take(accountID)
 	if summary != nil {
 		p.events.Emit("protocol.login_limited", eventlog.Fields{
 			AccountID:  accountID,
-			Channel:    "yyb",
+			Channel:    eventlog.ChannelFor(provider),
 			Refused:    summary.Refused,
 			DurationMS: summary.Window.Milliseconds(),
 		})

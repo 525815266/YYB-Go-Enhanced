@@ -41,7 +41,8 @@ func normalizeLoginProduct(product string) (string, error) {
 		return loginProductAppStore, nil
 	}
 	if product != loginProductAppStore {
-		if product == "pcmgr" {
+		switch product {
+		case "pcmgr", "gameassist":
 			return product, nil
 		}
 		return "", fmt.Errorf("不支持的扫码渠道 %q", product)

@@ -1099,6 +1099,12 @@ func (a *App) handleWXGetUserInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "account login_buffer expired; re-scan required")
 		return
 	}
+	// Same gate as /wx/code: an unknown-status account past its cached expiry
+	// must not hit the upstream and turn a lapsed credential into a rejection.
+	if accountNeedsRescan(acc) {
+		writeError(w, http.StatusConflict, "account credentials expired; re-scan required")
+		return
+	}
 	proxyValue, fallbackDirect, err := a.resolveAccountProxy(r.Context(), acc.ID)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "resolve account proxy failed: "+err.Error())
@@ -1545,7 +1551,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		// The access token may still be usable: fetch a fresh buffer without
 		// rotating tokens or changing scan/expiry timestamps. Pool persists the
 		// replacement protocol session, so no account credential write is needed.
-		if !a.pool.AllowLogin(acc.ID) {
+		if !a.pool.AllowLogin(acc.ID, protocol.ProviderOf(acc)) {
 			return nil, errors.Join(callErr, errLoginBudget)
 		}
 		buffer, bufferErr := a.fetchAccountLoginBuffer(ctx, acc)
@@ -1573,7 +1579,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	// A forced refresh is another OAuth-layer call. Past the account's login
 	// budget the request fails with the error it has, and the cached session is
 	// left alone rather than invalidated for a repair that will not happen.
-	if !a.pool.AllowLogin(acc.ID) {
+	if !a.pool.AllowLogin(acc.ID, protocol.ProviderOf(acc)) {
 		return nil, errors.Join(callErr, errLoginBudget)
 	}
 	if !ticketAccessRejected {
