@@ -44,11 +44,13 @@
 
 **凭据生命周期说明**：gameassist 初扫凭据 `expires_at` 为官方约 30 天窗口；首次经 `pc_yyb` 主路由刷新后 `expires_in` 收敛为网关返回值（通常 7200 秒），保活节奏随之自动转为小时级——与 appstore 扫码凭据行为一致。
 
-## 实机验收记录（2026-11-04，生产 v0.2.69）
+## 实机验收记录（2026-11-04，生产 v0.2.72）
 
 1. **pcmgr 渠道接入成功**：生产扫码 → 授权 → confirm 首次 `20138 code=6`（loginkey 签发侧到原生网关的传播延迟，约 1 分钟后同凭据重试成功）→ 账号 id=14（`pcmgr:487970106`）→ `/wx/code` 真码 `login:ok`。v0.2.69 起确认阶段自动吸收该瞬态拒绝。
 2. **gameassist state 校验实锤**：首次生产扫码授权成功后 `syzs_oauth` 返回 `-109 RC_PARAMS_INVALID`。假 code 参数矩阵探测（参数形状/UA/Referer/缺参均不改变结果）：`state=web` → `-109`，`state=49.57735723381141`（官方 `state=100*Math.random()` 形状）→ `-107 RC_NO_AUTH_ERR`（进入码校验层，与 pcyyb_oauth 假 code 行为一致）。结论：**网关要求 state 为纯数字**；v0.2.69 起扫码会话生成官方形状浮点 state 并原样回传。
-3. 回调页 `imgcache.qq.com/syzs/syzsweb/login/login_result.html`（已抓源码）逻辑：读 cookie `syzs_prefix` + `openid`/`logintype`，成功即 `postMessage` 父窗口——证实凭据经 **cookie 签发**（domain=.qq.com），客户端再从 cookie 读取完整 token 集合传给 `SetLoginParam`。
+3. **回调链与凭据载体实锤**（v0.2.70/71 逐跳指纹）：真实 code 的换票链为 `syzs_oauth?code=…&state=<数字>` → **302（本跳 Set-Cookie：`openid/accesstoken/refreshtoken/logintype/scope/expires_in/appid/syzs_prefix`，domain=.qq.com）** → `imgcache.qq.com/syzs/syzsweb/login/login_result.html`（静态页，读 cookie 后 postMessage 报成功）。v0.2.70 曾因 HTML 正文令 JSON 解析先报错短路、没走到 cookie 提取；v0.2.72 修正为"全部来源先试、全落空才诊断"，cookie 提取补齐 scope（容忍 %2C）与 expires_in。回调页源码已抓取存档，证实凭据载体就是 cookie。
+4. **gameassist 接入成功**：v0.2.72 生产扫码 → confirm code:0 → 账号 id=15（真实 openId `oLvh-…`，provider=gameassist，expires_in=7200 经 cookie 读取）→ `/wx/code` 真码 `login:ok`。
+5. **三渠道同脚本收官**：同一 `POST /wx/code {"ref","app_id"}` 调用，appstore（id=4）/ pcmgr（id=14）/ gameassist（id=15）全部返回真实 wx.login code，脚本零改动；新账号 ref 加入青龙 `YYB_SERVER` 即投产。
 
 ## 未验证边界（发布时必须如实告知）
 
