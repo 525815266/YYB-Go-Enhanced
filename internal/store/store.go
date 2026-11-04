@@ -148,6 +148,7 @@ type WechatAccount struct {
 	Credentials    map[string]any `json:"credentials,omitempty"`
 	Status         *string        `json:"status,omitempty"`
 	LastCheckedAt  *int64         `json:"last_checked_at,omitempty"`
+	FleetPrimaryID *int64         `json:"fleet_primary_id,omitempty"`
 	CreatedAt      int64          `json:"created_at"`
 	UpdatedAt      int64          `json:"updated_at"`
 	credentialJSON sql.NullString
@@ -155,6 +156,7 @@ type WechatAccount struct {
 
 type AccountPublic struct {
 	ScanProduct            string  `json:"scan_product"`
+	FleetPrimaryID         *int64  `json:"fleet_primary_id"`
 	ID                     int64   `json:"id"`
 	OpenID                 string  `json:"openid"`
 	UIN                    *int64  `json:"uin"`
@@ -231,6 +233,10 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 	if err = migrateAccountLinks(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err = migrateAccountFleet(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -358,6 +364,30 @@ func migrateAccountRemark(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	_, err = db.ExecContext(ctx, "ALTER TABLE wechat_accounts ADD COLUMN remark TEXT")
+	return err
+}
+
+func migrateAccountFleet(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(wechat_accounts)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == "fleet_primary_id" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "ALTER TABLE wechat_accounts ADD COLUMN fleet_primary_id INTEGER")
 	return err
 }
 
@@ -512,6 +542,40 @@ func (db *DB) ResolveAccount(ctx context.Context, ref string) (*WechatAccount, e
 	}
 	return db.GetAccountByOpenID(ctx, ref)
 }
+
+// SetAccountFleet binds an account into the fleet rooted at primaryID.
+// primaryID 0 unbinds. A primary anchors its own fleet by self-binding:
+// without the self-reference, requests aimed at the primary would never
+// dispatch to the members.
+func (db *DB) SetAccountFleet(ctx context.Context, accountID, primaryID int64) error {
+	var target *int64
+	if primaryID > 0 {
+		target = &primaryID
+	}
+	_, err := db.sql.ExecContext(ctx, "UPDATE wechat_accounts SET fleet_primary_id=?, updated_at=? WHERE id=?",
+		target, time.Now().Unix(), accountID)
+	return err
+}
+
+// FleetMembers returns the fleet rooted at primaryID (the primary itself
+// plus every account bound to it), oldest id first for stable ordering.
+func (db *DB) FleetMembers(ctx context.Context, primaryID int64) ([]*WechatAccount, error) {
+	rows, err := db.sql.QueryContext(ctx, selectAccountSQL+" WHERE id=? OR fleet_primary_id=? ORDER BY id", primaryID, primaryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]*WechatAccount, 0, 3)
+	for rows.Next() {
+		acc, err := scanAccountRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, acc)
+	}
+	return out, rows.Err()
+}
+
 
 func (db *DB) ListAccounts(ctx context.Context) ([]*WechatAccount, error) {
 	rows, err := db.sql.QueryContext(ctx, selectAccountSQL+" ORDER BY id")
@@ -1023,6 +1087,7 @@ func (a *WechatAccount) Public() AccountPublic {
 	}
 	return AccountPublic{
 		ScanProduct:            product,
+		FleetPrimaryID:         a.FleetPrimaryID,
 		ID:                     a.ID,
 		OpenID:                 a.OpenID,
 		UIN:                    a.UIN,
@@ -1077,7 +1142,7 @@ func int64Credential(values map[string]any, key string) int64 {
 	}
 }
 
-const selectAccountSQL = `SELECT id, openid, uin, alias, nickname, remark, avatar, user_info, login_buffer, credentials, status, last_checked_at, created_at, updated_at FROM wechat_accounts`
+const selectAccountSQL = `SELECT id, openid, uin, alias, nickname, remark, avatar, user_info, login_buffer, credentials, status, last_checked_at, created_at, updated_at, fleet_primary_id FROM wechat_accounts`
 
 type accountScanner interface {
 	Scan(dest ...any) error
@@ -1094,14 +1159,14 @@ func (db *DB) scanAccount(row accountScanner) (*WechatAccount, error) {
 func scanAccountRows(row accountScanner) (*WechatAccount, error) {
 	var (
 		a                               WechatAccount
-		uin, lastChecked                sql.NullInt64
+		uin, lastChecked, fleetPrimary  sql.NullInt64
 		alias, nickname, remark, avatar sql.NullString
 		userJSON, credJSON              sql.NullString
 		status                          sql.NullString
 	)
 	err := row.Scan(
 		&a.ID, &a.OpenID, &uin, &alias, &nickname, &remark, &avatar, &userJSON,
-		&a.LoginBuffer, &credJSON, &status, &lastChecked, &a.CreatedAt, &a.UpdatedAt,
+		&a.LoginBuffer, &credJSON, &status, &lastChecked, &a.CreatedAt, &a.UpdatedAt, &fleetPrimary,
 	)
 	if err != nil {
 		return nil, err
@@ -1116,6 +1181,9 @@ func scanAccountRows(row accountScanner) (*WechatAccount, error) {
 	a.Status = stringPtrFromNull(status)
 	if lastChecked.Valid {
 		a.LastCheckedAt = &lastChecked.Int64
+	}
+	if fleetPrimary.Valid {
+		a.FleetPrimaryID = &fleetPrimary.Int64
 	}
 	if userJSON.Valid && userJSON.String != "" {
 		_ = json.Unmarshal([]byte(userJSON.String), &a.UserInfo)

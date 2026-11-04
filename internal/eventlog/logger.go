@@ -38,6 +38,7 @@ var catalog = map[string]definition{
 	"protocol.circuit_deferred":  {"protocol", "debug", "请求处于熔断期，未发往上游"},
 	"protocol.paced":             {"protocol", "info", "取码限速：部分请求已排队或被暂缓"},
 	"protocol.appid_denied":      {"protocol", "warn", "取码已拒绝：网站应用 AppID，未发往上游"},
+	"fleet.failover":             {"protocol", "info", "编队转移：该成员上游推回，请求交给下一成员"},
 	"protocol.login_limited":     {"protocol", "warn", "重新登录次数已达上限，部分请求未再恢复会话"},
 	"protocol.ticket_requested":  {"protocol", "info", "请求新的登录票据"},
 	"protocol.recovered":         {"protocol", "info", "新会话取码验证通过"},
