@@ -2,6 +2,10 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.73 - 2026-11-04
+
+- **面板前端补齐 gameassist 渠道（后端早已就绪，此前的扫码入口只有 YYB/PCMgr 两个选项）：** 扫码页、一次性授权链接页、账号链接弹窗、扫码设置（个人/系统默认）的渠道下拉全部加入"GameAssist"；面板六处二元硬编码（账号列表渠道徽标、取码测试标签、合并/链接列表等）改走三渠道 `scanChannelName`/`scanChannelBadge` 助手并新增手柄图标，gameassist 账号不再被显示成 YYB。共享脚本移入 `<head>` 保证渲染前可用，静态资源缓存版本升至 v=049。
+
 ## v0.2.72 - 2026-11-04
 
 - **修复 gameassist 换票提取顺序（实机定位，v0.2.71 流程缺陷）：** 逐跳指纹显示 `syzs_oauth` 302 已正确种下全部凭据 cookie（`openid/accesstoken/refreshtoken/logintype/scope/expires_in/appid/syzs_prefix`）再跳官方 `login_result.html`，但 HTML 正文令 JSON 解析先报错短路，cookie 提取代码根本没执行到。现在三种来源（JSON 信封 / jar / 逐跳 Set-Cookie / HTML 字面量）统一先尝试、全部落空才报诊断指纹；cookie 提取补齐 `scope`（容忍 `%2C` 转义）与 `expires_in`（无信号时回退约 30 天窗口，避免账号生而过期）。

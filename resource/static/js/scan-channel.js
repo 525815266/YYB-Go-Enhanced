@@ -1,5 +1,6 @@
 // Shared by the console and the public one-time authorization page.
-window.scanChannelName = product => product === 'pcmgr' ? 'PCMgr' : 'YYB';
+window.scanChannelName = product => product === 'pcmgr' ? 'PCMgr' : product === 'gameassist' ? 'GameAssist' : 'YYB';
+window.scanChannelBadge = product => product === 'pcmgr' ? 'pcmgr' : product === 'gameassist' ? 'gameassist' : 'yyb';
 window.confirmScanChannelSwitch = ({from, to, account}) => new Promise(resolve => {
   const dialog = document.createElement('dialog');
   dialog.className = 'scan-switch-dialog';
