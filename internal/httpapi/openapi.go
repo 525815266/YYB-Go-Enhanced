@@ -412,7 +412,7 @@ func newOpenAPISpec() map[string]any {
 			"/wx/oauth": map[string]any{
 				"post": openAPIOperation(
 					[]string{"oauth"},
-					"生成微信公众号网页授权链接",
+					"获取公众号网页授权 code：默认通过账号会话自动完成网页授权并返回真实 code（等价 /wx/h5code，H5 脚本免手工授权）；带 return_url_only=true 时退回旧行为，只生成授权链接",
 					nil,
 					jsonRequestBody(objectSchema([]string{"ref", "appid", "redirect_uri"}, map[string]any{
 						"ref":             map[string]any{"type": "string"},
@@ -423,7 +423,7 @@ func newOpenAPISpec() map[string]any {
 						"component_appid": map[string]any{"type": "string"},
 					})),
 					defaulted(map[string]any{
-						"200": jsonResponse("生成授权链接；当前 code 为 null 属正常状态，用户在微信内授权后 code 和 state 会回传到 redirect_uri。", freeFormObjectSchema("公众号网页授权结果")),
+						"200": jsonResponse("默认返回自动换取的网页授权 code（mode=authorization_code）；return_url_only=true 时生成授权链接、code 为 null，用户在微信内授权后 code 和 state 回传到 redirect_uri。", freeFormObjectSchema("公众号网页授权结果")),
 					}),
 				),
 			},

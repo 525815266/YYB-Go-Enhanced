@@ -125,6 +125,9 @@ type App struct {
 	pool               *protocol.Pool
 	qr                 *qr.Client
 	refreshCredentials func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
+	// oauthH5Invoke lets tests stub the web-authorize call behind the
+	// /wx/oauth auto-exchange; nil means the real /wx/h5code invoke.
+	oauthH5Invoke wxappCall
 	checkLogin         func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
 	fetchLoginBuffer   func(context.Context, protocol.LoginBufferCredentials) (string, error)
 	exchangeAuthCode   func(context.Context, string) (protocol.LoginBufferResult, error)

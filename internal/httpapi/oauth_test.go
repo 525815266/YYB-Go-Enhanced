@@ -25,7 +25,7 @@ func TestPublicOAuthReturnsAuthorizationURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := []byte(`{"ref":"` + strconv.FormatInt(account.ID, 10) + `","appid":"wx1234567890abcdef","redirect_uri":"https://example.com/callback","scope":"snsapi_base"}`)
+	body := []byte(`{"ref":"` + strconv.FormatInt(account.ID, 10) + `","appid":"wx1234567890abcdef","redirect_uri":"https://example.com/callback","scope":"snsapi_base","return_url_only":true}`)
 	recorder := httptest.NewRecorder()
 	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/wx/oauth", bytes.NewReader(body)))
 	if recorder.Code != http.StatusOK {
