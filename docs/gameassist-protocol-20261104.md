@@ -56,6 +56,8 @@
 3. **回调链与凭据载体实锤**（v0.2.70/71 逐跳指纹）：真实 code 的换票链为 `syzs_oauth?code=…&state=<数字>` → **302（本跳 Set-Cookie：`openid/accesstoken/refreshtoken/logintype/scope/expires_in/appid/syzs_prefix`，domain=.qq.com）** → `imgcache.qq.com/syzs/syzsweb/login/login_result.html`（静态页，读 cookie 后 postMessage 报成功）。v0.2.70 曾因 HTML 正文令 JSON 解析先报错短路、没走到 cookie 提取；v0.2.72 修正为"全部来源先试、全落空才诊断"，cookie 提取补齐 scope（容忍 %2C）与 expires_in。回调页源码已抓取存档，证实凭据载体就是 cookie。
 4. **gameassist 接入成功**：v0.2.72 生产扫码 → confirm code:0 → 账号 id=15（真实 openId `oLvh-…`，provider=gameassist，expires_in=7200 经 cookie 读取）→ `/wx/code` 真码 `login:ok`。
 5. **三渠道同脚本收官**：同一 `POST /wx/code {"ref","app_id"}` 调用，appstore（id=4）/ pcmgr（id=14）/ gameassist（id=15）全部返回真实 wx.login code，脚本零改动；新账号 ref 加入青龙 `YYB_SERVER` 即投产。
+6. **H5 公众号路由三渠道一致性（2026-11-04 晚）**：同一 `POST /wx/h5code`（公众号 `wxabec74192b99a2d6` + 非白名单回调 `findstars.cn`）在三个渠道的会话上都打到命令 1254 并返回**完全相同的上游裁决 `business code=10003`**（回调域名与公众号配置不一致——域名校验在授权发放前，安全无副作用）。gameassist 新账号曾因出生一小时内多次登录触发上游 `-10` 保护，冷却后恢复。至此 H5 路由三渠道同链路有实证；签发真 code 需换该公众号白名单内的业务回调（等真实业务用法）。
+7. **动态黑名单清理**：事故夜（v0.2.66 阈值 1 时代，00:24–00:33）误学的 56 条已清空，爱优客小程序 appid 实测恢复真码；v0.2.67 的跨账号确认机制接管后续学习。
 
 ## 未验证边界（发布时必须如实告知）
 
