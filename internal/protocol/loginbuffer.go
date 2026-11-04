@@ -555,10 +555,17 @@ func firstString(m map[string]any, keys ...string) string {
 	return ""
 }
 
+// firstInt64 reads the first non-zero number among the given keys. The syzs
+// gateway sends expiresIn as a string ("7200"), so numeric strings count too.
 func firstInt64(m map[string]any, keys ...string) int64 {
 	for _, key := range keys {
 		if n := int64FromMap(m, key); n != 0 {
 			return n
+		}
+		if s, ok := m[key].(string); ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil && n != 0 {
+				return n
+			}
 		}
 	}
 	return 0

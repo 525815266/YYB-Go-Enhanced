@@ -90,6 +90,12 @@ func TestRefreshCredentialsGameAssistUsesSyzsRoute(t *testing.T) {
 			answer:     `{"code":0,"msg":"","userInfo":{"openId":"o-ga","expiresIn":3600}}`,
 			wantAccess: "1_ga", wantRefresh: "1_gar", wantIn: 3600,
 		},
+		// Captured from the real gateway on 2026-11-04 (lab account, tokens replaced):
+		// openId comes back empty, the tokens are the ones sent and expiresIn is a string.
+		"real answer, tokens unchanged and expiresIn as a string": {
+			answer:     `{"code":0,"msg":"RC_SUCCESS","userInfo":{"uid":"0","loginType":"WX","openId":"","accessToken":"1_ga","refreshToken":"1_gar","guid":"","imei":"","email":"","nickName":"","avatar":"","password":"","newPassword":"","expiresIn":"3600"},"extInfo":null}`,
+			wantAccess: "1_ga", wantRefresh: "1_gar", wantIn: 3600,
+		},
 		"snake_case answer is read as well": {
 			answer:     `{"code":0,"user_info":{"open_id":"o-ga","access_token":"1_snake","refresh_token":"1_snaker","expires_in":1800}}`,
 			wantAccess: "1_snake", wantRefresh: "1_snaker", wantIn: 1800,
