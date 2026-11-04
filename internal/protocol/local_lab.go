@@ -23,6 +23,10 @@ func labHost(provider string) ([]byte, error) {
 		return hostAppIDDefault, nil
 	case "pcmgr":
 		return []byte(pcmgr.HostAppID), nil
+	case "gameassist":
+		// Same Androws WMPF host identity as yyb; the lab profile exists so
+		// gameassist tickets can be exercised under their own channel label.
+		return hostAppIDDefault, nil
 	default:
 		return nil, fmt.Errorf("unknown lab provider")
 	}

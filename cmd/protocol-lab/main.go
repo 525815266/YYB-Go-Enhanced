@@ -43,14 +43,14 @@ func main() {
 }
 
 func run() error {
-	provider := flag.String("provider", "", "required: yyb or pcmgr")
+	provider := flag.String("provider", "", "required: yyb, pcmgr or gameassist")
 	root := flag.String("state-root", "", "absolute private lab directory; each provider has a separate subdirectory")
 	inputPath := flag.String("ticket-file", "", "fresh YYB base64 ticket or PCMgr native protobuf response; omitted to reuse a session")
 	pcProfile := flag.String("pcmgr-profile", "", "private PCMgr profile for the independent Go transport")
 	pcRenew := flag.Bool("renew-pcmgr", false, "rotate the isolated PCMgr profile and persist before fetching a ticket")
 	flag.Parse()
-	if (*provider != "yyb" && *provider != "pcmgr") || !filepath.IsAbs(*root) || flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "requires --provider yyb|pcmgr --state-root ABSOLUTE_PATH [--ticket-file ABSOLUTE_PATH]")
+	if (*provider != "yyb" && *provider != "pcmgr" && *provider != "gameassist") || !filepath.IsAbs(*root) || flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "requires --provider yyb|pcmgr|gameassist --state-root ABSOLUTE_PATH [--ticket-file ABSOLUTE_PATH]")
 		return errors.New("invalid local lab arguments")
 	}
 	dir := filepath.Join(*root, *provider)

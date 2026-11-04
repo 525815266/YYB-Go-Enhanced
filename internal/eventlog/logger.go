@@ -110,15 +110,25 @@ func (f Fields) WithTarget(appID, operation, api string) Fields {
 	return f
 }
 
+// ChannelFor maps an account credential provider to its log channel. The
+// empty provider is the default YYB (appstore) channel.
+func ChannelFor(provider string) string {
+	switch provider {
+	case "pcmgr":
+		return "pcmgr"
+	case "gameassist":
+		return "gameassist"
+	default:
+		return "yyb"
+	}
+}
+
 func ForAccount(acc *store.WechatAccount) Fields {
 	if acc == nil {
 		return Fields{}
 	}
-	channel := "yyb"
-	if acc.Credentials["provider"] == "pcmgr" {
-		channel = "pcmgr"
-	}
-	return Fields{AccountID: acc.ID, Channel: channel}
+	provider, _ := acc.Credentials["provider"].(string)
+	return Fields{AccountID: acc.ID, Channel: ChannelFor(provider)}
 }
 
 // Routes are router templates, never the requested URL or account-link token.
@@ -181,7 +191,7 @@ func (l *Logger) Emit(event string, f Fields) {
 	if f.AccountID < 0 {
 		f.AccountID = 0
 	}
-	if f.Channel != "yyb" && f.Channel != "pcmgr" {
+	if f.Channel != "yyb" && f.Channel != "pcmgr" && f.Channel != "gameassist" {
 		f.Channel = ""
 	}
 	if !safeRoute.MatchString(f.Route) {

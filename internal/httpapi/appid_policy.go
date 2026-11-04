@@ -108,34 +108,68 @@ func writeIfAppIDDenied(w http.ResponseWriter, err error) bool {
 // the service restarts.
 const dynamicAppIDDenySettingKey = "code_dynamic_deny_appids"
 
-// dynamicAppIDDeny learns website-application AppIDs at run time. The first
-// wx.login code request that reaches the upstream and comes back without a
-// code (after the session-rebuild retry) denies that AppID for every account:
-// docs/website-appid-getcode-20261103.md shows one such request can cost a
-// healthy account its authorization, and a genuine mini program that never
-// yields a code has no working caller to protect either. An allow entry in
-// YYB_CODE_ALLOW_APPIDS still wins over anything learned here.
+// dynamicAppIDDenyTotalStrikes is the number of code-less outcomes for one
+// AppID that denies it regardless of how many accounts produced them. It caps
+// the damage a bad AppID can do on a single-account deployment, where the
+// distinct-account rule below would never fire.
+const dynamicAppIDDenyTotalStrikes = 4
+
+// appidStrikes accumulates the code-less outcomes of one AppID: how many
+// distinct accounts failed and how many requests failed in total.
+type appidStrikes struct {
+	accounts map[int64]bool
+	attempts int
+}
+
+// dynamicAppIDDeny learns website-application AppIDs at run time. A wx.login
+// code request that reaches the upstream and comes back without a code denies
+// that AppID for every account once the outcome repeats: the default needs two
+// distinct accounts to fail, or dynamicAppIDDenyTotalStrikes failures in
+// total, because one account can also stop receiving codes when the upstream
+// puts it into burst refusal after a long run of successes — that night every
+// AppID failed on the bursted account while other accounts kept succeeding on
+// the same ones (docs/h5-oauth-code.md). A success on any account clears the
+// strikes for that AppID. Denials persist across restarts; an allow entry in
+// YYB_CODE_ALLOW_APPIDS removes a learned AppID again at startup.
 type dynamicAppIDDeny struct {
 	mu        sync.Mutex
 	denied    map[string]string
-	strikes   map[string]int
+	strikes   map[string]*appidStrikes
 	threshold int
 	db        *store.DB
 }
 
-func newDynamicAppIDDeny(db *store.DB, threshold int, disabled bool) *dynamicAppIDDeny {
+func newDynamicAppIDDeny(db *store.DB, threshold int, allow []string, disabled bool) *dynamicAppIDDeny {
 	if disabled {
 		return nil
 	}
 	if threshold <= 0 {
-		threshold = 1
+		threshold = 2
 	}
-	d := &dynamicAppIDDeny{denied: map[string]string{}, strikes: map[string]int{}, threshold: threshold, db: db}
+	d := &dynamicAppIDDeny{denied: map[string]string{}, strikes: map[string]*appidStrikes{}, threshold: threshold, db: db}
 	if db != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if raw, err := db.GetSetting(ctx, dynamicAppIDDenySettingKey); err == nil && raw != "" {
 			_ = json.Unmarshal([]byte(raw), &d.denied)
+		}
+	}
+	// The allow list always wins: a learned AppID the operator allows is
+	// forgotten here, so the refusal never comes back on a restart.
+	if len(allow) > 0 {
+		removed := false
+		for _, appID := range allow {
+			key := normalizeAppID(appID)
+			if key == "" {
+				continue
+			}
+			if _, was := d.denied[key]; was {
+				delete(d.denied, key)
+				removed = true
+			}
+		}
+		if removed {
+			d.persistLocked()
 		}
 	}
 	return d
@@ -153,8 +187,8 @@ func (d *dynamicAppIDDeny) check(appID string) (string, bool) {
 }
 
 // recordStrike counts a code request that reached the upstream and returned no
-// code. It reports whether this strike newly denied the AppID.
-func (d *dynamicAppIDDeny) recordStrike(appID string) bool {
+// code, per account. It reports whether this strike newly denied the AppID.
+func (d *dynamicAppIDDeny) recordStrike(appID string, accountID int64) bool {
 	if d == nil {
 		return false
 	}
@@ -167,17 +201,26 @@ func (d *dynamicAppIDDeny) recordStrike(appID string) bool {
 	if _, already := d.denied[key]; already {
 		return false
 	}
-	d.strikes[key]++
-	if d.strikes[key] < d.threshold {
+	set, exists := d.strikes[key]
+	if !exists {
+		set = &appidStrikes{accounts: map[int64]bool{}}
+		d.strikes[key] = set
+	}
+	set.accounts[accountID] = true
+	set.attempts++
+	// Deny once the failure repeats on the threshold of distinct accounts, or
+	// once one AppID has accumulated dynamicAppIDDenyTotalStrikes failures in
+	// total (a single-account deployment never reaches two accounts).
+	if len(set.accounts) < d.threshold && set.attempts < dynamicAppIDDenyTotalStrikes {
 		return false
 	}
-	d.denied[key] = fmt.Sprintf("自动学习：%s 取码 %d 次均未返回 code（网站应用/公众号特征），为保护账号授权已自动禁用（%s）", key, d.strikes[key], time.Now().Format("2006-01-02 15:04"))
-	d.strikes[key] = 0
+	d.denied[key] = fmt.Sprintf("自动学习：%s 取码未返回 code 已在 %d 个账号上出现（累计 %d 次，网站应用/公众号特征），为保护账号授权已自动禁用（%s）", key, len(set.accounts), set.attempts, time.Now().Format("2006-01-02 15:04"))
+	delete(d.strikes, key)
 	return d.persistLocked()
 }
 
-// recordSuccess forgets strikes for an AppID that did return a code, so a
-// transient upstream hiccup cannot deny a healthy mini program later.
+// recordSuccess forgets strikes for an AppID that did return a code, so one
+// bursted account cannot deny a healthy AppID the other accounts still use.
 func (d *dynamicAppIDDeny) recordSuccess(appID string) {
 	if d == nil {
 		return
@@ -210,7 +253,7 @@ func (d *dynamicAppIDDeny) clear(appID string) (map[string]string, error) {
 	d.mu.Lock()
 	if key == "" {
 		d.denied = map[string]string{}
-		d.strikes = map[string]int{}
+		d.strikes = map[string]*appidStrikes{}
 	} else {
 		delete(d.denied, key)
 		delete(d.strikes, key)

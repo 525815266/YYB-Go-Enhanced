@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 )
 
@@ -45,6 +46,14 @@ func retryLoginBufferError(err error) bool {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// A freshly exchanged PCM login key can briefly reject the native buffer
+	// call (observed code=6 on 2026-11-04 right after scanning, succeeding on
+	// a manual retry a minute later). The retry re-issues the same buffer
+	// request without rotating anything, so riding the window is safe.
+	var bufferRejected *pcmgr.BufferRejectedError
+	if errors.As(err, &bufferRejected) {
 		return true
 	}
 	message := strings.ToLower(err.Error())

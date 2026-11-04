@@ -2,11 +2,44 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.2.74 - 2026-11-04
+
+- **账号被上游拒绝时，日志里记下它刚刚做了什么：** `account.expired` 和 `account.refresh_failed` 事件新增 `recent` 字段，列出这个账号最近 3 分钟内（最多 12 条）的取码、取号、转发请求：AppID、请求类型、结果（成功、失败、恢复开始、熔断延后等）、距离事件多少秒，以及失败时的上游拒绝码（如 `-14`）。只含标识符，不含请求内容、凭据或 code，只在内存里记着，重启后清空。目的是下一次有账号无缘无故掉线，不用再靠猜：11-04 00:21–00:28 账号 1 在连续成功 17 个 code 后被拒，现在掉线事件自己带着掉线前的请求序列，不必事后到运行日志里去拼。反馈掉线问题时请把这一条事件的详情贴出来。这一项没有改变任何请求行为。
+- **项目自带的两个脚本默认停用：** `腾讯电脑管家_code版.py`（`wx5cd60c5d4817a188`）和 `京东CK采集_code版.py`（`wx2f5d8f9715c59d10`）用网站应用 AppID 取 code，对这类 AppID 取一次 code 就见过授权被上游拒绝（生产 2 个账号、本机对照 3 次）。服务端从 v0.2.63 起默认拒绝这两个 AppID，但脚本和服务端是分开更新的，旧版本服务上仍会打死账号，所以脚本现在默认不运行，打印原因后退出，不发任何请求。确认要运行需设置 `YYB_ALLOW_WEBSITE_APPID=1`，并在服务端放行（`YYB_CODE_ALLOW_APPIDS`）。已经把这两个任务加进青龙的用户，更新脚本后它们会静默结束。公众号网页授权的 code 另有专用接口 `/wx/h5code`（v0.2.66，见 [H5 OAuth code](docs/h5-oauth-code.md)）；这两个脚本改走它能否拿到可用的登录态没有验证，所以这里只是停用，没有改写。
+- 服务端的取码、续期和保护行为这一版都没有改（v0.2.66–v0.2.73 的变化原样保留），授权被上游拒绝的根因也没有找到：实验室几轮对照没有给出结论，见[取码量对照实验](docs/dense-batch-lab-20261103.md)。
+
+## v0.2.73 - 2026-11-04
+
+- **面板前端补齐 gameassist 渠道（后端早已就绪，此前的扫码入口只有 YYB/PCMgr 两个选项）：** 扫码页、一次性授权链接页、账号链接弹窗、扫码设置（个人/系统默认）的渠道下拉全部加入"GameAssist"；面板六处二元硬编码（账号列表渠道徽标、取码测试标签、合并/链接列表等）改走三渠道 `scanChannelName`/`scanChannelBadge` 助手并新增手柄图标，gameassist 账号不再被显示成 YYB。共享脚本移入 `<head>` 保证渲染前可用，静态资源缓存版本升至 v=049。
+
+## v0.2.72 - 2026-11-04
+
+- **修复 gameassist 换票提取顺序（实机定位，v0.2.71 流程缺陷）：** 逐跳指纹显示 `syzs_oauth` 302 已正确种下全部凭据 cookie（`openid/accesstoken/refreshtoken/logintype/scope/expires_in/appid/syzs_prefix`）再跳官方 `login_result.html`，但 HTML 正文令 JSON 解析先报错短路，cookie 提取代码根本没执行到。现在三种来源（JSON 信封 / jar / 逐跳 Set-Cookie / HTML 字面量）统一先尝试、全部落空才报诊断指纹；cookie 提取补齐 `scope`（容忍 `%2C` 转义）与 `expires_in`（无信号时回退约 30 天窗口，避免账号生而过期）。
+
+## v0.2.71 - 2026-11-04
+
+- **gameassist 换票逐跳捕获 cookie（实机定位）：** 形态指纹显示换票 302 链正常终结在官方 `login_result.html`（len=2322 与该静态页完全一致），但凭据 cookie 在中间跳的 Set-Cookie 上、会话 jar 跨域没收住。ExchangeCode 现在用逐跳记录传输层抓取**每一跳**的 Set-Cookie 并按名提取凭据（不再依赖 jar 的跨域语义），同时回调请求补上官方浏览器形态的 Referer/Chrome UA；失败指纹改为整条重定向链（每跳状态+脱敏 URL+Set-Cookie 名单）。
+
+## v0.2.70 - 2026-11-04
+
+- **gameassist 换票第二跳适配（实机推进）：** 数字 state 修复后，`syzs_oauth` 对有效 code 不再返回 JSON 信封，而是官方流程中的 HTML 中转跳（凭据经 .qq.com cookie 交给 `login_result.html`）。ExchangeCode 现在按三种形态收尾：JSON 信封 / 会话 jar 里的 cookie / **HTML 中转页里的 `document.cookie`/`setCookie` 字面量**；解析失败时报错只带形态指纹（HTTP 状态、Content-Type、长度、Set-Cookie 名单、脱敏后的最终 URL），绝不带正文，防止凭据进日志。
+
+## v0.2.69 - 2026-11-04
+
+- **修复 gameassist 扫码换票被拒（实机定位）：state 必须是数字。** 首次生产扫码授权成功后 `syzs_oauth` 返回 `-109 RC_PARAMS_INVALID`；用假 code 做参数矩阵探测，`state=web` 稳定复现 -109，而 `state=49.57735723381141`（官方客户端 JS `state=100*Math.random()` 的形状）立即推进到 `-107 RC_NO_AUTH_ERR`（与 pcyyb_oauth 假 code 的"码无效"层一致）。现在扫码会话生成官方形状的随机浮点 state 并原样带到回调换取；非数字 state 在本地直接拒绝。
+- **扫码确认吸收电脑管家票据的瞬态拒绝：** 首次生产扫码接入 pcmgr 账号时，刚换到的 loginkey 立刻调原生 20138 得 `code=6`，约一分钟后手动重试同一凭据成功——是签发侧到原生网关的传播延迟。现在确认阶段的 8 秒重试窗口把 `pcmgr.BufferRejectedError` 一并纳入（重试不轮换 key、不重放 OAuth），扫码确认不再需要手动补一次。
+
+## v0.2.68 - 2026-11-04
+
+- **新增腾讯手游助手（GameAssist）扫码渠道 `gameassist`：** 第三条客户端凭据链。逆向实证（详见[手游助手渠道接入复核](docs/gameassist-protocol-20261104.md)）：手游助手 6.10 是应用宝 Androws 源码树改版，WMPF host_appid 同为 `wxd44977328b36e647`、ilink 取码栈同构，差异只在凭据签发——OAuth appid `wxef99873dbfab493c`、回调 `yybadaccess.3g.qq.com/syzslogin/syzs_oauth` 换取 `{openId, accessToken "1_…", refreshToken}`（camelCase 信封，同网关同结构已由探测证实），之后复用与 appstore 完全相同的 `pcyyb_get_wx_login_buffer_auth` 换 login_buffer。新包 `internal/gameassist` 兼容 camelCase/snake_case/cookie 三种签发形态并校验 `snsapi_runtime_pcsdk` scope；`product=gameassist` 贯通扫码、面板、OpenAPI 枚举、事件渠道、离线通知与账号渠道展示。刷新走默认 `pc_yyb` 主路由（`-109` 自动转 check-login），初扫约 30 天窗口、首次刷新后收敛为网关 `expires_in`。
+- **渠道大一统补齐（脚本零改动）：** 青龙脚本本就渠道无关（`ref@appserver → /wx/code`，渠道由服务端按账号凭据自动路由；生产 13 个账号全是 appstore、pcmgr/gameassist 尚未在生产接入）。本次把审计出的边缘差异全部抹平：`/integration/accounts` 每条增加 `scan_product`（脚本可按渠道统计分流）；`protocol.login_limited` 限流事件按账号真实渠道打标（此前硬编码 `yyb`，新增 `eventlog.ChannelFor`）；`/wx/getuserinfo` 补齐与 `/wx/code` 一致的过期拦截（unknown 状态且缓存已过期的账号不再先打上游再 502）；gameassist 凭据在 pc_yyb 用户信息端点被拒时降级返回本地资料（与 pcmgr 行为对齐，appstore 保持原样）；`unsupported credential provider` 错误带出实际 provider 值。主链路 `/wx/code`、`/wx/h5code`、手机号、operateWxData、cloud、encryptkey 三渠道行为在代码层完全一致（2026-11-04 审计：身份取自 buffer 字段 3，gameassist 必然落入 yyb 分支，pcmgr 票据有字段 3 强校验反向保护）。
+- **已知边界（如实告知）：** `syzs_oauth` 成功响应形态与 `pcyyb_get_wx_login_buffer_auth` 对 syzs 票据的接受度依赖实机扫码验证——静态证据支持可行，若被拒按文档后备路径（GameAssistant.exe 的 syzs Ual 头族 / launch_param 路线）迭代；`/wx/h5code` 等公众号类接口对 pcmgr/gameassist 会话尚未真机回归。
+
 ## v0.2.67 - 2026-11-04
 
-- **账号被上游拒绝时，日志里记下它刚刚做了什么：** `account.expired` 和 `account.refresh_failed` 事件新增 `recent` 字段，列出这个账号最近 3 分钟内（最多 12 条）的取码、取号、转发请求：AppID、请求类型、结果（成功、失败、恢复开始、熔断延后等）、距离事件多少秒，以及失败时的上游拒绝码（如 `-14`）。只含标识符，不含请求内容、凭据或 code，只在内存里记着，重启后清空。目的是下一次有账号无缘无故掉线，不用再靠猜：日志里直接看到掉线前最后几个 AppID。反馈掉线问题时请把这一条事件的详情贴出来。这一项没有改变任何请求行为。
-- **项目自带的两个脚本默认停用：** `腾讯电脑管家_code版.py`（`wx5cd60c5d4817a188`）和 `京东CK采集_code版.py`（`wx2f5d8f9715c59d10`）用网站应用 AppID 取 code，对这类 AppID 取一次 code 就见过授权被上游拒绝（生产 2 个账号、本机对照 3 次）。服务端从 v0.2.63 起默认拒绝这两个 AppID，但脚本和服务端是分开更新的，旧版本服务上仍会打死账号，所以脚本现在默认不运行，打印原因后退出，不发任何请求。确认要运行需设置 `YYB_ALLOW_WEBSITE_APPID=1`，并在服务端放行（`YYB_CODE_ALLOW_APPIDS`）。已经把这两个任务加进青龙的用户，更新脚本后它们会静默结束。
-- 服务端的取码、续期和保护行为这一版都没有改，授权被上游拒绝的根因也没有找到：实验室几轮对照没有给出结论，见[取码量对照实验](docs/dense-batch-lab-20261103.md)。
+- **修复 `YYB_CODE_ALLOW_APPIDS` 未覆盖动态黑名单的缺陷：** v0.2.66 里放行名单只作用于内置黑名单，动态学习的禁用不受它影响。现在启动时会直接从持久化的动态名单里移除被放行的 AppID（并清除其计数），文档承诺的"放行优先级最高"生效。
+- **动态自学习黑名单改为跨账号确认（v0.2.66 引入、v0.2.67 修正）：** 11-04 00:21–00:28，一个遍历全部账号的脚本让账号 1 在 80 秒内连续成功 17 个 code 后进入上游整体拒绝模式，随后每个 AppID 的取码都"无 code"，v0.2.66 的"1 次即禁"把 62 个 AppID 全部禁用，其中 11 个是几分钟前还在其他账号上成功取码的健康小程序（事件日志可查：`wx141bfb9b73c970a9` 在账号 1 失败的同一时间窗里在账号 9 上成功 2 次）。现在同一 AppID 需要 **2 个不同账号**都拿不到 code（或累计 4 次，覆盖单账号部署）才禁用，任一账号成功即清零计数；`YYB_CODE_DYNAMIC_DENY_THRESHOLD` 的含义相应改为"几个不同账号"，默认 `2`。真死的 AppID 在所有账号上都拿不到 code，仍会被禁。已有部署升级后，此前误禁的 AppID 可用 `POST /api/appid-deny`（不带参数清空全部）或放行名单恢复。
+- **同型的账号死亡仍未解决：** 账号 1 在上述窗口后被按需恢复以 `refresh_token -109 + check_login -109/42007` 拒绝，转为 `session_only`（与 11-03 00:44 同型，该账号当晚重扫后复活）。"长时间持续取码后整账号被拒"的触发阈值在上游，3 秒限速挡不住；脚本侧应摊开同一账号的取码时间。详见[公众号网页授权 code 与动态 AppID 防护](docs/h5-oauth-code.md)。
 
 ## v0.2.66 - 2026-11-04
 

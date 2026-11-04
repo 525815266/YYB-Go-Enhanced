@@ -954,6 +954,8 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
+  <script src="/static/js/scan-channel.js?v=049"></script>
 </head>
 <body>
   <div class="app">
@@ -1213,7 +1215,7 @@
       <form id="accountLinkConfigPane">
         <div class="field" id="accountLinkProductField">
           <label for="accountLinkProduct">本次扫码渠道</label>
-          <select class="input" id="accountLinkProduct"><option value="appstore">YYB</option><option value="pcmgr">PCMgr</option></select>
+          <select class="input" id="accountLinkProduct"><option value="appstore">YYB</option><option value="pcmgr">PCMgr</option><option value="gameassist">GameAssist</option></select>
           <span class="field-note">切换前会说明影响，扫码成功后保留原账号 ID。</span>
         </div>
         <div class="field">
@@ -1577,7 +1579,7 @@
               ${pendingConfirmation
                 ? `<button type="button" class="account-status account-status-toggle ${cls}" aria-expanded="false" aria-controls="confirm-account-${account.id}" aria-label="确认账号 ${escapeHTML(number)} 的状态"><span class="status-dot"></span>${status}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>`
                 : `<span class="account-status ${cls}" title="${account.status === "session_only" ? "授权已拒绝，原会话可尝试使用，不代表保活恢复" : account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>`}
-              <span class="scan-channel-badge" title="扫码渠道：${account.scan_product === 'pcmgr' ? 'PCMgr' : 'YYB'}" aria-label="${account.scan_product === 'pcmgr' ? 'PCMgr' : 'YYB'} 渠道"><img alt="" src="/static/images/scan-${account.scan_product === 'pcmgr' ? 'pcmgr' : 'yyb'}.png"></span>
+              <span class="scan-channel-badge" title="扫码渠道：${scanChannelName(account.scan_product)}" aria-label="${scanChannelName(account.scan_product)} 渠道"><img alt="" src="/static/images/scan-${scanChannelBadge(account.scan_product)}.png"></span>
               </span>
             </span>
             <span class="account-meta" title="最后检查 ${formatChecked(account.last_checked_at)}">ID ${escapeHTML(number)} · ${escapeHTML(proxy)}${!isExpired && state.proxyConfigs.get(String(account.id))?.keepalive_supported === false ? " · 不可保活" : ""}</span>
@@ -1704,7 +1706,7 @@
     function updateFeatureHint() {
       const feature = currentFeatureName();
       const account = getSelectedAccount();
-      const product = account?.scan_product === "pcmgr" ? "PCMgr" : "YYB";
+      const product = scanChannelName(account?.scan_product);
       $("testProvider").textContent = account ? product : "系统默认渠道";
       for (const option of $("featureSel").options) {
         const item = state.features.find(item => item.name === option.dataset.name);
@@ -1998,7 +2000,7 @@
 
     function openMergeAccountDialog() {
       if (state.accounts.length < 2) return;
-      const options = state.accounts.map(account => `<option value="${account.id}">ID ${account.id} · ${escapeHTML(accountName(account))} · ${account.scan_product === 'pcmgr' ? 'PCMgr' : 'YYB'}</option>`).join("");
+      const options = state.accounts.map(account => `<option value="${account.id}">ID ${account.id} · ${escapeHTML(accountName(account))} · ${scanChannelName(account.scan_product)}</option>`).join("");
       $("mergeSourceAccount").innerHTML = options; $("mergeTargetAccount").innerHTML = options;
       const source = getSelectedAccount() || state.accounts.at(-1);
       $("mergeSourceAccount").value = String(source.id);
@@ -2017,7 +2019,7 @@
         const result = await api("POST", "/accounts/merge", {source_ref:source,target_ref:target,confirm,preview_key:mergePreviewKey});
         if (!confirm) {
           mergePreviewKey = result.preview_key;
-          $("mergeAccountPreview").textContent = `将 ID ${result.source.id}（${accountName(result.source)}，${result.source.scan_product === 'pcmgr' ? 'PCMgr' : 'YYB'}）的授权移入 ID ${result.target.id}。来源 ID ${result.source.id} 将删除。${result.note}`;
+          $("mergeAccountPreview").textContent = `将 ID ${result.source.id}（${accountName(result.source)}，${scanChannelName(result.source.scan_product)}）的授权移入 ID ${result.target.id}。来源 ID ${result.source.id} 将删除。${result.note}`;
         } else {
           $("mergeAccountDialog").close(); mergePreviewKey = "";
           const params = new URLSearchParams(location.search); params.set("ref", result.account.id); history.replaceState(null,"",`/?${params}`);
@@ -2122,7 +2124,7 @@
       $("accountLinkExistingSummary").textContent = blocked
         ? `已拦截：该账号已有 ${items.length} 条未消费链接。使用现有链接，或作废后再生成。`
         : `该账号已有 ${items.length} 条未消费链接。`;
-      $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id}${item.product ? ` · ${item.product === 'pcmgr' ? 'PCMgr' : 'YYB'}` : ''} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
+      $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id}${item.product ? ` · ${scanChannelName(item.product)}` : ''} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
       const account = pendingAccountLinkAccount;
       $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await copyText(accountLinkShareText(item.kind || pendingAccountLinkKind, account, item.url)); button.textContent = "已复制"; setTimeout(() => { button.textContent = "复制"; }, 1600); } catch { setActivity("分享内容已选中，请按 Ctrl+C"); } });
       $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => {
@@ -2387,8 +2389,6 @@
     loadQingLongConfig();
     setInterval(loadHealth, 15000);
   </script>
-  <link rel="stylesheet" href="/static/css/scan-channel.css?v=048">
-  <script src="/static/js/scan-channel.js?v=048"></script>
   <script src="/static/js/platform.js?v=20261103-skin"></script>
 </body>
 </html>

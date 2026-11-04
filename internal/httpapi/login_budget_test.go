@@ -121,7 +121,7 @@ func TestTuningFileChangesTheLoginBudgetOfARunningApp(t *testing.T) {
 	if len(seen) != 1 || seen[0].LoginBudget != 1 || seen[0].LoginWindow != time.Minute {
 		t.Fatalf("settings seen after writing the file: %+v", seen)
 	}
-	if !app.pool.AllowLogin(41) || app.pool.AllowLogin(41) {
+	if !app.pool.AllowLogin(41, "") || app.pool.AllowLogin(41, "") {
 		t.Fatal("the pool did not adopt a budget of one")
 	}
 

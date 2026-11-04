@@ -110,8 +110,9 @@ type Config struct {
 	// is otherwise denied for every account and remembered across restarts.
 	DisableDynamicAppIDDeny bool
 
-	// CodeDynamicDenyThreshold is how many code-less upstream outcomes deny an
-	// AppID; zero keeps the default of one.
+	// CodeDynamicDenyThreshold is how many distinct accounts must fail an
+	// AppID before it is denied (a fixed total of failures denies it too, so
+	// single-account deployments are covered); zero keeps the default of two.
 	CodeDynamicDenyThreshold int
 }
 
@@ -285,7 +286,7 @@ func NewApp(cfg Config) (*App, error) {
 		notifier:           newOfflineNotifier(offlineNotifyTimeout),
 		circuit:            newCircuitBreaker(circuitConfigFor(cfg.DisableCircuitBreaker)),
 		appIDs:             newAppIDPolicy(cfg.CodeDenyAppIDs, cfg.CodeAllowAppIDs),
-		dynamicAppIDs:      newDynamicAppIDDeny(db, cfg.CodeDynamicDenyThreshold, cfg.DisableDynamicAppIDDeny),
+		dynamicAppIDs:      newDynamicAppIDDeny(db, cfg.CodeDynamicDenyThreshold, cfg.CodeAllowAppIDs, cfg.DisableDynamicAppIDDeny),
 		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), trafficSettings),
 		qrSessions:         map[string]*qrLoginSession{},
 		quickSessions:      map[string]quickLoginSession{},
@@ -906,19 +907,19 @@ func (a *App) handleH5CodeAlias(w http.ResponseWriter, r *http.Request) {
 }
 
 // learnDeniedAppID counts a code request that reached the upstream and came
-// back without a code. One such outcome denies the AppID for every account,
-// because docs/website-appid-getcode-20261103.md ties a single request to the
-// loss of the account's OAuth layer. Denials persist across restarts and
-// YYB_CODE_ALLOW_APPIDS still overrides them.
+// back without a code. The AppID is denied once the outcome repeats on the
+// configured number of distinct accounts, because one bursted account can stop
+// receiving codes on every AppID at once (docs/h5-oauth-code.md). Denials
+// persist across restarts and YYB_CODE_ALLOW_APPIDS still overrides them.
 func (a *App) learnDeniedAppID(acc *store.WechatAccount, appID string, callErr error) {
 	if !errors.Is(callErr, protocol.ErrLoginCodeUnavailable) {
 		return
 	}
-	denied := a.dynamicAppIDs.recordStrike(appID)
+	denied := a.dynamicAppIDs.recordStrike(appID, acc.ID)
 	if !denied {
 		return
 	}
-	log.Printf("protocol: app id=%s denied for every account after a code request returned no code (account id=%d); set YYB_CODE_ALLOW_APPIDS to override", appID, acc.ID)
+	log.Printf("protocol: app id=%s denied for every account after repeated code requests returned no code (account id=%d); set YYB_CODE_ALLOW_APPIDS to override", appID, acc.ID)
 	a.events.Emit("protocol.appid_dynamic_denied", eventlog.ForAccount(acc).WithTarget(appID, eventlog.OpGetCode, ""))
 }
 
@@ -1096,6 +1097,12 @@ func (a *App) handleWXGetUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	if accountStatus(acc) == "expired" {
 		writeError(w, http.StatusConflict, "account login_buffer expired; re-scan required")
+		return
+	}
+	// Same gate as /wx/code: an unknown-status account past its cached expiry
+	// must not hit the upstream and turn a lapsed credential into a rejection.
+	if accountNeedsRescan(acc) {
+		writeError(w, http.StatusConflict, "account credentials expired; re-scan required")
 		return
 	}
 	proxyValue, fallbackDirect, err := a.resolveAccountProxy(r.Context(), acc.ID)
@@ -1544,7 +1551,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		// The access token may still be usable: fetch a fresh buffer without
 		// rotating tokens or changing scan/expiry timestamps. Pool persists the
 		// replacement protocol session, so no account credential write is needed.
-		if !a.pool.AllowLogin(acc.ID) {
+		if !a.pool.AllowLogin(acc.ID, protocol.ProviderOf(acc)) {
 			return nil, errors.Join(callErr, errLoginBudget)
 		}
 		buffer, bufferErr := a.fetchAccountLoginBuffer(ctx, acc)
@@ -1572,7 +1579,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	// A forced refresh is another OAuth-layer call. Past the account's login
 	// budget the request fails with the error it has, and the cached session is
 	// left alone rather than invalidated for a repair that will not happen.
-	if !a.pool.AllowLogin(acc.ID) {
+	if !a.pool.AllowLogin(acc.ID, protocol.ProviderOf(acc)) {
 		return nil, errors.Join(callErr, errLoginBudget)
 	}
 	if !ticketAccessRejected {

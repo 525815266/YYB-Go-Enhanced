@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"yyb_go/internal/gameassist"
 	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 )
@@ -56,6 +57,7 @@ type Session struct {
 	ID            string
 	WXUUID        string
 	QRCodeURL     string
+	State         string
 	CreatedAt     time.Time
 	HTTPClient    *http.Client
 	Jar           http.CookieJar
@@ -133,6 +135,22 @@ func OAuthURL(product string) (string, error) {
 		return oauthURL, nil
 	case "pcmgr":
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{"appid": {pcmgr.HostAppID}, "redirect_uri": {"https://security.guanjia.qq.com/login"}, "response_type": {"code"}, "scope": {"snsapi_login,snsapi_runtime_pcsdk"}, "state": {"233"}, "self_redirect": {"true"}}.Encode(), nil
+	case "gameassist":
+		// GameAssist.exe fast-login page (GameAssist.log): its own open-platform
+		// appid redirecting into the syzslogin callback on the shared gateway.
+		// The official client sends state=100*Math.random() and the gateway
+		// rejects non-numeric state at the callback (-109), so the session
+		// must carry the same numeric state through to the exchange.
+		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{
+			"appid":         {gameassist.OAuthAppID},
+			"redirect_uri":  {gameassist.OAuthRedirectURI + "?" + url.Values{"login_type": {"wx"}, "domain": {"1"}, "syzs_prefix": {""}}.Encode()},
+			"response_type": {"code"},
+			"scope":         {gameassist.OAuthScope},
+			"state":         {gameassist.RandomState()},
+			"fast_login":    {"1"},
+			"self_redirect": {"true"},
+			"style":         {"black"},
+		}.Encode(), nil
 	default:
 		return "", fmt.Errorf("unsupported scan channel")
 	}
@@ -172,11 +190,16 @@ func (c *Client) CreateSessionForProduct(ctx context.Context, product string) (*
 	if err != nil {
 		return nil, err
 	}
+	state := ""
+	if parsed, perr := url.Parse(oauth); perr == nil {
+		state = parsed.Query().Get("state")
+	}
 	return &Session{
 		Product: product, ClientGUID: guid,
 		ID:         id,
 		WXUUID:     wxuuid,
 		QRCodeURL:  qrBase + wxuuid,
+		State:      state,
 		CreatedAt:  time.Now(),
 		HTTPClient: hc,
 		Jar:        jar,
@@ -287,6 +310,29 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 				return protocol.LoginBufferResult{}, err
 			}
 			sess.Credentials = &protocol.LoginBufferCredentials{Provider: "pcmgr", PCMgr: pc, OpenID: pc.Identity(), Nickname: pc.Nickname, ExpiresAt: pc.NextRenewAt(), ExpiresIn: pc.NextRenewAt() - pc.RenewedAt, RefreshTokenObservedAt: time.Now().Unix()}
+		}
+		buffer, err := c.loginBuffers.FetchLoginBuffer(ctx, *sess.Credentials)
+		if err != nil {
+			return protocol.LoginBufferResult{}, err
+		}
+		sess.LoginBuffer = buffer
+		sess.Status = "confirmed"
+		return protocol.LoginBufferResult{LoginBuffer: buffer, Credentials: *sess.Credentials}, nil
+	}
+	if sess.Product == "gameassist" {
+		if sess.Credentials == nil {
+			ga, err := gameassist.ExchangeCode(ctx, sess.HTTPClient, sess.AuthorizeCode, sess.State)
+			if err != nil {
+				return protocol.LoginBufferResult{}, err
+			}
+			// RefreshBusinessID stays empty: refresh follows the default pc_yyb
+			// main route with the -109 check-login fallback, like appstore QR
+			// credentials, until the syzs gateway proves otherwise.
+			sess.Credentials = &protocol.LoginBufferCredentials{
+				Provider: "gameassist", OpenID: ga.OpenID, AccessToken: ga.AccessToken, RefreshToken: ga.RefreshToken,
+				LoginType: defaultString(ga.LoginType, "WX"), Nickname: ga.Nickname,
+				ExpiresAt: ga.ExpiresAt, ExpiresIn: ga.ExpiresIn, RefreshTokenObservedAt: time.Now().Unix(),
+			}
 		}
 		buffer, err := c.loginBuffers.FetchLoginBuffer(ctx, *sess.Credentials)
 		if err != nil {
