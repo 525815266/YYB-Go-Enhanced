@@ -71,6 +71,12 @@ func fleetFailover(err error) bool {
 	if errors.As(err, &expired) {
 		return true
 	}
+	var circuitOpen *circuitOpenError
+	if errors.As(err, &circuitOpen) {
+		// The member's (account, appid) breaker is holding; its fleet peers
+		// have independent breakers.
+		return true
+	}
 	if protocol.IsApplicationRequestRejection(err) {
 		return true
 	}
