@@ -760,7 +760,23 @@ def build_notify(results: List[Dict[str, Any]]) -> str:
     return content
 
 
+WEBSITE_APPID_NOTICE_LINES = (
+    "⛔ 本脚本默认停用：它用网站应用 AppID（腾讯电脑管家 wx5cd60c5d4817a188）取 code。",
+    "对这类 AppID 取一次 code，就见过授权被上游拒绝（生产 2 个账号、本机对照 3 次，授权都在一次请求后被拒）。",
+    "YYB 服务 v0.2.63 起默认拒绝这个 AppID（HTTP 403）；旧版本服务没有这层保护，所以脚本自己先停。",
+    "确认要运行：设置环境变量 YYB_ALLOW_WEBSITE_APPID=1，并在服务端设置 YYB_CODE_ALLOW_APPIDS 放行该 AppID。",
+    "详见 docs/website-appid-getcode-20261103.md。",
+)
+
+
+def website_appid_allowed() -> bool:
+    return os.getenv("YYB_ALLOW_WEBSITE_APPID", "").strip() == "1"
+
+
 def main() -> None:
+    if not website_appid_allowed():
+        print(*WEBSITE_APPID_NOTICE_LINES, sep=chr(10))
+        return
     log_title()
 
     results: List[Dict[str, Any]] = []

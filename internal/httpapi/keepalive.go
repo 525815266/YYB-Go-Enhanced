@@ -21,6 +21,15 @@ const (
 	keepAliveExpiredRetryBackoff = 15 * time.Minute
 )
 
+// What the events that report a death say about the account's last requests: the
+// AppIDs it asked for in the last three minutes, at most twelve. They name no
+// payload and no credential, only identifiers, so the log can show what an
+// account had just done when the upstream refused it.
+const (
+	deathContextWindow = 3 * time.Minute
+	deathContextMax    = 12
+)
+
 func (a *App) startKeepAlive() {
 	if a.cfg.KeepAliveInterval <= 0 {
 		return
@@ -88,6 +97,7 @@ accountsLoop:
 				fields.Rejections = eventRejections(err)
 				a.events.Emit("keepalive.failed", fields)
 				if status == "expired" {
+					fields.Recent = a.events.Recent(acc.ID, deathContextWindow, deathContextMax)
 					a.events.Emit("account.expired", fields)
 				}
 				if status == "expired" || status == store.StatusSessionOnly {
@@ -211,6 +221,7 @@ func (a *App) refreshAccountWithPolicy(ctx context.Context, acc *store.WechatAcc
 		if err != nil {
 			failed := fields
 			failed.Rejections = eventRejections(err)
+			failed.Recent = a.events.Recent(acc.ID, deathContextWindow, deathContextMax)
 			a.events.Emit("account.refresh_failed", failed)
 		}
 	}
@@ -334,7 +345,7 @@ func (a *App) setAccountStatus(ctx context.Context, accountID int64, status stri
 		return err
 	}
 	if status == "expired" {
-		a.events.Emit("account.expired", eventlog.Fields{AccountID: accountID})
+		a.events.Emit("account.expired", eventlog.Fields{AccountID: accountID, Recent: a.events.Recent(accountID, deathContextWindow, deathContextMax)})
 		_ = a.db.InvalidateAccountSessions(ctx, accountID)
 		a.invalidateProxyLease(accountID)
 		a.clearKeepAliveRetry(accountID)

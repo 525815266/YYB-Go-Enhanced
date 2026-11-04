@@ -20,7 +20,7 @@
 | [中国联通](chinaUnicom.py) | 部分功能已验证 | 2026-10-12，维护者飞牛青龙 3 个 App Token 账号实测 | 登录、Token 续期、首页签到并复查通过；服务密码真实登录和其他活动未验证，不能直接使用 YYB 登录 |
 | [寻星电玩网页积分](findstars_web_points.py) | 部分功能已验证 | 2026-10-16，维护者飞牛青龙实测 | 本人授权 HAR 导入 FS-Token、领取闲置 N1 卡槽奖励并复查积分通过；不支持 YYB 代替公众号网页授权 |
 | [迪卡侬](迪卡侬_code版.py) | 用户反馈可用 | 2026-10-17，[#95 对照日志](https://github.com/525815266/YYB-Go-Enhanced/issues/95) | 反馈者账号签到成功，不代表维护者已验证全部任务或其他账号 |
-| [京东 CK 采集](京东CK采集_code版.py) | 待验证恢复 | 2026-10-10，[#81](https://github.com/525815266/YYB-Go-Enhanced/issues/81) | 已修复漏读重定向 Cookie；若上游仅返回 skey，仍无法生成完整 pt_key/pt_pin，未确认真实 CK 获取恢复 |
+| [京东 CK 采集](京东CK采集_code版.py) | 默认停用（用网站应用 AppID 取码会使授权被上游拒绝，v0.2.74；`YYB_ALLOW_WEBSITE_APPID=1` 才运行） | 2026-10-10，[#81](https://github.com/525815266/YYB-Go-Enhanced/issues/81) | 已修复漏读重定向 Cookie；若上游仅返回 skey，仍无法生成完整 pt_key/pt_pin，未确认真实 CK 获取恢复 |
 | [爱隐形](爱隐形_code版.py) | 签到响应兼容已修复，完整业务待回测 | 2026-10-21，[#98](https://github.com/525815266/YYB-Go-Enhanced/pull/98) 解包线索、[#95](https://github.com/525815266/YYB-Go-Enhanced/issues/95) 会员登录反馈、维护者只读响应实测 | 兼容 `error_code=0` 与新格式 `code=1/success=true/failed=false`；维护者尚未验证会员签到成功 |
 | [东呈](东呈_code版.py) | 登录待适配 | 2026-10-21，[#95](https://github.com/525815266/YYB-Go-Enhanced/issues/95) 新反馈及源码核对 | code 登录接口原为推断，尚无成功链路依据；已修正签到失败计入成功、HTTP 失败接收 token、跨账号继承会话及已配置 blackbox 未发送的问题，不代表真实登录已恢复 |
 

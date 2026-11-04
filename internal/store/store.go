@@ -780,13 +780,17 @@ func (db *DB) SetAccountCredentialStatus(ctx context.Context, id int64, loginBuf
 // read from SQLite: reserializing an imported record may change whitespace/order.
 func (db *DB) ApplyCredentialRefresh(ctx context.Context, expected *WechatAccount, loginBuffer string, credentials map[string]any, status string) (bool, error) {
 	if status == "expired" {
-		loginBuffer, credentials = "", nil
+		loginBuffer, credentials = "", keepChannelMarkers(expected.Credentials)
 	}
 	if status == StatusSessionOnly {
-		// Keep the scan timestamp as audit metadata, never rejected tokens.
-		credentials = nil
+		// Keep the scan timestamp as audit metadata and the channel marker,
+		// never rejected tokens.
+		credentials = keepChannelMarkers(expected.Credentials)
 		if observed := int64Credential(expected.Credentials, "refresh_token_observed_at"); observed > 0 {
-			credentials = map[string]any{"refresh_token_observed_at": observed}
+			if credentials == nil {
+				credentials = map[string]any{}
+			}
+			credentials["refresh_token_observed_at"] = observed
 		}
 		loginBuffer = ""
 	}
@@ -822,9 +826,23 @@ WHERE id=? AND openid=? AND credentials IS ? AND login_buffer=? AND status IS ?`
 func (db *DB) SetAccountStatus(ctx context.Context, id int64, status string) error {
 	now := time.Now().Unix()
 	if status == "expired" {
-		_, err := db.sql.ExecContext(ctx,
-			"UPDATE wechat_accounts SET login_buffer='', credentials=NULL, status=?, last_checked_at=?, updated_at=? WHERE id=?",
-			status, now, now, id,
+		// Expiry wipes the credentials but keeps the channel marker, which for a
+		// GameAssist account is the only thing that says what it is.
+		var raw sql.NullString
+		if err := db.sql.QueryRowContext(ctx, "SELECT credentials FROM wechat_accounts WHERE id=?", id).Scan(&raw); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var current map[string]any
+		if raw.Valid {
+			_ = json.Unmarshal([]byte(raw.String), &current)
+		}
+		kept, err := marshalNullable(keepChannelMarkers(current))
+		if err != nil {
+			return err
+		}
+		_, err = db.sql.ExecContext(ctx,
+			"UPDATE wechat_accounts SET login_buffer='', credentials=?, status=?, last_checked_at=?, updated_at=? WHERE id=?",
+			kept, status, now, now, id,
 		)
 		return err
 	}
@@ -1026,6 +1044,21 @@ func (a *WechatAccount) Public() AccountPublic {
 func stringCredential(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return value
+}
+
+// keepChannelMarkers returns what survives when an account's credentials are
+// wiped because the authorization was rejected: the marker that says which
+// channel the account belongs to, and nothing secret. A GameAssist account keeps
+// its real WeChat openId, so its provider marker is the only thing telling it
+// apart from an App Store account; losing it relabelled the account as YYB in
+// the console, in the events and in the offline notice. PCMgr accounts are told
+// apart by their "pcmgr:" openId prefix and App Store accounts carry no marker,
+// so only GameAssist needs this.
+func keepChannelMarkers(credentials map[string]any) map[string]any {
+	if stringCredential(credentials, "provider") == "gameassist" {
+		return map[string]any{"provider": "gameassist"}
+	}
+	return nil
 }
 
 func int64Credential(values map[string]any, key string) int64 {

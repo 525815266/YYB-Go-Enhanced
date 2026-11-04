@@ -26,7 +26,7 @@
 ## 接入设计
 
 - 新包 `internal/gameassist`：OAuth 常量 + `ExchangeCode`（GET syzs_oauth 回调，解析 camelCase 信封 `userInfo`/`extInfo`，兼容 snake_case 与"cookie 签发"两种形态；scope 缺 `snsapi_runtime_pcsdk` 时拒绝）。
-- `protocol.LoginBufferCredentials` 复用，`Provider:"gameassist"`；`FetchLoginBuffer`/`RefreshCredentials` 走与 appstore 完全相同的 `pc_yyb_auth` 请求路径（同网关同 host 身份），`RefreshBusinessID` 留空走默认 `pc_yyb` 主刷新路由，`-109` 后既有的 check-login 恢复逻辑自动生效。
+- `protocol.LoginBufferCredentials` 复用，`Provider:"gameassist"`；`FetchLoginBuffer` 走与 appstore 完全相同的 `pc_yyb_auth` 请求路径（同网关同 host 身份，生产实测可用）；**刷新与 check-login 走 syzs 专线**（v0.2.74 起，此前误用 `pc_yyb` 主刷新路由，见下）：`POST /v3/syzs_refresh_token`、`POST /v3/syzs_check_login`，`Ual-Access-Businessid: syzslogin`，请求体仍是 camelCase 的 `{"userInfo":{openId,refreshToken,accessToken,loginType}}`，应答的 `userInfo`/`extInfo` 也是 camelCase；`-109` 后同样追问 check-login。
 - 扫码渠道 `product=gameassist`：`OAuthURL` 用 `wxef99873dbfab493c` 构造 qrconnect（`fast_login=1`、`self_redirect=true`、`style=black`），回调 302 由微信追加 `code/state`。
 - 周边贯通：`normalizeLoginProduct`、OpenAPI product 枚举、事件日志 Channel、离线通知文案（"手游助手"）、账号 `ScanProduct`（GameAssist 账号保留真实 openId，渠道只认 `provider` 标记）、`protocol-lab` 实验台。
 - quick-login（手贴 pcyyb_oauth 回跳地址）维持 appstore 专用，不放开 gameassist。
@@ -42,7 +42,12 @@
 
 主取码链路 `/wx/code`、`/wx/h5code`、手机号、operateWxData、cloud、encryptkey 对三渠道的行为在代码层完全一致（audit 2026-11-04）：身份取自 login buffer 字段 3，gameassist buffer 自带 `wxd44977328b36e647` 必然落入 yyb 分支，pcmgr 票据获取时有字段 3 强校验反向保护。
 
-**凭据生命周期说明**：gameassist 初扫凭据 `expires_at` 为官方约 30 天窗口；首次经 `pc_yyb` 主路由刷新后 `expires_in` 收敛为网关返回值（通常 7200 秒），保活节奏随之自动转为小时级——与 appstore 扫码凭据行为一致。
+**凭据生命周期说明（v0.2.74 更正）**：v0.2.68 到 v0.2.73 让 gameassist 账号走 `pc_yyb` 主刷新路由，这个假设是错的。
+
+- **生产现象（11-04，15 号，两次生命周期完全一致）**：扫码后 `expires_in=7200`；约 2 小时后保活的第一次刷新"成功"（10:34、14:26，此时旧 access token 还剩几分钟有效）；之后第一次真正需要刷新时（10:52 按需、16:24 保活）`refresh_token -109`、`check_login -109/40030 invalid refresh_token`，账号被降为仅会话。仅会话时缓存的协议会话还能继续取码，所以"能调用却被判失效"；同时凭据被整体清空，渠道标记丢失，账号在控制台和事件里变成 YYB（v0.2.74 修复）。
+- **官方客户端怎么做**（本机 `GameAssist.log` / `GameAssistService.log`，令牌一律未读出）：`clogin_backend_syzs.cc` 的 `RefrashToken` 调 `/v3/syzs_refresh_token`，`FetchCheckLogin` 调 `/v3/syzs_check_login`；从 11-03 23:54 登录起每 2 小时、到期前约 4 分钟刷新一次，连续 6 次成功，access token 和 refresh token 字符串始终不变，只更新到期时间（`SetExpireTime`，新到期 = 刷新时刻 + 7200 秒）。11-04 13:36 的第 7 次刷新失败，报错格式与我们的一致（`RefreshToken catch error WXRefresh got error, code: 40030, msg invalid refresh_token`），官方客户端随即登出。那次失败发生在我们 12:29 重扫之后的第一次刷新，原因没有定论，不能据此说"同一个微信在两处登录会互相顶掉"，也不能排除。
+- **探针**（假令牌，不涉及任何账号，对真实网关）：只有业务线 `syzslogin` 能到达 `/v3/syzs_refresh_token` 和 `/v3/syzs_check_login` 的真实处理逻辑（应答 `RefreshToken catch error WXRefresh got error ...`，格式与官方客户端日志一致）；`pc_yyb`、`syzs`、`pc_yyb_auth`、`syzs_pc`、`androws` 一律空体 HTTP 400；这条线上签名密钥没有被校验（错密钥与空密钥应答相同）；请求体用 snake_case 会得到 `RefreshToken empty token`，必须是 camelCase `userInfo`。
+- **推断，不是实测**：`pc_yyb` 业务线刷新时用的是应用宝自己的微信应用去刷新 syzs 签发的令牌，access token 尚未过期时网关只做回显式"成功"，过期后真正去微信刷新才得到 40030。这能解释上面两次完全相同的时间线，但没有直接证据。
 
 ## 实机验收记录（2026-11-04，生产 v0.2.72）
 
@@ -53,6 +58,12 @@
 5. **三渠道同脚本收官**：同一 `POST /wx/code {"ref","app_id"}` 调用，appstore（id=4）/ pcmgr（id=14）/ gameassist（id=15）全部返回真实 wx.login code，脚本零改动；新账号 ref 加入青龙 `YYB_SERVER` 即投产。
 
 ## 未验证边界（发布时必须如实告知）
+
+**v0.2.74 追加（2026-11-04 晚，本机实验实例 + 真实扫码账号 + 真实网关）**：
+
+- 已验证：`/v3/syzs_refresh_token`（业务线 `syzslogin`）对真实令牌连续三次成功（扫码后 1 分半、3 分半，另有一次手工请求）。应答为 `{"code":0,"msg":"RC_SUCCESS","userInfo":{"uid":"0","loginType":"WX","openId":"","accessToken":<与发出的相同>,"refreshToken":<与发出的相同>,"guid":"","imei":"","email":"","nickName":"","avatar":"","password":"","newPassword":"","expiresIn":"7200"},"extInfo":null}`：令牌不变、`openId` 为空、`expiresIn` 是字符串。解析器按此读取（并仍兼容 snake_case 与数字 `expires_in`）。刷新后用同一凭据取登录票据（`pcyyb_get_wx_login_buffer_auth`）和调 `syzs_check_login` 都返回 `code:0`。
+- 未验证：令牌真正过期之后再刷新是否成功。这正是 `pc_yyb` 路由在生产上失败的那一步。实验账号 19:36:10 扫码，原始 2 小时寿命在 21:36:10 结束，最后一次刷新在 19:39:41；定时检查在 21:37 和 21:41 各取一次登录票据、再做一次过期后的真实刷新，结果见更新日志或之后的补记。
+- 未验证：同一个微信同时在官方客户端和服务里登录是否互相顶掉。
 
 以下两项依赖实机扫码，**发布时尚未验证**，静态证据只能说明"应当可行"：
 

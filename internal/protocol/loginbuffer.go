@@ -50,6 +50,16 @@ const (
 	userInfoURL     = yybHost + "/pc_yyb/pcyyb_get_user_info"
 	loginBusinessID = "pc_yyb_auth"
 	loginAccessKey  = "wgrdg373hy26ww2"
+
+	// GameAssist credentials are issued under the syzslogin business and are
+	// refreshed and checked on their own v3 endpoints. The official client calls
+	// exactly these (clogin_backend_syzs.cc, FetchCheckLogin and RefrashToken);
+	// the pc_yyb endpoints above refresh against the wrong WeChat application and
+	// answer "invalid refresh_token" once the access token has lapsed. The gateway
+	// answers a business it does not know with an empty HTTP 400.
+	syzsRefreshURL    = yybHost + "/v3/syzs_refresh_token"
+	syzsCheckLoginURL = yybHost + "/v3/syzs_check_login"
+	syzsBusinessID    = "syzslogin"
 )
 
 type LoginBufferCredentials struct {
@@ -221,6 +231,9 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" {
 		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential provider %q", creds.Provider)
 	}
+	if creds.Provider == "gameassist" {
+		return c.refreshGameAssist(ctx, creds)
+	}
 	// QR credentials come from /pc_yyb/pcyyb_oauth, including legacy records
 	// without a source marker. wxapp's separate authorization uses _auth.
 	business, endpoint, key := "pc_yyb", mainRefreshURL, ""
@@ -244,7 +257,26 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 }
 
 func (c *LoginBufferClient) CheckLogin(ctx context.Context, creds LoginBufferCredentials) (LoginBufferCredentials, error) {
+	if creds.Provider == "gameassist" {
+		return c.requestCredentials(ctx, creds, syzsCheckLoginURL, syzsBusinessID, "")
+	}
 	return c.requestCredentials(ctx, creds, checkLoginURL, "pc_yyb", "")
+}
+
+// refreshGameAssist renews GameAssist credentials on the syzs endpoints. A -109
+// is a wrapper around the WeChat answer, exactly as on the pc_yyb route, so the
+// syzs check-login is asked for the underlying rejection before giving up.
+func (c *LoginBufferClient) refreshGameAssist(ctx context.Context, creds LoginBufferCredentials) (LoginBufferCredentials, error) {
+	refreshed, err := c.requestCredentials(ctx, creds, syzsRefreshURL, syzsBusinessID, "")
+	var rejected *RefreshRejectedError
+	if errors.As(err, &rejected) && rejected.Code == -109 && ctx.Err() == nil {
+		checked, checkErr := c.CheckLogin(ctx, creds)
+		if checkErr == nil {
+			return checked, nil
+		}
+		return LoginBufferCredentials{}, fmt.Errorf("%w; check login: %w", err, checkErr)
+	}
+	return refreshed, err
 }
 
 func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginBufferCredentials, endpoint, business, key string) (LoginBufferCredentials, error) {
@@ -277,28 +309,38 @@ func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginB
 	}
 	if code != 0 {
 		operation := "refresh_token"
-		if endpoint == checkLoginURL {
+		if endpoint == checkLoginURL || endpoint == syzsCheckLoginURL {
 			operation = "check_login"
 		}
 		return LoginBufferCredentials{}, &RefreshRejectedError{Code: code, Message: redactCredentials(fmt.Sprint(data.Message), creds), Operation: operation}
 	}
 	info := data.UserInfo
-	if openID := stringFromMap(info, "open_id"); openID != "" && openID != creds.OpenID {
+	if info == nil {
+		// The syzs endpoints answer in camelCase.
+		info = data.UserInfoCamel
+	}
+	if openID := firstString(info, "open_id", "openId"); openID != "" && openID != creds.OpenID {
 		return LoginBufferCredentials{}, fmt.Errorf("credential response account mismatch")
 	}
-	if loginType := stringFromMap(info, "login_type"); loginType != "" && loginType != defaultString(creds.LoginType, "WX") {
+	if loginType := firstString(info, "login_type", "loginType"); loginType != "" && loginType != defaultString(creds.LoginType, "WX") {
 		return LoginBufferCredentials{}, fmt.Errorf("credential response login type mismatch")
 	}
-	expiresIn := defaultInt64(int64FromMap(info, "expires_in"), 7200)
+	expiresIn := defaultInt64(firstInt64(info, "expires_in", "expiresIn"), 7200)
 	refreshed := creds
 	refreshed.RefreshBusinessID = business
 	refreshed.LoginType = defaultString(creds.LoginType, "WX")
-	refreshed.AccessToken = stringFromMap(info, "access_token")
-	if rt := stringFromMap(info, "refresh_token"); rt != "" && rt != refreshed.RefreshToken {
+	refreshed.AccessToken = firstString(info, "access_token", "accessToken")
+	if rt := firstString(info, "refresh_token", "refreshToken"); rt != "" && rt != refreshed.RefreshToken {
 		refreshed.RefreshToken = rt
 	}
 	refreshed.ExpiresIn = expiresIn
 	refreshed.ExpiresAt = time.Now().Unix() + expiresIn
+	if refreshed.AccessToken == "" && business == syzsBusinessID && syzsUserInfoPresent(info) {
+		// The official client only moves the expiry on a syzs refresh and keeps
+		// its tokens, so an answer that carries user info without a new access
+		// token renews the one we hold.
+		refreshed.AccessToken = creds.AccessToken
+	}
 	if refreshed.AccessToken == "" {
 		return LoginBufferCredentials{}, fmt.Errorf("refresh response missing access_token")
 	}
@@ -446,6 +488,8 @@ type loginCredentialResponse struct {
 	Message  any             `json:"msg"`
 	UserInfo map[string]any  `json:"user_info"`
 	ExtInfo  map[string]any  `json:"ext_info"`
+	// The syzs endpoints name the user info object in camelCase.
+	UserInfoCamel map[string]any `json:"userInfo"`
 }
 
 func timestampMS() string {
@@ -491,6 +535,40 @@ func stringFromMap(m map[string]any, key string) string {
 		return s
 	}
 	return ""
+}
+
+// syzsUserInfoPresent reports whether a syzs answer carries any user info this
+// code understands. An empty object, or one with unknown keys only, is not
+// evidence that the gateway renewed anything.
+func syzsUserInfoPresent(info map[string]any) bool {
+	return firstString(info, "open_id", "openId") != "" || firstString(info, "refresh_token", "refreshToken") != "" || firstInt64(info, "expires_in", "expiresIn") != 0
+}
+
+// firstString returns the first non-empty string among the given keys, so one
+// reader serves the snake_case pc_yyb answers and the camelCase syzs answers.
+func firstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if s := stringFromMap(m, key); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// firstInt64 reads the first non-zero number among the given keys. The syzs
+// gateway sends expiresIn as a string ("7200"), so numeric strings count too.
+func firstInt64(m map[string]any, keys ...string) int64 {
+	for _, key := range keys {
+		if n := int64FromMap(m, key); n != 0 {
+			return n
+		}
+		if s, ok := m[key].(string); ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil && n != 0 {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func int64FromMap(m map[string]any, key string) int64 {

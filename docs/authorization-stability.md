@@ -16,6 +16,7 @@
 - **网站应用 AppID 保护**（v0.2.63）：取码请求带着已知的网站应用 AppID（腾讯电脑管家、京东护照）时返回本地 `403`，不发往上游。开关：`YYB_CODE_ALLOW_APPIDS` 放行、`YYB_CODE_DENY_APPIDS` 追加。详情：[网站应用 AppID 取码与授权失效](website-appid-getcode-20261103.md)。
 - **运行时调参**（v0.2.61）：数据库目录里的 `tuning.json` 不重启覆盖登录预算、限速数值与会话保护窗口，一秒内生效，默认没有该文件。详情：[配置](configuration.md#登录预算与取码限速v0261-起)。
 - **掉线通知**（v0.2.58）：授权被拒、需要重新扫码时推送一次提醒。开关：`YYB_NOTIFY_CHANNEL` 留空则关闭管理员渠道。详情：[配置](configuration.md#掉线通知v0258-起)。
+- **掉线前的请求记录**（v0.2.74）：账号被上游拒绝时，`account.expired` 和 `account.refresh_failed` 事件带 `recent`，列出这个账号最近 3 分钟取过的 AppID 和结果，用来在下一次无缘无故掉线时直接看到最后几个请求。不改变任何请求行为。详情：[控制台说明](console-features.md#运行日志)。
 - **运行日志**（v0.2.53）：记录续期、票据、原生恢复、熔断、限速等事件，保留近 7 天、最多 10,000 条，在管理员「运行日志」页查看。详情：[控制台说明](console-features.md#运行日志)。
 
 `tuning.json` 可调整的键有 `login_budget`、`login_window_ms`、`code_min_gap_ms`、`code_max_wait_ms`；缺少的键沿用配置值，文件无法解析时保留上一次有效设置，删除文件恢复配置值。登录预算与取码限速的开关和数值见[配置与账号安全](configuration.md#登录预算与取码限速v0261-起)。
