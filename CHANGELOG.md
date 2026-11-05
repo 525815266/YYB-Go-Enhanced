@@ -10,6 +10,11 @@
 - **修复两处编队 ID 维护错误：** ① “压缩账号 ID”只改账号自己的 ID，编队指针没有跟着改，压缩后成员会指向别的账号；② 删除编队的主账号或成员后，剩下的成员仍指向已经不存在、或之后被复用的 ID。现在压缩同步改指针；删除主账号时剩余成员交给 ID 最小的成员，只剩一个账号的编队自动解散。
 - 验证：新增 Go 测试覆盖批量合并与拆分、归属检查、unionid 不一致与缺失、压缩和删除时的编队指针、面板只列主账号（含延后同步）、渠道清单与前端内置副本一致；新增浏览器测试 `tests/multi-channel-ui.cjs`（扫码页、卡片、合并与拆分、补扫、新增渠道、手机宽度），用虚构的二维码和账号，不触达上游。**还没做的：** 用真实微信把三个渠道完整扫一遍（二维码和确认由手机完成）；上线后请在实验实例上先扫一次。详见[多渠道账号](docs/console-features.md#多渠道账号一个微信多个渠道)。
 
+## v0.2.80 - 2026-11-05
+
+- **多渠道扫码/链接页二维码尺寸统一：** 多渠道卡片里的二维码（220px）与单渠道（280px）、一次性链接页（260px）大小不一致导致观感不协调；统一为 280px 并升级静态资源缓存版本（v=051）。
+- **新渠道调研收敛（docs/channel-pipeline-20261105.md）：** QQ 浏览器 22.3.7007.400 实测定论——全量无 ilink/mmtls/WMPF 痕迹，其微信登录是浏览器账号同步用的 WUP OAuth（`trpc.mtt.wx_auth.wx_auth/WXAuth`：code+appid 换 openid/access_token/refresh_token/unionid/encrypted_refresh_token，续期走 qbtoken/RefreshToken），**不能作为取码渠道**；渠道 2（WMPF/UniWeChatWin）身份三元组与专用扫码端点族（`open.weixin.qq.com/wxaruntime/Getuuid|Getqrcode|qrconnect`，需 session_id）已映射，且有公开对照实现（ZHwin/yyb 的 wmpf.py，Windows-Ocean/CmdID 4963）；渠道 5 确认官方样本即 RadiumWMPF 2.4.4.49（dldir1.qq.com 直链 MD5 已验），**ThirdAppLogin/AutoLogin 参数官方头文件已随包给出**，登录 buffer 官方来源为 `sns/pcsdk/login`（scope `snsapi_runtime_pcsdk`）。渠道 2/5 的协议实现需要新一轮扫码/实验验证，在本调研文档继续跟踪。
+
 ## v0.2.78 - 2026-11-05
 
 - **新增面板「运行参数」卡片（管理员）：env-only 的取码限速参数收敛进 UI。** 之前只能改环境变量或手编 `tuning.json` 的取码限速（最小间隔/最大排队等待）、登录预算与窗口、新鲜会话保护窗口、动态自学习黑名单开关与阈值，现在都在「个人设置 → 运行参数」在线调整：取码参数写入数据库旁的 `tuning.json`（复用既有 1 秒热更路径，保留到重启之后，"恢复 env 默认"按钮删除该文件），动态黑名单开关/阈值即时生效。动态黑名单结构改为常驻+enabled 字段（此前关闭时整个结构不存在，无法热开）。新增 `GET/PUT /api/runtime-settings`（管理员）。env 审计结论：青龙面板配置、扫码渠道、appid 黑名单查看/清除已有 UI；密钥/鉴权数据库/监听等引导与安全配置按设计保留 env-only。
