@@ -187,6 +187,17 @@ func (p *accountPacer) settingsLocked(now time.Time) pacingSettings {
 	return settings
 }
 
+// current returns the effective settings for the runtime-settings API; it
+// also picks up a freshly edited tuning file within the normal check window.
+func (p *accountPacer) current() pacingSettings {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.settingsLocked(time.Now())
+}
+
+// filePath exposes the tuning file location for the runtime-settings API.
+func (p *accountPacer) filePath() string { return p.file }
+
 func (p *accountPacer) notifyLocked() {
 	if p.onChange != nil {
 		p.onChange(p.settings)

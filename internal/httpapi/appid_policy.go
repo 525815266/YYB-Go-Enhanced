@@ -133,6 +133,7 @@ type appidStrikes struct {
 // YYB_CODE_ALLOW_APPIDS removes a learned AppID again at startup.
 type dynamicAppIDDeny struct {
 	mu        sync.Mutex
+	enabled   bool
 	denied    map[string]string
 	strikes   map[string]*appidStrikes
 	threshold int
@@ -140,13 +141,12 @@ type dynamicAppIDDeny struct {
 }
 
 func newDynamicAppIDDeny(db *store.DB, threshold int, allow []string, disabled bool) *dynamicAppIDDeny {
-	if disabled {
-		return nil
-	}
 	if threshold <= 0 {
 		threshold = 2
 	}
-	d := &dynamicAppIDDeny{denied: map[string]string{}, strikes: map[string]*appidStrikes{}, threshold: threshold, db: db}
+	// The deny struct is always constructed so the operator can toggle it at
+	// run time; disabled only stops new learning and enforcement.
+	d := &dynamicAppIDDeny{enabled: !disabled, denied: map[string]string{}, strikes: map[string]*appidStrikes{}, threshold: threshold, db: db}
 	if db != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -177,7 +177,7 @@ func newDynamicAppIDDeny(db *store.DB, threshold int, allow []string, disabled b
 
 // check reports the refusal reason for a learned AppID.
 func (d *dynamicAppIDDeny) check(appID string) (string, bool) {
-	if d == nil {
+	if d == nil || !d.enabled {
 		return "", false
 	}
 	d.mu.Lock()
@@ -186,10 +186,51 @@ func (d *dynamicAppIDDeny) check(appID string) (string, bool) {
 	return why, denied
 }
 
+// setEnabled toggles learning and enforcement at run time. The learned list
+// is kept either way so the operator can inspect or clear it.
+func (d *dynamicAppIDDeny) setEnabled(enabled bool) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.enabled = enabled
+}
+
+func (d *dynamicAppIDDeny) setThreshold(threshold int) {
+	if d == nil {
+		return
+	}
+	if threshold <= 0 {
+		threshold = 2
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.threshold = threshold
+}
+
+func (d *dynamicAppIDDeny) currentThreshold() int {
+	if d == nil {
+		return 0
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.threshold
+}
+
+func (d *dynamicAppIDDeny) enabledNow() bool {
+	if d == nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.enabled
+}
+
 // recordStrike counts a code request that reached the upstream and returned no
 // code, per account. It reports whether this strike newly denied the AppID.
 func (d *dynamicAppIDDeny) recordStrike(appID string, accountID int64) bool {
-	if d == nil {
+	if d == nil || !d.enabled {
 		return false
 	}
 	key := normalizeAppID(appID)
