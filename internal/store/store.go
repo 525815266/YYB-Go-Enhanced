@@ -1137,6 +1137,8 @@ func (a *WechatAccount) Public() AccountPublic {
 		// GameAssist accounts keep their real WeChat openId, so the provider
 		// marker is the only channel signal.
 		product = "gameassist"
+	case stringCredential(a.Credentials, "provider") == "qbbrowser":
+		product = "qbbrowser"
 	}
 	var refreshTokenObservedAt *int64
 	rescanRecommended := a.SessionOnly()

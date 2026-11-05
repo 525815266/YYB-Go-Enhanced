@@ -10,6 +10,10 @@
 - **修复两处编队 ID 维护错误：** ① “压缩账号 ID”只改账号自己的 ID，编队指针没有跟着改，压缩后成员会指向别的账号；② 删除编队的主账号或成员后，剩下的成员仍指向已经不存在、或之后被复用的 ID。现在压缩同步改指针；删除主账号时剩余成员交给 ID 最小的成员，只剩一个账号的编队自动解散。
 - 验证：新增 Go 测试覆盖批量合并与拆分、归属检查、unionid 不一致与缺失、压缩和删除时的编队指针、面板只列主账号（含延后同步）、渠道清单与前端内置副本一致；新增浏览器测试 `tests/multi-channel-ui.cjs`（扫码页、卡片、合并与拆分、补扫、新增渠道、手机宽度），用虚构的二维码和账号，不触达上游。**还没做的：** 用真实微信把三个渠道完整扫一遍（二维码和确认由手机完成）；上线后请在实验实例上先扫一次。详见[多渠道账号](docs/console-features.md#多渠道账号一个微信多个渠道)。
 
+## v0.2.81 - 2026-11-06
+
+- **新增 QQ 浏览器渠道 qbbrowser（伴生扩展模式，链路全通）：** 与前三条"扫码换票据"不同，QQ 浏览器的授权载体是浏览器自身的微信登录态（WUP trpc.mtt.wx_auth.wx_auth/WXAuth 换外层 token，续期走 qbtoken/RefreshToken）。token→票据的网关已定位：POST kde.qq.com/trpc.ad.wx_oauth_svr.WxOauthHttpSvr/GetWxLoginBuffer，请求 {access_token, user_id, appid: wx0dbc1ae97f156c38, guid} 返回 {login_buffer, err_code}（假 token 实测回 err_code=10002）。token 在浏览器进程内（chrome.account/browser.login 桥），headless 服务拿不到——因此配套伴生扩展（extensions/qbbrowser-token/，加载进 QQ 浏览器即可）：桥自动尝试（browser.login.getAccountInfo → chrome.account.getLoginInfo）、每 30 分钟/启动时把 token POST 到 POST /api/qbbrowser/token（协议令牌门内），服务端现场换 buffer 验真（protobuf field3 == wx0dbc1ae97f156c38）并自动建号（OpenID qbbrowser:<uid>）。账号与其它渠道一样可进编队、走 /wx/code。QQ 浏览器本体无 ilink/WMPF 栈（chrome.dll 281MB 全量 0 命中），票据消费仍由我们的 Go ilink 栈完成——渠道身份是新增的第四个 host。
+
 ## v0.2.80 - 2026-11-05
 
 - **多渠道扫码/链接页二维码尺寸统一：** 多渠道卡片里的二维码（220px）与单渠道（280px）、一次性链接页（260px）大小不一致导致观感不协调；统一为 280px 并升级静态资源缓存版本（v=051）。

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"yyb_go/internal/pcmgr"
+	"yyb_go/internal/qbbrowser"
 )
 
 var ErrMissingRefreshToken = errors.New("missing refresh token")
@@ -63,17 +64,18 @@ const (
 )
 
 type LoginBufferCredentials struct {
-	Provider               string            `json:"provider,omitempty"`
-	PCMgr                  pcmgr.Credentials `json:"pcmgr,omitempty"`
-	OpenID                 string            `json:"openid"`
-	AccessToken            string            `json:"accesstoken"`
-	RefreshToken           string            `json:"refreshtoken"`
-	RefreshTokenObservedAt int64             `json:"refresh_token_observed_at"`
-	RefreshBusinessID      string            `json:"refresh_business_id"`
-	LoginType              string            `json:"logintype"`
-	Nickname               string            `json:"nickname"`
-	ExpiresAt              int64             `json:"expires_at"`
-	ExpiresIn              int64             `json:"expires_in"`
+	Provider               string                `json:"provider,omitempty"`
+	PCMgr                  pcmgr.Credentials     `json:"pcmgr,omitempty"`
+	QBBrowser              qbbrowser.Credentials `json:"qbbrowser,omitempty"`
+	OpenID                 string                `json:"openid"`
+	AccessToken            string                `json:"accesstoken"`
+	RefreshToken           string                `json:"refreshtoken"`
+	RefreshTokenObservedAt int64                 `json:"refresh_token_observed_at"`
+	RefreshBusinessID      string                `json:"refresh_business_id"`
+	LoginType              string                `json:"logintype"`
+	Nickname               string                `json:"nickname"`
+	ExpiresAt              int64                 `json:"expires_at"`
+	ExpiresIn              int64                 `json:"expires_in"`
 }
 
 func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
@@ -89,8 +91,13 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 		raw, _ := json.Marshal(value)
 		_ = json.Unmarshal(raw, &pc)
 	}
+	var qb qbbrowser.Credentials
+	if value, ok := m["qbbrowser"]; ok {
+		raw, _ := json.Marshal(value)
+		_ = json.Unmarshal(raw, &qb)
+	}
 	return LoginBufferCredentials{
-		Provider: stringFromMap(m, "provider"), PCMgr: pc,
+		Provider: stringFromMap(m, "provider"), PCMgr: pc, QBBrowser: qb,
 		OpenID:                 stringFromMap(m, "openid"),
 		AccessToken:            stringFromMap(m, "accesstoken"),
 		RefreshToken:           stringFromMap(m, "refreshtoken"),
@@ -122,6 +129,9 @@ func (c LoginBufferCredentials) ToMap() map[string]any {
 	if c.Provider == "pcmgr" {
 		result["pcmgr"] = c.PCMgr
 	}
+	if c.Provider == "qbbrowser" {
+		result["qbbrowser"] = c.QBBrowser
+	}
 	return result
 }
 
@@ -140,6 +150,11 @@ func (c LoginBufferCredentials) ToMapForScan() map[string]any {
 func (c LoginBufferCredentials) Expired(skew time.Duration) bool {
 	if c.Provider == "pcmgr" {
 		return c.PCMgr.Validate() != nil
+	}
+	if c.Provider == "qbbrowser" {
+		// The companion extension keeps the browser token fresh; liveness is
+		// judged by the buffer fetch, not by an OAuth expiry.
+		return c.QBBrowser.Validate() != nil
 	}
 	return time.Now().Add(skew).Unix() >= c.ExpiresAt
 }
@@ -169,13 +184,20 @@ func NewLoginBufferClientWithHTTPClient(httpClient *http.Client, timeout time.Du
 	}
 }
 
+// HTTPClient exposes the underlying client for sibling gateways (e.g. the
+// QQ Browser buffer exchange) that share the proxy and timeout policy.
+func (c *LoginBufferClient) HTTPClient() *http.Client { return c.httpClient }
+
 func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBufferCredentials) (string, error) {
 	if creds.Provider == "pcmgr" {
 		return pcmgr.FetchBuffer(ctx, c.httpClient, creds.PCMgr)
 	}
+	if creds.Provider == "qbbrowser" {
+		return qbbrowser.FetchBuffer(ctx, c.httpClient, creds.QBBrowser)
+	}
 	// gameassist shares the YYB request path: GameAssist is an Androws rebuild
 	// with the same WMPF host identity, only the credential issuance differs.
-	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" {
+	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" && creds.Provider != "qbbrowser" {
 		return "", fmt.Errorf("unsupported credential provider %q", creds.Provider)
 	}
 	body, err := json.Marshal(loginBufferRequest{
@@ -228,7 +250,18 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		creds.ExpiresIn = creds.ExpiresAt - pc.RenewedAt
 		return creds, nil
 	}
-	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" {
+	if creds.Provider == "qbbrowser" {
+		// The companion extension rotates the browser token; a refresh here
+		// is a liveness probe through the buffer gateway with the latest
+		// pushed token.
+		if _, err := qbbrowser.FetchBuffer(ctx, c.httpClient, creds.QBBrowser); err != nil {
+			return LoginBufferCredentials{}, err
+		}
+		creds.ExpiresAt = time.Now().Unix() + 86400
+		creds.ExpiresIn = 86400
+		return creds, nil
+	}
+	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" && creds.Provider != "qbbrowser" {
 		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential provider %q", creds.Provider)
 	}
 	if creds.Provider == "gameassist" {
@@ -362,6 +395,9 @@ func (c *LoginBufferClient) RefreshLoginBuffer(ctx context.Context, creds LoginB
 func (c *LoginBufferClient) FetchUserInfo(ctx context.Context, creds LoginBufferCredentials) (map[string]any, error) {
 	if creds.Provider == "pcmgr" {
 		return map[string]any{"nickname": creds.PCMgr.Nickname, "headimgurl": creds.PCMgr.Avatar, "unionid": creds.PCMgr.UnionID}, nil
+	}
+	if creds.Provider == "qbbrowser" {
+		return map[string]any{"nickname": creds.QBBrowser.Nickname, "openid": creds.OpenID}, nil
 	}
 	ts, nonce := timestampMS(), nonce4()
 	var data map[string]any

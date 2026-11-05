@@ -400,6 +400,7 @@ func (a *App) Handler() http.Handler {
 		c.Next()
 	})
 	protocolRoutes.Any("/wx/oauth", gin.WrapF(a.handlePublicOAuth))
+	protocolRoutes.Any("/api/qbbrowser/token", gin.WrapF(a.handleQBBrowserToken))
 	protocolRoutes.Any("/wxapp/getCode", gin.WrapF(a.handleGetCode))
 	protocolRoutes.Any("/wxapp/getPhoneNumber", gin.WrapF(a.handleGetPhoneNumber))
 	protocolRoutes.Any("/wxapp/operateWxData", gin.WrapF(a.handleOperateWXData))

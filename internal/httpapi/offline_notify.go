@@ -168,6 +168,8 @@ func offlineMessage(acc *store.WechatAccount, status string, rejections []eventl
 		channel = "电脑管家"
 	case "gameassist":
 		channel = "手游助手"
+	case "qbbrowser":
+		channel = "QQ浏览器"
 	}
 	state := "授权已失效，需要重新扫码"
 	if status == store.StatusSessionOnly {

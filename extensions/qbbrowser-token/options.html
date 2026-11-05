@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>YYB Token Bridge 设置</title>
+<style>body{font:14px/1.6 system-ui,"Microsoft YaHei";max-width:560px;margin:24px auto;padding:0 12px}
+.field{margin-bottom:12px}label{display:block;font-weight:600;margin-bottom:4px}
+input{width:100%;box-sizing:border-box;padding:8px;border:1px solid #d9e3e5;border-radius:8px;font:inherit}
+.notice{margin-top:12px;padding:8px;border-radius:6px;background:#f4fbf6;color:#287a49;display:none}
+button{padding:8px 14px;border:0;border-radius:8px;background:#c53255;color:#fff;cursor:pointer;font:inherit}
+button.secondary{background:#eef0f3;color:#20242b}</style></head>
+<body>
+<h2>YYB Token Bridge 设置</h2>
+<div class="field"><label for="serverUrl">YYB 服务地址</label><input id="serverUrl" placeholder="http://192.168.9.83:8000"></div>
+<div class="field"><label for="protocolToken">协议令牌 YYB_PROTOCOL_TOKEN（未设置可留空）</label><input id="protocolToken" placeholder="可选"></div>
+<div class="field"><button class="secondary" id="pushNow" type="button">立即推送</button></div>
+<div class="notice" id="status"></div>
+<script src="options.js"></script>
+</body></html>

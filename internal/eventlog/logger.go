@@ -119,6 +119,8 @@ func ChannelFor(provider string) string {
 		return "pcmgr"
 	case "gameassist":
 		return "gameassist"
+	case "qbbrowser":
+		return "qbbrowser"
 	default:
 		return "yyb"
 	}
