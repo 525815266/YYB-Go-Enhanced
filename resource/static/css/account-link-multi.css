@@ -8,7 +8,7 @@
 .link-channel{padding:16px;border:1px solid #d9e3e5;border-radius:12px;min-width:0}
 .link-channel h2{font-size:16px;margin:0 0 4px}
 .link-channel p{font-size:12px;margin:0 0 12px;color:#4e666a}
-.link-channel .qr{width:100%;max-width:260px;margin-bottom:10px}
+.link-channel .qr{width:100%;max-width:280px;margin-bottom:10px}
 .link-channel[data-state=done]{border-color:#5b946b;background:#f6faf7}
 .link-channel[data-state=done] .qr{aspect-ratio:auto;min-height:72px;background:transparent;color:#2f7d46;font-weight:600}
 .link-channel .state{min-height:40px;overflow-wrap:anywhere}
