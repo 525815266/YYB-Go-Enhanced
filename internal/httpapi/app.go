@@ -442,6 +442,7 @@ func (a *App) Handler() http.Handler {
 	router.Any("/api/scan-settings", gin.WrapF(a.handleScanSettings))
 	router.Any("/api/appid-deny", gin.WrapF(a.handleAppIDDeny))
 	router.Any("/api/fleet", gin.WrapF(a.handleFleetAPI))
+	router.Any("/api/runtime-settings", gin.WrapF(a.handleRuntimeSettings))
 	router.Any("/api/auth/password", gin.WrapF(a.handlePassword))
 	router.Any("/api/auth/sessions", gin.WrapF(a.handleSessions))
 	router.Any("/api/auth/users", gin.WrapF(a.handleUsers))
