@@ -23,7 +23,7 @@
     <button class="btn hidden" id="retry" type="button">重新生成二维码</button>
     <div class="hint">请确认微信中登录的是要授权的账号。链接只能成功使用一次，并会在有效期结束后自动失效。</div>
   </main>
-  <script src="/static/js/scan-channel.js?v=049"></script>
+  <script src="/static/js/scan-channel.js?v=050"></script>
   <script>
     const token=location.pathname.split('/').filter(Boolean).pop();
     const $=id=>document.getElementById(id);let sid='',timer=null,expiryTimer=null,pollBusy=false,linkExpiresAt=0,saveAttempts=0;

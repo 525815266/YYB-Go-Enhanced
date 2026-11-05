@@ -1,6 +1,28 @@
-// Shared by the console and the public one-time authorization page.
-window.scanChannelName = product => product === 'pcmgr' ? 'PCMgr' : product === 'gameassist' ? 'GameAssist' : 'YYB';
-window.scanChannelBadge = product => product === 'pcmgr' ? 'pcmgr' : product === 'gameassist' ? 'gameassist' : 'yyb';
+// Shared by the console, the scan page and the public one-time authorization page.
+// The channel list is the one registry in Go (GET /api/scan-channels), so a channel
+// added there shows up on every page. The built-in list only covers the first paint
+// and the public page, which cannot read that endpoint.
+(() => {
+  let channels = [
+    {id: 'appstore', name: 'YYB', badge: 'yyb', description: '应用宝'},
+    {id: 'pcmgr', name: 'PCMgr', badge: 'pcmgr', description: '腾讯电脑管家'},
+    {id: 'gameassist', name: 'GameAssist', badge: 'gameassist', description: '腾讯手游助手'}
+  ];
+  const info = product => channels.find(item => item.id === (product || 'appstore'));
+  window.scanChannels = () => channels.slice();
+  window.scanChannelName = product => info(product)?.name || (product ? String(product) : 'YYB');
+  window.scanChannelBadge = product => info(product)?.badge || 'yyb';
+  window.scanChannelOrder = product => Math.max(0, channels.findIndex(item => item.id === (product || 'appstore')));
+  window.loadScanChannels = async () => {
+    try {
+      const response = await fetch('/api/scan-channels', {headers: {Accept: 'application/json'}});
+      const payload = await response.json();
+      const list = payload && payload.data && payload.data.channels;
+      if (response.ok && Array.isArray(list) && list.length && list.every(item => item && item.id && item.name && item.badge)) channels = list;
+    } catch { /* keep the built-in list */ }
+    return channels.slice();
+  };
+})();
 window.confirmScanChannelSwitch = ({from, to, account}) => new Promise(resolve => {
   const dialog = document.createElement('dialog');
   dialog.className = 'scan-switch-dialog';

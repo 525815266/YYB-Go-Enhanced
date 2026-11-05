@@ -40,11 +40,7 @@ func normalizeLoginProduct(product string) (string, error) {
 	if product == "" {
 		return loginProductAppStore, nil
 	}
-	if product != loginProductAppStore {
-		switch product {
-		case "pcmgr", "gameassist":
-			return product, nil
-		}
+	if !qr.IsScanChannel(product) {
 		return "", fmt.Errorf("不支持的扫码渠道 %q", product)
 	}
 	return product, nil
@@ -61,6 +57,10 @@ type qrLoginSession struct {
 	AccountLinkMode string
 	BaseAccountID   int64
 	SwitchConfirmed bool
+	// DeferPanelSync postpones the automation panel sync after the scan is
+	// confirmed. A multi-channel scan is bound into one fleet by the console right
+	// after each confirmation, and the panel lists a fleet by its primary only.
+	DeferPanelSync bool
 	// Keep the freshly fetched image in memory so the image endpoint does not
 	// depend on the QR cache directory being writable in a container.
 	ImageBytes []byte

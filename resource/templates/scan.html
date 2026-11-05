@@ -6,6 +6,7 @@
   <title>添加账号 - YYB Go</title>
   <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
   <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/multi-channel.css?v=050">
   <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
   <style>
     :root { color-scheme: light; --bg:#f5f6f8; --surface:#fff; --ink:#20242b; --muted:#68707d; --line:#dde1e7; --primary:#c53255; --primary-hover:#a82445; --success:#287a49; --success-soft:#edf8f1; --danger:#b53636; --radius:8px; }
@@ -82,7 +83,11 @@
     <section class="panel">
       <div class="head"><h2>微信授权</h2><p id="authMethodDescription">正在读取授权方式…</p></div>
       <div class="body">
-		<div class="field"><label for="scanProduct">扫码渠道</label><select class="input" id="scanProduct"><option value="appstore">YYB</option><option value="pcmgr">PCMgr</option><option value="gameassist">GameAssist</option></select><small>切换会重新生成二维码。要保留原 ID 换渠道，请使用账号的“更新”入口。</small></div>
+        <div class="multi-field">
+          <label class="multi-switch" for="multiScanSwitch"><input type="checkbox" id="multiScanSwitch" role="switch" autocomplete="off"><span class="multi-track" aria-hidden="true"></span><span>多渠道扫码</span></label>
+          <small class="multi-hint" id="multiScanHint">同一个微信依次扫多个渠道的码，自动合并成一个账号，脚本只需保留主账号。</small>
+        </div>
+        <div class="field single-only" id="scanProductField"><label for="scanProduct">扫码渠道</label><select class="input" id="scanProduct"><option value="appstore">YYB</option><option value="pcmgr">PCMgr</option><option value="gameassist">GameAssist</option></select><small>切换会重新生成二维码。要保留原 ID 换渠道，请使用账号的“更新”入口。</small></div>
         <details class="proxy-options" id="scanProxyOptions">
           <summary>登录网络代理</summary>
           <div class="proxy-grid">
@@ -137,11 +142,11 @@
           </div>
           <div class="proxy-message" id="scanProxyMessage">默认直连</div>
         </details>
-        <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="授权方式">
+        <div class="mode-switch single-only" id="modeSwitch" role="tablist" aria-label="授权方式">
           <button class="mode-button" id="quickModeBtn" type="button" role="tab" aria-selected="false" aria-controls="quickPane">本机微信</button>
           <button class="mode-button" id="qrModeBtn" type="button" role="tab" aria-selected="true" aria-controls="qrPane">扫码</button>
         </div>
-        <div class="mode-pane" id="quickPane" role="tabpanel" aria-labelledby="quickModeBtn" hidden>
+        <div class="mode-pane single-only" id="quickPane" role="tabpanel" aria-labelledby="quickModeBtn" hidden>
           <div class="quick-state" id="quickState" role="status" aria-live="polite">
             <div class="quick-avatar" id="quickAvatar">微</div>
             <strong id="quickName">正在检测本机微信</strong>
@@ -152,7 +157,7 @@
             <button class="btn" id="quickRetryBtn" type="button">重新检测</button>
           </div>
         </div>
-        <div class="mode-pane" id="qrPane" role="tabpanel" aria-labelledby="qrModeBtn">
+        <div class="mode-pane single-only" id="qrPane" role="tabpanel" aria-labelledby="qrModeBtn">
           <div class="auth-note" id="qrModeNote" hidden>当前仅支持手机扫码授权。本机微信登录已关闭，可通过服务端变量 <code>YYB_ENABLE_PC_LOGIN=true</code> 显式开启。</div>
           <div class="qr" id="qrWrap">准备生成二维码</div>
           <div class="status pending" id="status">等待生成二维码</div>
@@ -161,12 +166,17 @@
             <button class="btn" id="refreshBtn" type="button">重新生成</button>
           </div>
         </div>
+        <div class="multi-pane" id="multiPane" hidden>
+          <div class="multi-base" id="multiBase" hidden></div>
+          <div class="multi-grid" id="multiGrid"></div>
+        </div>
         <div class="actions"><button class="btn" id="backBtn" type="button">账号列表</button></div>
       </div>
     </section>
     <section class="panel">
       <div class="head"><h2>账号信息</h2><p>备注用于账号运行管理和青龙任务名称</p></div>
       <div class="body">
+        <div class="multi-members" id="multiMembers" hidden></div>
         <div class="placeholder" id="accountPlaceholder">授权成功后将在这里显示账号信息。</div>
         <div class="account" id="accountBox">
           <div class="identity">
@@ -190,6 +200,8 @@
       </div>
     </section>
   </main>
+  <script src="/static/js/scan-channel.js?v=050"></script>
+  <script src="/static/js/scan-multi.js?v=050"></script>
   <script>
     const $ = id => document.getElementById(id);
     const QR_TTL = 110;
@@ -201,7 +213,7 @@
     function applyAuthModeUI(){ const description=$('authMethodDescription'),switcher=$('modeSwitch'),note=$('qrModeNote'); if(PC_LOGIN_ENABLED){ description.textContent='可选择本机微信确认或手机扫码'; note.hidden=true; }else{ description.textContent='当前仅支持手机扫码授权'; switcher.hidden=true; note.hidden=false; $('quickModeBtn').hidden=true; $('quickPane').hidden=true; $('qrModeBtn').setAttribute('aria-selected','true'); } }
     async function api(method,url,body) { const options={method,headers:{"Content-Type":"application/json"}}; if(body!==undefined) options.body=JSON.stringify(body); const response=await fetch(url,options); const text=await response.text(); let payload=null; try{payload=text?JSON.parse(text):null}catch{payload=text} const envelope=payload&&typeof payload==="object"&&!Array.isArray(payload)&&"code" in payload&&"data" in payload; if(!response.ok||(envelope&&payload.code!==0)){const error=new Error(envelope?payload.msg:`HTTP ${response.status}`);error.status=response.status;throw error;} return envelope?payload.data:payload; }
     function stopTimers(){ if(pollTimer) clearInterval(pollTimer); if(countdownTimer) clearInterval(countdownTimer); pollTimer=countdownTimer=null; }
-	function proxyPayload(){ const mode=$('scanProxyMode').value,profileMode=mode==="profile",province=$('scanProvince'),city=$('scanCity').value; return {product:$('scanProduct').value,mode:profileMode?"api":mode,proxy_type:$('scanProxyType').value,static_proxy:$('scanStaticProxy').value.trim(),api_url:$('scanProxyAPI').value.trim(),provider_profile_id:profileMode&&$('scanProxyProfile').value?Number($('scanProxyProfile').value):null,region_code:profileMode?(city||province.value):"",region_province:profileMode&&province.value!=="all"?province.options[province.selectedIndex]?.text||"":"",region_city:profileMode&&city?$('scanCity').options[$('scanCity').selectedIndex]?.text||"":"",refresh_ahead_minutes:5}; }
+	function proxyPayload(product){ const mode=$('scanProxyMode').value,profileMode=mode==="profile",province=$('scanProvince'),city=$('scanCity').value; return {product:product||$('scanProduct').value,mode:profileMode?"api":mode,proxy_type:$('scanProxyType').value,static_proxy:$('scanStaticProxy').value.trim(),api_url:$('scanProxyAPI').value.trim(),provider_profile_id:profileMode&&$('scanProxyProfile').value?Number($('scanProxyProfile').value):null,region_code:profileMode?(city||province.value):"",region_province:profileMode&&province.value!=="all"?province.options[province.selectedIndex]?.text||"":"",region_city:profileMode&&city?$('scanCity').options[$('scanCity').selectedIndex]?.text||"":"",refresh_ahead_minutes:5}; }
 	function proxyChoiceLabel(){const mode=$('scanProxyMode').value;if(mode==="direct")return "直连";if(mode==="static")return "静态代理";if(mode==="api")return "自定义动态 API";const profile=$('scanProxyProfile').options[$('scanProxyProfile').selectedIndex]?.text||"供应商配置",region=$('scanCity').value?$('scanCity').options[$('scanCity').selectedIndex]?.text:$('scanProvince').options[$('scanProvince').selectedIndex]?.text||"全国";return `${profile} · ${region}`;}
 	function showProxyChoice(){ $('scanProxyMessage').textContent=`新账号将使用：${proxyChoiceLabel()}。已有账号重扫时保留原代理。`; }
 	function toggleProxyFields(){ const mode=$('scanProxyMode').value; $('scanStaticProxyGroup').hidden=mode!=="static"; $('scanProxyAPIGroup').hidden=mode!=="api"; $('scanProxyProfileGroup').hidden=mode!=="profile"; $('scanProvinceGroup').hidden=mode!=="profile"; $('scanCityGroup').hidden=mode!=="profile"; $('scanProxyType').disabled=mode==="direct"||mode==="profile";showProxyChoice(); }
@@ -214,7 +226,7 @@
 	async function useRecommendedLocation(){if(!pendingLocation)return;if(!proxyProfiles.length){$('scanProxyMessage').textContent="请先在代理设置中添加品赞或巨量配置";return;}$('scanProxyMode').value="profile";toggleProxyFields();$('scanProvince').value=pendingLocation.province_code;if($('scanProvince').value!==pendingLocation.province_code){$('scanProxyMessage').textContent=`省份 ${pendingLocation.province} 不在当前代理地区列表中`;return;}await loadScanCities(pendingLocation.province_code);$('scanCity').value=pendingLocation.city_code||"";const place=[pendingLocation.province,pendingLocation.city].filter(Boolean).join(" · ");hideLocationSuggestion();$('scanProxyMessage').textContent=`已预填 ${place}，点击“应用到授权”后生效`;}
 	function normalizeLocationName(value){return String(value||"").replace(/壮族自治区|回族自治区|维吾尔自治区|特别行政区|自治区|省|市/g,"").trim().toLowerCase();}
     async function testProxy(){ const button=$('scanProxyTestBtn'); button.disabled=true; $('scanProxyMessage').textContent="正在提取并校验代理"; try{const payload=proxyPayload(),result=await api("POST","/accounts/proxy/test",payload);if(!result.resolved){$('scanProxyMessage').textContent="直连模式无需代理";return;}const exit=[result.exit_region,result.exit_city].filter(Boolean).join(" · ");const requested=[payload.region_province,payload.region_city].filter(Boolean).join(" · ");const cityMatches=!payload.region_city||normalizeLocationName(result.exit_city)===normalizeLocationName(payload.region_city);const regionMatches=!payload.region_province||normalizeLocationName(result.exit_region)===normalizeLocationName(payload.region_province);$('scanProxyMessage').textContent=exit?`代理解析成功：${result.proxy}；实际出口：${exit}${requested&&(!cityMatches||!regionMatches)?`，与目标 ${requested} 不一致，请勿直接应用`:""}`:`代理解析成功：${result.proxy}${result.probe_error?`；${result.probe_error}`:""}`;}catch(error){$('scanProxyMessage').textContent=`代理测试失败：${error.message}`;}finally{button.disabled=false;} }
-    function applyProxy(){ stopTimers(); sid=null; quickConfig=null; quickPort=null; quickProfile=null; $('scanProxyMessage').textContent="代理配置已应用到新的授权会话"; const quick=$('quickModeBtn').getAttribute('aria-selected')==='true'; if(quick)detectQuickLogin();else newQR(); }
+    function applyProxy(){ stopTimers(); sid=null; quickConfig=null; quickPort=null; quickProfile=null; $('scanProxyMessage').textContent="代理配置已应用到新的授权会话"; if(window.ScanMulti&&ScanMulti.active()){ScanMulti.restart();return;} const quick=$('quickModeBtn').getAttribute('aria-selected')==='true'; if(quick)detectQuickLogin();else newQR(); }
     function setStatus(text,type="pending"){ $("status").textContent=text; $("status").className=`status ${type}`; }
     function setQRWaiting(label="等待手机确认授权"){ const wrap=$("qrWrap"); wrap.classList.add("waiting-confirm"); wrap.dataset.waitingLabel=label; }
     function clearQRWaiting(){ const wrap=$("qrWrap"); wrap.classList.remove("waiting-confirm"); delete wrap.dataset.waitingLabel; }
@@ -244,13 +256,20 @@
     async function poll(){ const current=sid,generation=qrGeneration;if(!current||pollBusy===current)return;pollBusy=current;try{const result=await api('GET',`/qr/${current}/poll`);if(current!==sid||generation!==qrGeneration)return;if(result.status==='pending'){clearQRWaiting();setStatus('等待扫码');}else if(result.status==='scanned'){setQRWaiting();setStatus('已扫码，请在手机上确认授权','scanned');}else if(result.status==='authorized'||result.status==='confirmed'){setQRWaiting('正在完成授权');stopTimers();confirm(current,generation);}else if(['expired','unknown'].includes(result.status)){stopTimers();newQR();}else if(result.status==='cancelled'){stopTimers();clearQRWaiting();setStatus('已取消，请重新生成二维码','error');}}catch{if(current===sid&&generation===qrGeneration)setStatus('网络暂时波动，正在自动重试');}finally{if(pollBusy===current)pollBusy=false;}}
 	async function confirm(current=sid,generation=qrGeneration,attempt=0){if(!current||current!==sid||generation!==qrGeneration)return;$('countdown').textContent='';setQRWaiting('正在保存账号');setStatus('授权成功，正在保存账号','scanned');try{const nextAccount=await api('POST',`/qr/${current}/confirm`);if(current!==sid||generation!==qrGeneration)return;showAccount(nextAccount);clearQRWaiting();$('qrWrap').innerHTML='<span class="check">✓</span>';setStatus('账号已自动保存','ok');}catch(error){if(current!==sid||generation!==qrGeneration)return;if((error.status===409||error.status===502)&&attempt<11){setStatus('授权已确认，正在自动完成账号保存','scanned');setTimeout(()=>confirm(current,generation,attempt+1),1500);return;}clearQRWaiting();setStatus(`保存账号失败：${error.message}，请重新生成二维码`,'error');}}
     async function saveRemark(silent=false){ if(!account)return false; const button=$("saveRemarkBtn"); button.disabled=true; try{ const result=await api("PUT","/accounts/remark",{ref:String(account.id),remark:$("remarkInput").value}); account=result.account; if(!silent) setMessage(result.warning||"备注已保存",result.warning?"error":"ok"); return true; }catch(error){setMessage(`备注保存失败：${error.message}`,"error"); return false;}finally{button.disabled=false;} }
-	async function syncAccount(){ if(!account)return; const button=$("syncBtn"); button.disabled=true; button.textContent="正在添加"; setMessage("正在保存备注并同步面板"); try{ if(!await saveRemark(true))return; const result=await api("POST","/api/qinglong/sync",{ref:String(account.id)}); setMessage(result.added?`已添加到面板 YYB_SERVER：账号 ${account.id}`:`面板 YYB_SERVER 已包含账号 ${account.id}，无需重复添加`,"ok"); button.textContent="已添加到面板"; }catch(error){ setMessage(error.message.includes("配置")?"尚未配置自动化面板，请返回控制台填写连接信息。":`同步失败：${error.message}`,"error"); button.textContent="添加到面板"; }finally{button.disabled=false;} }
+	async function syncAccount(){ if(!account)return; const button=$("syncBtn"); button.disabled=true; button.textContent="正在添加"; setMessage("正在保存备注并同步面板"); try{ if(!await saveRemark(true))return; const multi=!!(window.ScanMulti&&ScanMulti.active()),syncRef=multi&&ScanMulti.syncRef()||String(account.id); const result=await api("POST","/api/qinglong/sync",{ref:syncRef}); setMessage(result.added?`已添加到面板 YYB_SERVER：账号 ${syncRef}${multi?"（主账号，其余渠道自动轮换）":""}`:`面板 YYB_SERVER 已包含账号 ${syncRef}，无需重复添加`,"ok"); button.textContent="已添加到面板"; }catch(error){ setMessage(error.message.includes("配置")?"尚未配置自动化面板，请返回控制台填写连接信息。":`同步失败：${error.message}`,"error"); button.textContent="添加到面板"; }finally{button.disabled=false;} }
 	applyAuthModeUI();
-	$("scanProxyMode").addEventListener("change",toggleProxyFields); $("scanProxyProfile").addEventListener("change",showProxyChoice); $("scanProvince").addEventListener("change",event=>loadScanCities(event.target.value).catch(error=>$('scanProxyMessage').textContent=`城市列表读取失败：${error.message}`)); $("scanCity").addEventListener("change",showProxyChoice); $("scanLocationBtn").addEventListener("click",recommendLocation); $("scanLocationUseBtn").addEventListener("click",()=>useRecommendedLocation().catch(error=>$('scanProxyMessage').textContent=`采用推荐失败：${error.message}`)); $("scanLocationDismissBtn").addEventListener("click",hideLocationSuggestion); $("scanProxyTestBtn").addEventListener("click",testProxy); $("scanProxyApplyBtn").addEventListener("click",applyProxy); $("quickModeBtn").addEventListener("click",()=>showMode("quick")); $("qrModeBtn").addEventListener("click",()=>showMode("qr")); $("quickAuthBtn").addEventListener("click",authorizeQuick); $("quickRetryBtn").addEventListener("click",detectQuickLogin); $("refreshBtn").addEventListener("click",newQR); $("backBtn").addEventListener("click",async()=>{stopTimers();await retireQR();location.href="/";}); $("saveRemarkBtn").addEventListener("click",()=>saveRemark()); $("syncBtn").addEventListener("click",syncAccount); $("copyBtn").addEventListener("click",async()=>{ try{await copyText(account?.openid||"");setMessage("OpenID 已复制","ok");}catch{setMessage("OpenID 已选中，请按 Ctrl+C 完成复制","error");} });
+	$("scanProxyMode").addEventListener("change",toggleProxyFields); $("scanProxyProfile").addEventListener("change",showProxyChoice); $("scanProvince").addEventListener("change",event=>loadScanCities(event.target.value).catch(error=>$('scanProxyMessage').textContent=`城市列表读取失败：${error.message}`)); $("scanCity").addEventListener("change",showProxyChoice); $("scanLocationBtn").addEventListener("click",recommendLocation); $("scanLocationUseBtn").addEventListener("click",()=>useRecommendedLocation().catch(error=>$('scanProxyMessage').textContent=`采用推荐失败：${error.message}`)); $("scanLocationDismissBtn").addEventListener("click",hideLocationSuggestion); $("scanProxyTestBtn").addEventListener("click",testProxy); $("scanProxyApplyBtn").addEventListener("click",applyProxy); $("quickModeBtn").addEventListener("click",()=>showMode("quick")); $("qrModeBtn").addEventListener("click",()=>showMode("qr")); $("quickAuthBtn").addEventListener("click",authorizeQuick); $("quickRetryBtn").addEventListener("click",detectQuickLogin); $("refreshBtn").addEventListener("click",newQR); $("backBtn").addEventListener("click",async()=>{stopTimers();await retireQR();if(window.ScanMulti)await ScanMulti.stopAll();location.href="/";}); $("saveRemarkBtn").addEventListener("click",()=>saveRemark()); $("syncBtn").addEventListener("click",syncAccount); $("copyBtn").addEventListener("click",async()=>{ try{await copyText(account?.openid||"");setMessage("OpenID 已复制","ok");}catch{setMessage("OpenID 已选中，请按 Ctrl+C 完成复制","error");} });
     toggleProxyFields();
 	function channelMode(){quickConfig=null;quickProfile=null;quickPort=null;const quick=PC_LOGIN_ENABLED&&$('scanProduct').value==='appstore';$('quickModeBtn').hidden=!quick;$('modeSwitch').hidden=!quick;$('authMethodDescription').textContent=quick?'可选择本机微信确认或手机扫码':'请用手机微信扫一扫完成授权';$('qrModeNote').hidden=true;}
 	$('scanProduct').addEventListener('change',()=>{channelMode();$('quickPane').hidden=true;$('qrPane').hidden=false;newQR();});
-	Promise.all([initializeProxyOptions(),api('GET','/api/scan-settings').then(settings=>{$('scanProduct').value=settings.effective;})]).catch(error=>setStatus(error.message,'error')).finally(()=>{channelMode();showMode(PC_LOGIN_ENABLED&&$('scanProduct').value==='appstore'?'quick':'qr');});
+	function fillChannelOptions(){const select=$('scanProduct'),current=select.value;select.replaceChildren(...scanChannels().map(channel=>{const option=document.createElement('option');option.value=channel.id;option.textContent=channel.name;return option;}));if([...select.options].some(option=>option.value===current))select.value=current;}
+	async function stopSingle(){qrGeneration+=1;stopTimers();quickConfig=null;quickPort=null;quickProfile=null;await retireQR();}
+	function startSingle(){channelMode();showMode(PC_LOGIN_ENABLED&&$('scanProduct').value==='appstore'?'quick':'qr');}
+	loadScanChannels().then(fillChannelOptions)
+		.then(()=>Promise.all([initializeProxyOptions(),api('GET','/api/scan-settings').then(settings=>{$('scanProduct').value=settings.effective;})]))
+		.catch(error=>setStatus(error.message,'error'))
+		.then(()=>window.ScanMulti?ScanMulti.init({api,proxyPayload,showAccount,stopSingle,startSingle}):startSingle())
+		.catch(error=>{setStatus(error.message,'error');startSingle();});
   </script>
   <script src="/static/js/platform.js?v=20261103-skin"></script>
 </body>

@@ -315,6 +315,8 @@ func (a *App) handleQingLongSync(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"account": acc.Public(), "name": "YYB_SERVER", "value": responseValue, "added": added,
+		// The account the variable lists: the primary when acc is a fleet member.
+		"synced_id": a.panelRepresentative(r.Context(), acc).ID,
 	})
 }
 
@@ -337,6 +339,21 @@ func (a *App) autoSyncAfterScan(acc *store.WechatAccount) {
 			log.Printf("[auto-sync] account %d panel sync failed: %v", account.ID, err)
 		}
 	}(acc)
+}
+
+// deferredPanelSyncDelay is how long the panel sync of a multi-channel scan waits.
+// The console binds the scanned accounts into a fleet right after each
+// confirmation; by the time the delay is over a member is listed through its
+// primary, and an account that stayed independent lists itself.
+var deferredPanelSyncDelay = 15 * time.Second
+
+// autoSyncAfterScanLater is autoSyncAfterScan for a scan that is one of several
+// channels of the same WeChat.
+func (a *App) autoSyncAfterScanLater(acc *store.WechatAccount, delay time.Duration) {
+	if acc == nil || !a.qinglong.configured() {
+		return
+	}
+	time.AfterFunc(delay, func() { a.autoSyncAfterScan(acc) })
 }
 
 // handleQingLongSyncAll reconciles every locally stored account into the
@@ -387,6 +404,10 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "读取待同步引用失败")
 			return
 		}
+		if fleetPrimaryOf(acc) > 0 && fleetPrimaryOf(acc) != acc.ID {
+			// A member is listed through its primary, which is in this loop too.
+			continue
+		}
 		var changed bool
 		value, changed = mergeYYBServerValue(value, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
 		if changed {
@@ -403,6 +424,19 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name": "YYB_SERVER", "value": value, "accounts": len(accounts), "added": added,
 	})
+}
+
+// panelRepresentative is the account that stands for acc in the panel variable.
+// A fleet is listed by its primary: requests for the primary already rotate
+// across the members, so an entry per member would run every script once per
+// channel. Everything else represents itself.
+func (a *App) panelRepresentative(ctx context.Context, acc *store.WechatAccount) *store.WechatAccount {
+	if primaryID := fleetPrimaryOf(acc); primaryID > 0 && primaryID != acc.ID {
+		if primary, err := a.db.GetAccount(ctx, primaryID); err == nil {
+			return primary
+		}
+	}
+	return acc
 }
 
 func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccount) (string, bool, error) {
@@ -433,7 +467,7 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 	if err != nil {
 		return "", false, err
 	}
-	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
+	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, a.panelRepresentative(ctx, acc), a.cfg.QingLongRefMode)
 	if err := a.saveYYBServerEnv(ctx, env, value, remarks); err != nil {
 		return "", false, err
 	}

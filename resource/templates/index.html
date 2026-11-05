@@ -955,7 +955,9 @@
     }
   </style>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
-  <script src="/static/js/scan-channel.js?v=049"></script>
+  <link rel="stylesheet" href="/static/css/multi-channel.css?v=050">
+  <script src="/static/js/scan-channel.js?v=050"></script>
+  <script src="/static/js/fleet-ui.js?v=050"></script>
 </head>
 <body>
   <div class="app">
@@ -1008,7 +1010,8 @@
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
-            <button class="btn secondary" id="mergeAccountsBtn" type="button">合并账号</button>
+            <button class="btn secondary" id="mergeChannelsBtn" type="button" title="把同一个微信在不同渠道扫出的几个 ID 合并成一个多渠道账号，脚本只需保留主账号">合并渠道</button>
+            <button class="btn secondary" id="mergeAccountsBtn" type="button" title="合并误新增的重复账号：来源账号的授权移入保留的 ID，来源 ID 会被删除">合并账号</button>
             <button class="btn secondary" id="addAccountLinkBtn" type="button" title="生成只能录入新 YYB 账号的一次性扫码链接">新增链接</button>
             <a class="btn primary" href="/scan">新增账号</a>
           </div>
@@ -1026,6 +1029,7 @@
           <div class="mobile-account-buttons">
             <button class="btn primary" id="mobileUpdateAccountBtn" type="button">更新扫码</button>
             <a class="btn secondary" id="mobileProxySettingsLink" href="/proxies">管理代理</a>
+            <a class="btn secondary" id="mobileMultiScanLink" href="/scan">多渠道扫码</a>
             <button class="btn secondary" id="mobileSyncAccountBtn" type="button">同步到面板</button>
           </div>
           <p id="mobileAccountFeedback" role="status" hidden></p>
@@ -1051,6 +1055,7 @@
               <button class="btn secondary" id="saveRemarkBtn" type="button">保存备注</button>
               <button class="btn secondary" id="syncQingLongBtn" type="button">同步到面板</button>
               <button class="btn secondary" id="updateAccountLinkBtn" type="button" title="生成只能更新当前账号的一次性扫码链接">生成更新链接</button>
+              <a class="btn secondary" id="multiScanLink" href="/scan" title="给当前账号补扫其他渠道，或重新扫码更新">多渠道扫码</a>
               <button class="btn danger" id="deleteAccountBtn" type="button">删除账号</button>
             </div>
             <div class="proxy-summary">
@@ -1193,6 +1198,16 @@
     </main>
   </div>
 
+  <dialog class="link-dialog" id="mergeChannelsDialog" aria-labelledby="mergeChannelsTitle">
+    <div class="link-dialog-body">
+      <div class="link-dialog-head"><div><h2 id="mergeChannelsTitle">合并为多渠道账号</h2><p>同一个微信在不同渠道各扫出了一个 ID，合并后脚本只需要保留主账号，请求会在各渠道之间自动轮换。</p></div><button class="link-dialog-close" id="mergeChannelsClose" type="button" aria-label="关闭合并渠道">×</button></div>
+      <div class="field"><label for="mergeChannelsPrimary">主账号</label><select class="input" id="mergeChannelsPrimary"></select><span class="field-note">脚本和面板里使用这个 ID；已是多渠道账号的可以继续补充渠道。</span></div>
+      <div class="field"><label id="mergeChannelsListLabel">并入的账号</label><div class="fleet-pick-list" id="mergeChannelsList" role="group" aria-labelledby="mergeChannelsListLabel"></div></div>
+      <p class="link-dialog-footnote">合并前会核对微信 unionid：不是同一个微信的账号会被拒绝，可以在结果里选择仍然合并。合并不会删除任何账号，卡片上随时可以拆分。</p>
+      <div class="fleet-results" id="mergeChannelsResults" role="status" aria-live="polite"></div>
+      <div class="inline-actions" style="margin-top:16px"><button class="btn secondary" id="mergeChannelsCancelBtn" type="button">取消</button><button class="btn primary" id="mergeChannelsConfirmBtn" type="button">合并</button></div>
+    </div>
+  </dialog>
   <dialog class="link-dialog" id="mergeAccountDialog" aria-labelledby="mergeAccountTitle">
     <div class="link-dialog-body">
       <div class="link-dialog-head"><div><h2 id="mergeAccountTitle">合并误新增账号</h2><p>将误新增账号的授权移入原 ID，不按昵称自动判断身份。</p></div><button class="link-dialog-close" id="mergeAccountClose" type="button" aria-label="关闭合并">×</button></div>
@@ -1494,11 +1509,16 @@
       $("syncAllQingLongBtn").disabled = state.accounts.length === 0;
       $("deleteAccountBtn").disabled = !selected;
       $("mergeAccountsBtn").disabled = state.accounts.length < 2;
+      $("mergeChannelsBtn").disabled = state.accounts.length < 2;
+      $("multiScanLink").href = selected ? FleetUI.scanHref(selected) : "/scan?multi=1";
       $("proxySettingsLink").href = selected ? `/proxies?ref=${encodeURIComponent(selected.id)}` : "/proxies";
       document.querySelectorAll(".account-card").forEach(card => {
-        const selected = card.dataset.openid === state.selectedOpenID;
+        // A multi-channel card is selected when any of its accounts is.
+        const members = card.dataset.memberOpenids ? JSON.parse(card.dataset.memberOpenids) : [card.dataset.openid];
+        const selected = members.includes(state.selectedOpenID);
         card.classList.toggle("selected", selected);
         card.querySelector(".account-select").setAttribute("aria-pressed", String(selected));
+        card.querySelectorAll(".fleet-member").forEach(row => row.classList.toggle("selected", row.dataset.openid === state.selectedOpenID));
       });
       placeMobileAccountActions();
       updateFeatureHint();
@@ -1512,6 +1532,7 @@
       if (dock.hidden) return;
       $("mobileAccountName").textContent = `ID ${account.id} · ${accountName(account)}`;
       $("mobileProxySettingsLink").href = `/proxies?ref=${encodeURIComponent(account.id)}`;
+      $("mobileMultiScanLink").href = FleetUI.scanHref(account);
       if (card.nextElementSibling !== dock) card.after(dock);
     }
 
@@ -1530,6 +1551,36 @@
       syncSelectedAccount();
     }
 
+    function selectAccount(account) {
+      state.selectedOpenID = account.openid;
+      const params = new URLSearchParams(location.search);
+      params.set("ref", account.id);
+      history.replaceState(null, "", `/?${params}`);
+      syncSelectedAccount();
+      loadAccountProxySummary();
+      setActivity(`已选择账号：${accountName(account)}`);
+      requestAnimationFrame(() => {
+        const dock = $("mobileAccountActions");
+        if (!dock.hidden) dock.scrollIntoView({ block:"nearest", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      });
+    }
+
+    async function setAccountStatus(account, status, control) {
+      const number = accountNumber(account);
+      if (status === "expired" && !confirm(`确认将账号 ${number} 标记为已失效，并从青龙移除？`)) return;
+      control.disabled = true;
+      try {
+        const result = await api("POST", "/accounts/status", { ref: String(account.id), status });
+        const index = state.accounts.findIndex(item => item.id === account.id);
+        if (index >= 0) state.accounts[index] = result.account;
+        renderAccounts();
+        setActivity(status === "expired" ? `账号 ${number} 已标记失效，青龙关联已清理` : `账号 ${number} 已确认仍有效`);
+      } catch (error) {
+        control.disabled = false;
+        setActivity(`账号状态更新失败：${error.message}`);
+      }
+    }
+
     function renderAccounts() {
       const strip = $("accountStrip");
       parkMobileAccountActions();
@@ -1539,7 +1590,11 @@
         const status = account.status === "alive" || account.status === "expired" ? account.status : "pending";
         return (filter === "all" || status === filter) && (!query || [accountName(account), account.nickname, account.remark, account.id, account.openid].some(value => String(value ?? "").toLocaleLowerCase().includes(query)));
       });
-      $("accountFilterCount").textContent = `显示 ${visible.length} / ${state.accounts.length} 个账号`;
+      // Accounts of one fleet share a card, shown whenever one of them matches.
+      const matched = new Set(visible.map(account => account.id));
+      const shown = FleetUI.groups(state.accounts).filter(group => group.members.some(member => matched.has(member.id)));
+      const fleetCount = shown.filter(FleetUI.isFleet).length;
+      $("accountFilterCount").textContent = `显示 ${shown.reduce((sum, group) => sum + group.members.length, 0)} / ${state.accounts.length} 个账号${fleetCount ? ` · ${fleetCount} 个多渠道账号` : ""}`;
       if (!state.accounts.length) {
         strip.innerHTML = `<div class="empty-state">暂无账号，点击“新增账号”开始扫码。</div>`;
         state.selectedOpenID = "";
@@ -1554,7 +1609,12 @@
       strip.innerHTML = "";
       const previouslyExpired = state.expiredSeen;
       if (!visible.length) strip.innerHTML = '<div class="empty-state">没有匹配的账号，试试其他关键词或状态。</div>';
-      for (const account of visible) {
+      for (const group of shown) {
+        if (FleetUI.isFleet(group)) {
+          strip.appendChild(FleetUI.card(group, previouslyExpired));
+          continue;
+        }
+        const account = group.primary;
         const name = accountName(account);
 		const proxy = proxyText(state.proxyConfigs.get(String(account.id)));
         const isExpired = account.status === "expired";
@@ -1586,32 +1646,20 @@
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
           </span>
           ${lifecycleMarkup(account)}
-          <span class="account-row-actions"><button type="button" class="btn secondary" data-update-account aria-label="更新 ${escapeHTML(name)} 的扫码">更新</button><a class="btn" href="/proxies?ref=${encodeURIComponent(account.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
+          <span class="account-row-actions"><button type="button" class="btn secondary" data-update-account aria-label="更新 ${escapeHTML(name)} 的扫码">更新</button><a class="btn secondary" href="${FleetUI.scanHref(account)}" aria-label="给 ${escapeHTML(name)} 扫更多渠道">多渠道扫码</a><a class="btn" href="/proxies?ref=${encodeURIComponent(account.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
           ${pendingConfirmation ? `<div class="account-confirm-actions" id="confirm-account-${account.id}" hidden><span>确认账号状态</span><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></div>` : ""}
         `;
         button.querySelector("img").addEventListener("error", event => {
           event.currentTarget.classList.add("hidden");
           button.querySelector(".avatar-letter").classList.remove("hidden");
         });
-        button.addEventListener("click", () => {
-          state.selectedOpenID = account.openid;
-          const params = new URLSearchParams(location.search);
-          params.set("ref", account.id);
-          history.replaceState(null, "", `/?${params}`);
-          syncSelectedAccount();
-          loadAccountProxySummary();
-          setActivity(`已选择账号：${name}`);
-          requestAnimationFrame(() => {
-            const dock = $("mobileAccountActions");
-            if (!dock.hidden) dock.scrollIntoView({ block:"nearest", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-          });
-        });
+        button.addEventListener("click", () => selectAccount(account));
         button.querySelector("[data-update-account]").addEventListener("click", event => {
           event.stopPropagation();
           button.click();
           openAccountLinkDialog("update");
         });
-        button.querySelector(".account-row-actions a").addEventListener("click", event => event.stopPropagation());
+        button.querySelectorAll(".account-row-actions a").forEach(link => link.addEventListener("click", event => event.stopPropagation()));
         button.querySelector(".account-status-toggle")?.addEventListener("click", event => {
           event.stopPropagation();
           const toggle = event.currentTarget;
@@ -1619,21 +1667,9 @@
           toggle.setAttribute("aria-expanded", String(expanded));
           button.querySelector(".account-confirm-actions").hidden = !expanded;
         });
-        button.querySelectorAll("[data-confirm-status]").forEach(action => action.addEventListener("click", async event => {
+        button.querySelectorAll("[data-confirm-status]").forEach(action => action.addEventListener("click", event => {
           event.stopPropagation();
-          const status = action.dataset.confirmStatus;
-          if (status === "expired" && !confirm(`确认将账号 ${number} 标记为已失效，并从青龙移除？`)) return;
-          action.disabled = true;
-          try {
-            const result = await api("POST", "/accounts/status", { ref: String(account.id), status });
-            const index = state.accounts.findIndex(item => item.id === account.id);
-            if (index >= 0) state.accounts[index] = result.account;
-            renderAccounts();
-            setActivity(status === "expired" ? `账号 ${number} 已标记失效，青龙关联已清理` : `账号 ${number} 已确认仍有效`);
-          } catch (error) {
-            action.disabled = false;
-            setActivity(`账号状态更新失败：${error.message}`);
-          }
+          setAccountStatus(account, action.dataset.confirmStatus, action);
         }));
         strip.appendChild(button);
       }
@@ -1976,7 +2012,8 @@
         renderAccounts();
         const panelName = $("qingLongType").value === "daidai" ? "呆呆面板" : $("qingLongType").value === "arcadia" ? "Arcadia" : "青龙";
         const number = accountNumber(account);
-        setActivity(result.added ? `账号 ${number} 已添加到${panelName} YYB_SERVER` : `${panelName} YYB_SERVER 已包含账号 ${number}`);
+        const listed = result.synced_id && result.synced_id !== account.id ? `${number}（多渠道账号，面板列出主账号 ${result.synced_id}）` : number;
+        setActivity(result.added ? `账号 ${listed} 已添加到${panelName} YYB_SERVER` : `${panelName} YYB_SERVER 已包含账号 ${listed}`);
       } catch (error) {
         setActivity(`同步面板失败：${error.message}`);
         if (error.message.includes("配置")) $("qingLongSettings").open = true;
@@ -2294,6 +2331,7 @@
 
     $("reloadAccountsBtn").addEventListener("click", loadAccounts);
     $("mergeAccountsBtn").addEventListener("click", openMergeAccountDialog);
+    FleetUI.bindMergeDialog();
     $("mergeAccountClose").addEventListener("click", () => { if (!mergeBusy) $("mergeAccountDialog").close(); });
     $("mergeAccountDialog").addEventListener("cancel", event => { if (mergeBusy) event.preventDefault(); });
     $("mergeSourceAccount").addEventListener("change", resetMergePreview);
@@ -2382,6 +2420,8 @@
     applyRoleVisibility();
     loadHealth();
     loadFeatures();
+    // The channel list is the server's; cards and the update dialog redraw when it differs from the built-in one.
+    loadScanChannels().then(() => { FleetUI.fillLinkProducts(); if (state.accounts.length) renderAccounts(); });
     loadAccounts().then(() => {
       const focusTarget = new URLSearchParams(location.search).get("focus");
       if (focusTarget === "accounts" || focusTarget === "test") document.getElementById(focusTarget === "accounts" ? "accountWorkspace" : "callWorkspace")?.scrollIntoView({ block:"start" });
