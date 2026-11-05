@@ -30,7 +30,7 @@ async function fresh(browser) {
   return {context, page, errors};
 }
 
-const accountsOf = async context => (await (await context.request.get(base + '/accounts')).json()).data;
+const accountsOf = async context => (await (await context.request.get(base + '/accounts?include_members=1')).json()).data;
 const byId = (list, id) => list.find(account => account.id === id);
 
 // The seeded account ids by name, found through their openid.

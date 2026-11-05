@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>YYB Go 账号授权</title>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
+  <link rel="stylesheet" href="/static/css/account-link-multi.css?v=1">
   <style>
     :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172529;background:#f3f7f8}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}.panel{width:min(440px,100%);background:#fff;border:1px solid #d9e3e5;border-radius:16px;padding:24px;box-shadow:0 16px 40px rgba(27,55,61,.08);text-align:center}.mark{display:grid;place-items:center;width:44px;height:44px;border-radius:13px;background:#152d35;color:#fff;font-weight:800;margin:0 auto 14px}.panel h1{font-size:21px;margin:0}.panel p{font-size:13px;color:#718084;line-height:1.6;margin:9px 0 18px}.notice{margin:0 0 16px;padding:12px 14px;border:1px solid #f0c36a;border-radius:10px;background:#fff8e6;color:#76520c;font-size:13px;line-height:1.55;text-align:left}.notice strong{display:block;color:#8d5800;margin-bottom:2px}.qr{width:260px;height:260px;margin:0 auto 16px;border:1px solid #e1e9ea;border-radius:12px;display:grid;place-items:center;background:#fafcfc;color:#77868a;font-size:13px;overflow:hidden}.qr img{width:100%;height:100%;object-fit:contain;border-radius:11px;user-select:none;-webkit-user-drag:none}.state{min-height:24px;color:#4e666a;font-size:13px}.state.error{color:#a53b30}.state.ok{color:#2f7d46}.expiry{min-height:20px;margin-top:3px;color:#8a6a28;font-size:12px}.hint{margin-top:18px;padding:11px 12px;border-radius:9px;background:#f0f7f7;color:#547174;font-size:12px;text-align:left}.btn{width:100%;border:0;border-radius:9px;background:#287f7b;color:#fff;padding:11px 14px;font:inherit;font-weight:700;cursor:pointer}.btn:disabled{opacity:.55;cursor:default}.hidden{display:none!important}
   </style>
@@ -18,12 +19,14 @@
     <div class="notice"><strong>仅限现场扫码</strong>请直接使用微信扫一扫完成授权，不要保存、转发或从相册识别二维码。刷新页面只会重新生成二维码，不会提前消耗授权链接。</div>
     <div class="scan-channel"><label for="scanProduct">扫码渠道</label><select id="scanProduct"><option value="appstore">YYB</option><option value="pcmgr">PCMgr</option><option value="gameassist">GameAssist</option></select><small id="channelHint">扫码成功后自动保存。</small></div>
     <div class="qr" id="qr">正在生成二维码…</div>
-    <div class="state" id="state">链接校验中</div>
+    <section id="linkMulti" class="hidden" aria-label="多渠道授权"></section>
+    <div class="state" id="state" role="status">链接校验中</div>
     <div class="expiry" id="expiry"></div>
     <button class="btn hidden" id="retry" type="button">重新生成二维码</button>
-    <div class="hint">请确认微信中登录的是要授权的账号。链接只能成功使用一次，并会在有效期结束后自动失效。</div>
+    <div class="hint" id="linkHint">请确认微信中登录的是要授权的账号。链接只能成功使用一次，并会在有效期结束后自动失效。</div>
   </main>
   <script src="/static/js/scan-channel.js?v=050"></script>
+  <script src="/static/js/account-link-multi.js?v=1"></script>
   <script>
     const token=location.pathname.split('/').filter(Boolean).pop();
     const $=id=>document.getElementById(id);let sid='',timer=null,expiryTimer=null,pollBusy=false,linkExpiresAt=0,saveAttempts=0;
@@ -32,7 +35,7 @@
     function setState(text,kind=''){ $('state').textContent=text;$('state').className=`state ${kind}` }
     function stop(){if(timer){clearInterval(timer);timer=null}}
     function stopExpiry(){if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null}}
-    function renderExpiry(){if(!linkExpiresAt)return;const seconds=Math.max(0,linkExpiresAt-Math.floor(Date.now()/1000));if(seconds<=0){$('expiry').textContent='授权链接已过期';$('expiry').className='expiry state error';stop();if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null}setState('授权链接已过期，请让发起方重新生成','error');$('retry').classList.add('hidden');return}const minutes=Math.floor(seconds/60),rest=seconds%60;$('expiry').textContent=`授权链接剩余 ${minutes}分${String(rest).padStart(2,'0')}秒`;}
+    function renderExpiry(){if(!linkExpiresAt)return;const seconds=Math.max(0,linkExpiresAt-Math.floor(Date.now()/1000));if(seconds<=0){$('expiry').textContent='授权链接已过期';$('expiry').className='expiry state error';stop();window.AccountLinkMulti?.stop();if(expiryTimer){clearInterval(expiryTimer);expiryTimer=null}setState('授权链接已过期，请让发起方重新生成','error');$('retry').classList.add('hidden');return}const minutes=Math.floor(seconds/60),rest=seconds%60;$('expiry').textContent=`授权链接剩余 ${minutes}分${String(rest).padStart(2,'0')}秒`;}
     function startExpiry(expiresAt){if(expiresAt)linkExpiresAt=Number(expiresAt);stopExpiry();renderExpiry();expiryTimer=setInterval(renderExpiry,1000)}
     function renderChannelHint(){
       const switching=meta?.kind==='update'&&selectedProduct!==meta.source_product;
@@ -110,6 +113,7 @@
       }finally{$('scanProduct').disabled=completed;}
     });
     api('/meta').then(data=>{
+      if(data.allow_multi_channel){startExpiry(data.expires_at);AccountLinkMulti.init({api,meta:data,setState,onFinish:()=>{stopExpiry();$('expiry').textContent='授权链接已关闭';}});return;}
       meta=data;selectedProduct=data.product;confirmedProduct=data.switch_confirmed?data.product:'';
       $('scanProduct').value=selectedProduct;startExpiry(data.expires_at);renderChannelHint();create();
     }).catch(error=>{$('qr').textContent='链接不可用';setState(error.message,'error');$('scanProduct').disabled=true;});

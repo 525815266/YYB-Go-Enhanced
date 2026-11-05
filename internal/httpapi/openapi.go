@@ -151,9 +151,9 @@ func newOpenAPISpec() map[string]any {
 					[]string{"account-links"},
 					"生成一次性账号扫码授权链接",
 					nil,
-					jsonRequestBody(freeFormObjectSchema("kind=update 或 add；ref 为基础账号 ID/UIN/OpenID；ttl_seconds 可选，范围 60-604800。")),
+					jsonRequestBody(freeFormObjectSchema("kind=update 或 add；ref 为基础账号 ID/UIN/OpenID；ttl_seconds 可选，范围 60-604800。allow_multi_channel 默认 false，开启后同一微信可授权多个渠道，逐个保存并归组，点击 finish 或原有效期结束后关闭链接。product 为单渠道或初始渠道，单渠道 update 跨渠道需 confirm_switch=true。")),
 					defaulted(map[string]any{
-						"200": jsonResponse("授权链接。链接只返回一次，数据库仅保存其 SHA-256 哈希。", freeFormObjectSchema("url、expires_at、one_time。")),
+						"200": jsonResponse("授权链接。数据库用 SHA-256 校验令牌，并加密保存可恢复地址。", freeFormObjectSchema("url、expires_at、one_time、allow_multi_channel。")),
 					}),
 				),
 			},
@@ -171,7 +171,7 @@ func newOpenAPISpec() map[string]any {
 					[]string{"account-links"},
 					"为一次性授权链接创建二维码",
 					[]map[string]any{pathStringParam("token", "随机不可逆 bearer token。")},
-					jsonOptionalRequestBody(objectSchema(nil, map[string]any{"product": map[string]any{"type": "string", "enum": []string{"appstore", "pcmgr", "gameassist"}, "description": "更新链接锁定原渠道；新增链接可切换。"}})),
+					jsonOptionalRequestBody(objectSchema(nil, map[string]any{"product": map[string]any{"type": "string", "enum": []string{"appstore", "pcmgr", "gameassist"}, "description": "扫码渠道。多渠道链接按同一微信归组；单渠道更新切换需 confirm_switch。"}, "confirm_switch": map[string]any{"type": "boolean"}})),
 					defaulted(map[string]any{"200": jsonResponse("二维码会话。", refSchema("QRCreateResponse"))}),
 				),
 			},
@@ -193,14 +193,22 @@ func newOpenAPISpec() map[string]any {
 					defaulted(map[string]any{"200": jsonResponse("保存后的账号。", refSchema("AccountPublic"))}),
 				),
 			},
+			"/account-link/{token}/meta": map[string]any{
+				"get": openAPIOperation([]string{"account-links"}, "读取授权链接权限和已保存渠道", []map[string]any{pathStringParam("token", "授权链接令牌。")}, nil,
+					defaulted(map[string]any{"200": jsonResponse("渠道、有效期、allow_multi_channel 和 completed_channels；不返回凭据或 unionid。", freeFormObjectSchema("链接元数据。"))})),
+			},
+			"/account-link/{token}/finish": map[string]any{
+				"post": openAPIOperation([]string{"account-links"}, "结束多渠道授权并关闭链接", []map[string]any{pathStringParam("token", "授权链接令牌。")}, nil,
+					defaulted(map[string]any{"200": jsonResponse("至少已保存一个渠道后可以结束；已保存账号保持生效。", freeFormObjectSchema("completed=true。"))})),
+			},
 			"/accounts": map[string]any{
 				"get": openAPIOperation(
 					[]string{"accounts"},
 					"获取账号列表",
-					nil,
+					[]map[string]any{queryStringParam("include_members", "默认 false，每个多渠道组只返回一个账号：优先存活渠道，同状态优先主账号。true 返回全部渠道供管理使用。", false)},
 					nil,
 					defaulted(map[string]any{
-						"200": jsonResponse("已保存的账号列表。", arraySchema(refSchema("AccountPublic"))),
+						"200": jsonResponse("可见账号列表；按已保存状态选择组内可用授权，全部失效时仍保留一条状态记录。返回真实账号 ID，fleet_primary_id 指向原主账号；读取不发起上游刷新或取码。", arraySchema(refSchema("AccountPublic"))),
 					}),
 				),
 				"delete": openAPIOperation(

@@ -12,7 +12,7 @@ const assert=require('node:assert/strict');
     const json=data=>({status:200,contentType:'application/json',body:JSON.stringify({code:0,msg:'success',data})});
     let accounts=Array.from({length:24},(_,i)=>({id:i+1,nickname:`演示 ${i+1}`,openid:`fake-${i+1}`,scan_product:i===23?'pcmgr':'appstore',status:'alive'}));
     let slow=false,releaseAccounts;
-    await context.route('**/accounts',async route=>{if(slow)await new Promise(resolve=>releaseAccounts=resolve);return route.fulfill(json(accounts));});
+    await context.route('**/accounts?include_members=1',async route=>{if(slow)await new Promise(resolve=>releaseAccounts=resolve);return route.fulfill(json(accounts));});
     await context.route('**/accounts/proxy?*',route=>route.fulfill(json({configured:false})));
     await context.route('**/accounts/avatar?*',route=>route.fulfill({status:404,body:''}));
     await context.route('**/wx/code',route=>route.fulfill(json({code:'synthetic-result'})));

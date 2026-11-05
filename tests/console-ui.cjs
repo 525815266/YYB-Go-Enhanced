@@ -22,7 +22,7 @@ const path = require('node:path');
     await context.route('**/api/auth/me',route=>route.fulfill(envelope({auth_enabled:true,user:{username:'demo',display_name:'演示管理员',role:'admin'}})));
     await context.route('**/api/version',route=>route.fulfill(envelope({version:require('node:fs').readFileSync(path.join(__dirname,'../VERSION'),'utf8').trim()})));
     let proxyReads=0;
-    await context.route('**/accounts', route => route.fulfill(envelope(accounts)));
+    await context.route('**/accounts?include_members=1', route => route.fulfill(envelope(accounts)));
     await context.route('**/accounts/proxy?*', route => {proxyReads++; return route.fulfill(envelope({configured:false}));});
     await context.route('**/accounts/avatar?*', route => route.fulfill({status:404,body:''}));
     const linkRequests=[];
@@ -175,7 +175,7 @@ const path = require('node:path');
     await page.setViewportSize({width:390,height:1000});
     await page.locator('#mobileAccountActions').waitFor({state:'visible'});
     let failLoad;
-    await context.route('**/accounts',async route=>{
+    await context.route('**/accounts?include_members=1',async route=>{
       await new Promise(resolve=>{failLoad=resolve;});
       return route.fulfill({status:503,contentType:'application/json',body:'{"code":503,"msg":"test unavailable","data":null}'});
     });
@@ -186,7 +186,7 @@ const path = require('node:path');
     await page.locator('#accountStrip .empty-state').filter({hasText:'账号加载失败'}).waitFor();
     assert.equal(await page.locator('#mobileAccountActions').count(),1,'load failure must retain the shared controls');
     assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);
-    await context.route('**/accounts',route=>route.fulfill(envelope([])));
+    await context.route('**/accounts?include_members=1',route=>route.fulfill(envelope([])));
     await page.locator('#reloadAccountsBtn').click();
     await page.waitForFunction(()=>document.querySelector('#accountCount').textContent==='0');
     assert.equal(await page.locator('#mobileAccountActions').isVisible(),false);

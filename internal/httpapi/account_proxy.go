@@ -57,6 +57,8 @@ type qrLoginSession struct {
 	AccountLinkMode string
 	BaseAccountID   int64
 	SwitchConfirmed bool
+	// A successful multi-channel link confirmation can be retried after a lost response.
+	LinkSavedAccount *store.AccountPublic
 	// DeferPanelSync postpones the automation panel sync after the scan is
 	// confirmed. A multi-channel scan is bound into one fleet by the console right
 	// after each confirmation, and the panel lists a fleet by its primary only.

@@ -1228,10 +1228,14 @@
         <button class="link-dialog-close" id="accountLinkDialogClose" type="button" aria-label="关闭">×</button>
       </div>
       <form id="accountLinkConfigPane">
+        <div class="field">
+          <label><input id="accountLinkMulti" type="checkbox"> 开放多渠道授权</label>
+          <span class="field-note">允许同一微信逐个扫码，分别保存各渠道并归组。原账号 ID 保留，点击“完成授权”或到期后链接失效。</span>
+        </div>
         <div class="field" id="accountLinkProductField">
           <label for="accountLinkProduct">本次扫码渠道</label>
           <select class="input" id="accountLinkProduct"><option value="appstore">YYB</option><option value="pcmgr">PCMgr</option><option value="gameassist">GameAssist</option></select>
-          <span class="field-note">切换前会说明影响，扫码成功后保留原账号 ID。</span>
+          <span class="field-note" id="accountLinkProductNote">切换前会说明影响，扫码成功后保留原账号 ID。</span>
         </div>
         <div class="field">
           <label for="accountLinkTTL">链接有效期（分钟）</label>
@@ -1257,7 +1261,7 @@
           <a class="btn primary" id="accountLinkOpenBtn" href="#" target="_blank" rel="noopener">打开链接</a>
           <button class="btn secondary" id="accountLinkDoneBtn" type="button">完成</button>
         </div>
-        <p class="link-dialog-footnote">请勿公开转发或保存二维码。链接在有效期结束或成功授权后立即失效。</p>
+        <p class="link-dialog-footnote">请勿公开转发或保存二维码。单渠道成功后失效；多渠道需点击“完成授权”，也会按原有效期到期。</p>
       </section>
     </div>
   </dialog>
@@ -1843,7 +1847,7 @@
         $("accountStrip").innerHTML = `<div class="empty-state">账号加载中</div>`;
       }
       try {
-        state.accounts = await api("GET", "/accounts");
+        state.accounts = await api("GET", "/accounts?include_members=1");
 		state.proxyConfigs.clear();
 		await Promise.all(state.accounts.map(async account => {
 		  try { state.proxyConfigs.set(String(account.id), await api("GET", `/accounts/proxy?ref=${encodeURIComponent(account.id)}`)); } catch { /* Selected account reports details. */ }
@@ -2079,6 +2083,9 @@
       pendingAccountLinkAccount = account;
       confirmedAccountLinkProduct = account.scan_product || "appstore";
       $("accountLinkProduct").value = confirmedAccountLinkProduct;
+      $("accountLinkMulti").checked = false;
+      $("accountLinkProduct").disabled = false;
+      $("accountLinkProductNote").textContent = "切换前会说明影响，扫码成功后保留原账号 ID。";
       $("accountLinkProductField").hidden = kind !== "update";
       $("accountLinkDialogTitle").textContent = kind === "update" ? "生成更新链接" : "生成新增链接";
       $("accountLinkDialogDescription").textContent = kind === "update"
@@ -2117,8 +2124,9 @@
       button.disabled = true;
       button.textContent = "正在生成";
       try {
-        const product = kind === "update" ? $("accountLinkProduct").value : "";
-        const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60, product, confirm_switch:kind === "update" && product !== (account.scan_product || "appstore") && product === confirmedAccountLinkProduct });
+        const multi = $("accountLinkMulti").checked;
+        const product = kind === "update" ? (multi ? account.scan_product || "appstore" : $("accountLinkProduct").value) : "";
+        const result = await api("POST", "/api/account-links", { kind, ref: String(account.id), ttl_seconds: minutes * 60, product, allow_multi_channel:multi, confirm_switch:!multi && kind === "update" && product !== (account.scan_product || "appstore") && product === confirmedAccountLinkProduct });
         const shareText = accountLinkShareText(kind, account, result.url);
         let copied = true;
         try { await copyText(shareText, $("accountLinkURL")); } catch { copied = false; }
@@ -2132,7 +2140,7 @@
         $("accountLinkResultPane").hidden = false;
         $("accountLinkURL").value = shareText;
         $("accountLinkOpenBtn").href = result.url;
-        $("accountLinkExpiry").textContent = `有效期至 ${new Date(result.expires_at * 1000).toLocaleString()}。成功授权后链接立即失效。`;
+        $("accountLinkExpiry").textContent = `有效期至 ${new Date(result.expires_at * 1000).toLocaleString()}。${result.allow_multi_channel ? '已开放多渠道，授权人点击“完成授权”后链接失效。' : '成功授权后链接立即失效。'}`;
         renderExistingAccountLinks(result.existing || []);
         requestAnimationFrame(() => $("accountLinkCopyBtn").focus());
       } catch (error) {
@@ -2161,7 +2169,7 @@
       $("accountLinkExistingSummary").textContent = blocked
         ? `已拦截：该账号已有 ${items.length} 条未消费链接。使用现有链接，或作废后再生成。`
         : `该账号已有 ${items.length} 条未消费链接。`;
-      $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id}${item.product ? ` · ${scanChannelName(item.product)}` : ''} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
+      $("accountLinkExistingList").innerHTML = items.map(item => `<div class="link-dialog-existing-row"><span>链接 ${item.id}${item.allow_multi_channel ? ' · 多渠道' : item.product ? ` · ${scanChannelName(item.product)}` : ''} · 有效期至 ${new Date(item.expires_at * 1000).toLocaleString()}</span><span class="inline-actions"><button class="btn secondary" type="button" data-existing-copy="${item.id}">复制</button><a class="btn secondary" href="${item.url || '#'}" target="_blank" rel="noopener">打开</a><button class="btn secondary" type="button" data-existing-revoke="${item.id}">作废</button></span></div>`).join("");
       const account = pendingAccountLinkAccount;
       $("accountLinkExistingList").querySelectorAll("[data-existing-copy]").forEach(button => button.onclick = async () => { const item = items.find(entry => String(entry.id) === button.dataset.existingCopy); if (!item?.url) return; try { await copyText(accountLinkShareText(item.kind || pendingAccountLinkKind, account, item.url)); button.textContent = "已复制"; setTimeout(() => { button.textContent = "复制"; }, 1600); } catch { setActivity("分享内容已选中，请按 Ctrl+C"); } });
       $("accountLinkExistingList").querySelectorAll("[data-existing-revoke]").forEach(button => button.onclick = async () => {
@@ -2353,6 +2361,12 @@
     $("updateAccountLinkBtn").addEventListener("click", () => openAccountLinkDialog("update"));
     $("addAccountLinkBtn").addEventListener("click", () => openAccountLinkDialog("add"));
     $("accountLinkConfigPane").addEventListener("submit", event => { event.preventDefault(); createAccountLink(); });
+    $("accountLinkMulti").addEventListener("change", () => {
+      $("accountLinkProduct").disabled = $("accountLinkMulti").checked;
+      $("accountLinkProductNote").textContent = $("accountLinkMulti").checked
+        ? "多渠道分别保存并归组，保留原账号渠道和 ID。"
+        : "切换前会说明影响，扫码成功后保留原账号 ID。";
+    });
     $("accountLinkProduct").addEventListener("change", async () => {
       const account = pendingAccountLinkAccount;
       if (!account) return;

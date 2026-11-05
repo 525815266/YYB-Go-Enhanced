@@ -783,6 +783,10 @@ func (a *App) handleAccountsRoot(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		accounts, ok := accountListForRequest(w, r, accounts)
+		if !ok {
+			return
+		}
 		out := make([]store.AccountPublic, 0, len(accounts))
 		for _, acc := range accounts {
 			out = append(out, acc.Public())
