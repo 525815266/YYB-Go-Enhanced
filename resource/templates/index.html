@@ -1847,7 +1847,7 @@
         $("accountStrip").innerHTML = `<div class="empty-state">账号加载中</div>`;
       }
       try {
-        state.accounts = await api("GET", "/accounts");
+        state.accounts = await api("GET", "/accounts?include_members=1");
 		state.proxyConfigs.clear();
 		await Promise.all(state.accounts.map(async account => {
 		  try { state.proxyConfigs.set(String(account.id), await api("GET", `/accounts/proxy?ref=${encodeURIComponent(account.id)}`)); } catch { /* Selected account reports details. */ }

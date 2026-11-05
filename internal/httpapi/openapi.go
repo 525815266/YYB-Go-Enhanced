@@ -205,10 +205,10 @@ func newOpenAPISpec() map[string]any {
 				"get": openAPIOperation(
 					[]string{"accounts"},
 					"获取账号列表",
-					nil,
+					[]map[string]any{queryStringParam("include_members", "默认 false，每个多渠道组只返回一个账号：优先存活渠道，同状态优先主账号。true 返回全部渠道供管理使用。", false)},
 					nil,
 					defaulted(map[string]any{
-						"200": jsonResponse("已保存的账号列表。", arraySchema(refSchema("AccountPublic"))),
+						"200": jsonResponse("可见账号列表；按已保存状态选择组内可用授权，全部失效时仍保留一条状态记录。返回真实账号 ID，fleet_primary_id 指向原主账号；读取不发起上游刷新或取码。", arraySchema(refSchema("AccountPublic"))),
 					}),
 				),
 				"delete": openAPIOperation(

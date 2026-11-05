@@ -74,6 +74,10 @@ func (a *App) handleIntegrationAccounts(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	accounts, ok := accountListForRequest(w, r, accounts)
+	if !ok {
+		return
+	}
 	out := make([]map[string]any, 0, len(accounts))
 	for _, account := range accounts {
 		public := account.Public()

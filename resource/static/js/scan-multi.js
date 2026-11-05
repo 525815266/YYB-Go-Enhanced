@@ -333,7 +333,7 @@
   // ----- the page -----
 
   async function loadBase(ref) {
-    const list = await cfg.api('GET', '/accounts');
+    const list = await cfg.api('GET', '/accounts?include_members=1');
     const account = list.find(item => String(item.id) === ref || item.openid === ref);
     if (!account) throw new Error(`没有找到账号 ${ref}`);
     const key = account.fleet_primary_id || account.id;

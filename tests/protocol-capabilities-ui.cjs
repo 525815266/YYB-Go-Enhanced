@@ -13,7 +13,7 @@ const fs=require('node:fs');
     await context.request.post(base+'/login',{data:{username:process.env.YYB_TEST_USER,password:process.env.YYB_TEST_PASS}});
     const json=data=>({status:200,contentType:'application/json',body:JSON.stringify({code:0,msg:'success',data})});
     const accounts=[{id:1,openid:'fake-yyb',nickname:'演示 YYB',status:'alive',scan_product:'appstore'},{id:2,openid:'fake-pcmgr',nickname:'演示 PCMgr',status:'alive',scan_product:'pcmgr'},{id:3,openid:'fake-session-only',nickname:'演示授权受限',status:'session_only',scan_product:'appstore',rescan_recommended:true}];
-    await context.route('**/accounts',route=>route.fulfill(json(accounts)));
+    await context.route('**/accounts?include_members=1',route=>route.fulfill(json(accounts)));
     await context.route('**/accounts/proxy?*',route=>route.fulfill(json({configured:false})));
     await context.route('**/accounts/avatar?*',route=>route.fulfill({status:404,body:''}));
     let refusal='',qrProduct='',lastRequest;
