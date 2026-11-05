@@ -440,8 +440,11 @@ func (a *App) Handler() http.Handler {
 	router.POST("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.Any("/api/auth/profile", gin.WrapF(a.handleProfile))
 	router.Any("/api/scan-settings", gin.WrapF(a.handleScanSettings))
+	router.Any("/api/scan-channels", gin.WrapF(a.handleScanChannels))
 	router.Any("/api/appid-deny", gin.WrapF(a.handleAppIDDeny))
 	router.Any("/api/fleet", gin.WrapF(a.handleFleetAPI))
+	router.Any("/api/fleet/bind-many", gin.WrapF(a.handleFleetBindMany))
+	router.Any("/api/fleet/dissolve", gin.WrapF(a.handleFleetDissolve))
 	router.Any("/api/runtime-settings", gin.WrapF(a.handleRuntimeSettings))
 	router.Any("/api/auth/password", gin.WrapF(a.handlePassword))
 	router.Any("/api/auth/sessions", gin.WrapF(a.handleSessions))
@@ -602,7 +605,8 @@ func (a *App) handleQRRoot(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.qrSessions[img.Session.ID] = &qrLoginSession{
 		Session: img.Session, Client: client, ProxySpec: proxySpec, ProxyIn: normalizedBody,
-		ImageBytes: append([]byte(nil), img.ImageBytes...),
+		ImageBytes:     append([]byte(nil), img.ImageBytes...),
+		DeferPanelSync: r.URL.Query().Get("panel_sync") == "defer",
 	}
 	keep := make(map[string]bool, len(a.qrSessions))
 	for sid := range a.qrSessions {
@@ -755,7 +759,11 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "保存账号代理失败: "+err.Error())
 			return
 		}
-		a.autoSyncAfterScan(acc)
+		if login.DeferPanelSync {
+			a.autoSyncAfterScanLater(acc, deferredPanelSyncDelay)
+		} else {
+			a.autoSyncAfterScan(acc)
+		}
 		dropAfterConfirm = true
 		writeJSON(w, http.StatusOK, acc.Public())
 	default:

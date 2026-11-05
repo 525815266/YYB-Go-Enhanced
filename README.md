@@ -48,7 +48,7 @@
     <td width="50%" valign="top"><b>🖥️ 工作台</b><br>账号搜索、状态筛选、凭据与扫码有效期、失效状态提示，支持桌面和手机</td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><b>🔀 双扫码渠道</b><br>YYB 与 PCMgr 两套渠道，纯 Go 实现，无需安装或常驻原客户端；可设个人默认和系统默认，也可临时切换</td>
+    <td width="50%" valign="top"><b>🔀 多扫码渠道</b><br>YYB、PCMgr、GameAssist 三套渠道，纯 Go 实现，无需安装或常驻原客户端；可设个人默认和系统默认，也可临时切换；同一个微信可一次扫多个渠道并合并成一个多渠道账号，请求在渠道间轮换和故障转移</td>
     <td width="50%" valign="top"><b>🔐 用户系统</b><br>独立登录与注册、管理员与普通用户权限、用户启停、密码重置、会话管理</td>
   </tr>
   <tr>
@@ -303,7 +303,7 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
 | [文档索引](docs/README.md) | 全部文档按用途分组 |
 | [配置与账号安全](docs/configuration.md) | SQLite/MySQL、管理员、用户权限、令牌、实验性本机微信授权 |
 | [Docker / Armbian 部署排错](docs/docker-deployment.md) | 官方镜像、resource 挂载覆盖、网络名、SQLite 权限、源码构建失败 |
-| [控制台与账号管理](docs/console-features.md) | 账号工作台、扫码渠道、合并账号、接口测试、运行日志 |
+| [控制台与账号管理](docs/console-features.md) | 账号工作台、扫码渠道、多渠道账号、合并账号、接口测试、运行日志 |
 | [面板接入与排错](docs/panel-integration.md) | 青龙、呆呆、Arcadia、跨服务器访问、运行管理与日志 |
 | [协议接口说明](docs/protocol-api.md) | `/wx/*`、`/wxapp/*`、OAuth、云函数与真实 payload 边界 |
 | [代理与账号保活](docs/proxy-keepalive.md) | 静态/动态代理、品赞、巨量、刷新策略与失效状态 |
