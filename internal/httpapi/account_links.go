@@ -141,11 +141,12 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Kind          string `json:"kind"`
-		Ref           string `json:"ref"`
-		TTLSeconds    int64  `json:"ttl_seconds"`
-		Product       string `json:"product"`
-		ConfirmSwitch bool   `json:"confirm_switch"`
+		Kind              string `json:"kind"`
+		Ref               string `json:"ref"`
+		TTLSeconds        int64  `json:"ttl_seconds"`
+		Product           string `json:"product"`
+		ConfirmSwitch     bool   `json:"confirm_switch"`
+		AllowMultiChannel bool   `json:"allow_multi_channel"`
 	}
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -180,7 +181,7 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 422, err.Error())
 		return
 	}
-	if body.Kind == accountLinkKindUpdate && product != account.Public().ScanProduct && !body.ConfirmSwitch {
+	if !body.AllowMultiChannel && body.Kind == accountLinkKindUpdate && product != account.Public().ScanProduct && !body.ConfirmSwitch {
 		writeError(w, 422, "请确认切换渠道：将保留账号 ID，并替换 OpenID、凭据和会话")
 		return
 	}
@@ -196,6 +197,14 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 	expectedOpenID := ""
 	if body.Kind == accountLinkKindUpdate {
 		expectedOpenID = account.OpenID
+	}
+	var primaryID *int64
+	if body.AllowMultiChannel && body.Kind == accountLinkKindUpdate {
+		id := account.ID
+		if account.FleetPrimaryID != nil {
+			id = *account.FleetPrimaryID
+		}
+		primaryID = &id
 	}
 	// Serialize the check and INSERT. Without this guard two browser clicks (or
 	// two clients racing) could both observe an empty set and create duplicate
@@ -236,19 +245,20 @@ func (a *App) handleAccountLinksAPI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	link, err := a.db.CreateAccountLinkForProduct(r.Context(), tokenHash, a.encryptAccountLinkToken(rawToken), body.Kind, account.ID, ownerUserID, expectedOpenID, time.Now().Add(time.Duration(body.TTLSeconds)*time.Second).Unix(), product, body.ConfirmSwitch)
+	link, err := a.db.CreateAccountLinkWithChannels(r.Context(), tokenHash, a.encryptAccountLinkToken(rawToken), body.Kind, account.ID, ownerUserID, expectedOpenID, time.Now().Add(time.Duration(body.TTLSeconds)*time.Second).Unix(), product, body.ConfirmSwitch && !body.AllowMultiChannel, body.AllowMultiChannel, primaryID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"kind":           link.Kind,
-		"product":        product,
-		"url":            a.accountLinkURL(r, rawToken),
-		"expires_at":     link.ExpiresAt,
-		"one_time":       true,
-		"existing":       existing,
-		"existing_count": len(existing),
+		"kind":                link.Kind,
+		"product":             product,
+		"url":                 a.accountLinkURL(r, rawToken),
+		"expires_at":          link.ExpiresAt,
+		"one_time":            true,
+		"allow_multi_channel": link.AllowMultiChannel,
+		"existing":            existing,
+		"existing_count":      len(existing),
 	})
 }
 
@@ -303,6 +313,7 @@ func (a *App) decryptAccountLinkToken(value string) (string, error) {
 
 func (a *App) accountLinkManagementJSON(r *http.Request, item store.AccountLinkRecord) map[string]any {
 	entry := map[string]any{"id": item.ID, "kind": item.Kind, "account_id": item.AccountID, "owner_user_id": item.OwnerUserID, "expires_at": item.ExpiresAt, "created_at": item.CreatedAt, "status": item.Status, "used_at": item.UsedAt, "revoked_at": item.RevokedAt, "url": "", "product": item.TargetProduct}
+	entry["allow_multi_channel"] = item.AllowMultiChannel
 	if item.TokenCiphertext != "" {
 		if token, err := a.decryptAccountLinkToken(item.TokenCiphertext); err == nil && validAccountLinkToken(token) {
 			entry["url"] = a.accountLinkURL(r, token)
@@ -446,6 +457,8 @@ func validPublicHost(host string) bool {
 }
 
 func (a *App) handleAccountLinkPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -470,6 +483,8 @@ func (a *App) handleAccountLinkPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	path := strings.TrimPrefix(r.URL.Path, "/account-link/")
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 || parts[0] == "" {
@@ -486,6 +501,10 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 		a.handleAccountLinkQRCreate(w, r, link)
 		return
 	}
+	if parts[1] == "finish" && len(parts) == 2 {
+		a.finishMultiAccountLink(w, r, token)
+		return
+	}
 	if parts[1] == "meta" && len(parts) == 2 && r.Method == http.MethodGet {
 		base, err := a.db.GetAccount(r.Context(), link.AccountID)
 		if err != nil {
@@ -497,7 +516,12 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "读取扫码渠道失败")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"product": product, "source_product": base.Public().ScanProduct, "switch_confirmed": link.SwitchConfirmed, "locked": false, "kind": link.Kind, "target": firstAccountLabel(base.Remark, base.Nickname), "account_id": base.ID, "expires_at": link.ExpiresAt})
+		scans, err := a.db.AccountLinkScans(r.Context(), link.ID)
+		if err != nil {
+			writeError(w, 500, "读取授权进度失败")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"product": product, "source_product": base.Public().ScanProduct, "switch_confirmed": link.SwitchConfirmed, "locked": false, "kind": link.Kind, "target": firstAccountLabel(base.Remark, base.Nickname), "account_id": base.ID, "expires_at": link.ExpiresAt, "allow_multi_channel": link.AllowMultiChannel, "completed_channels": scans})
 		return
 	}
 	if len(parts) != 4 || parts[1] != "qr" {
@@ -532,6 +556,13 @@ func (a *App) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 	case "poll":
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		login.mu.Lock()
+		saved := login.LinkSavedAccount
+		login.mu.Unlock()
+		if saved != nil {
+			writeJSON(w, 200, map[string]any{"status": "authorized"})
 			return
 		}
 		result, err := login.Client.PollQRCode(r.Context(), login.Session)
@@ -577,7 +608,7 @@ func (a *App) handleAccountLinkQRCreate(w http.ResponseWriter, r *http.Request, 
 		writeError(w, 422, err.Error())
 		return
 	}
-	switching := link.Kind == accountLinkKindUpdate && product != base.Public().ScanProduct
+	switching := !link.AllowMultiChannel && link.Kind == accountLinkKindUpdate && product != base.Public().ScanProduct
 	confirmed := body.ConfirmSwitch || (link.SwitchConfirmed && link.TargetProduct == product)
 	if switching && !confirmed {
 		writeError(w, 422, "请先确认切换渠道后再生成二维码")
@@ -656,6 +687,10 @@ func tokenForLinkPath(path string) string {
 }
 
 func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token string, link *store.AccountLink, sessionID string, login *qrLoginSession) {
+	if link.AllowMultiChannel {
+		a.confirmMultiAccountLinkQR(w, r, token, login)
+		return
+	}
 	result, err := a.getLoginBufferWithRetry(r.Context(), login)
 	if err != nil {
 		writeError(w, http.StatusConflict, "buffer not ready: "+err.Error())

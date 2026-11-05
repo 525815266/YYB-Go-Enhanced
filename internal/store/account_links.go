@@ -7,19 +7,21 @@ import (
 )
 
 type AccountLink struct {
-	ID              int64
-	TokenHash       string
-	Kind            string
-	AccountID       int64
-	OwnerUserID     *int64
-	ExpectedOpenID  string
-	TokenCiphertext string
-	TargetProduct   string
-	SwitchConfirmed bool
-	ExpiresAt       int64
-	UsedAt          *int64
-	RevokedAt       *int64
-	CreatedAt       int64
+	ID                int64
+	TokenHash         string
+	Kind              string
+	AccountID         int64
+	OwnerUserID       *int64
+	ExpectedOpenID    string
+	TokenCiphertext   string
+	TargetProduct     string
+	SwitchConfirmed   bool
+	AllowMultiChannel bool
+	MultiPrimaryID    *int64
+	ExpiresAt         int64
+	UsedAt            *int64
+	RevokedAt         *int64
+	CreatedAt         int64
 }
 
 type AccountLinkRecord struct {
@@ -51,10 +53,14 @@ func (db *DB) CreateAccountLinkWithCiphertext(ctx context.Context, tokenHash, to
 }
 
 func (db *DB) CreateAccountLinkForProduct(ctx context.Context, tokenHash, tokenCiphertext, kind string, accountID int64, ownerUserID *int64, expectedOpenID string, expiresAt int64, product string, switchConfirmed bool) (*AccountLink, error) {
+	return db.CreateAccountLinkWithChannels(ctx, tokenHash, tokenCiphertext, kind, accountID, ownerUserID, expectedOpenID, expiresAt, product, switchConfirmed, false, nil)
+}
+
+func (db *DB) CreateAccountLinkWithChannels(ctx context.Context, tokenHash, tokenCiphertext, kind string, accountID int64, ownerUserID *int64, expectedOpenID string, expiresAt int64, product string, switchConfirmed, multi bool, primaryID *int64) (*AccountLink, error) {
 	now := time.Now().Unix()
 	result, err := db.sql.ExecContext(ctx, `INSERT INTO account_links
-		(token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, created_at, target_product, switch_confirmed)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash, tokenCiphertext, kind, accountID, nullableInt64Ptr(ownerUserID), expectedOpenID, expiresAt, now, product, switchConfirmed)
+		(token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, created_at, target_product, switch_confirmed, allow_multi_channel, multi_primary_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash, tokenCiphertext, kind, accountID, nullableInt64Ptr(ownerUserID), expectedOpenID, expiresAt, now, product, switchConfirmed, multi, nullableInt64Ptr(primaryID))
 	if err != nil {
 		return nil, err
 	}
@@ -67,17 +73,18 @@ func (db *DB) CreateAccountLinkForProduct(ctx context.Context, tokenHash, tokenC
 
 func (db *DB) GetAccountLink(ctx context.Context, id int64) (*AccountLink, error) {
 	link := &AccountLink{}
-	var owner, used, revoked sql.NullInt64
+	var owner, used, revoked, primary sql.NullInt64
 	err := db.sql.QueryRowContext(ctx, `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id,
-		expected_openid, expires_at, used_at, revoked_at, created_at, target_product, switch_confirmed FROM account_links WHERE id=?`, id).Scan(
+		expected_openid, expires_at, used_at, revoked_at, created_at, target_product, switch_confirmed, allow_multi_channel, multi_primary_id FROM account_links WHERE id=?`, id).Scan(
 		&link.ID, &link.TokenHash, &link.TokenCiphertext, &link.Kind, &link.AccountID, &owner,
-		&link.ExpectedOpenID, &link.ExpiresAt, &used, &revoked, &link.CreatedAt, &link.TargetProduct, &link.SwitchConfirmed)
+		&link.ExpectedOpenID, &link.ExpiresAt, &used, &revoked, &link.CreatedAt, &link.TargetProduct, &link.SwitchConfirmed, &link.AllowMultiChannel, &primary)
 	if err != nil {
 		return nil, err
 	}
 	link.OwnerUserID = nullableInt64(owner)
 	link.UsedAt = nullableInt64(used)
 	link.RevokedAt = nullableInt64(revoked)
+	link.MultiPrimaryID = nullableInt64(primary)
 	return link, nil
 }
 
@@ -139,7 +146,7 @@ func (db *DB) reclaimAccountLinkSequence(ctx context.Context) error {
 }
 
 func (db *DB) ListAccountLinks(ctx context.Context, ownerUserID *int64) ([]AccountLinkRecord, error) {
-	query := `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, used_at, revoked_at, created_at, target_product, switch_confirmed FROM account_links`
+	query := `SELECT id, token_hash, token_ciphertext, kind, account_id, owner_user_id, expected_openid, expires_at, used_at, revoked_at, created_at, target_product, switch_confirmed, allow_multi_channel, multi_primary_id FROM account_links`
 	args := []any{}
 	if ownerUserID != nil {
 		query += " WHERE owner_user_id=?"
@@ -155,11 +162,12 @@ func (db *DB) ListAccountLinks(ctx context.Context, ownerUserID *int64) ([]Accou
 	now := time.Now().Unix()
 	for rows.Next() {
 		var item AccountLinkRecord
-		var owner, used, revoked sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.TokenHash, &item.TokenCiphertext, &item.Kind, &item.AccountID, &owner, &item.ExpectedOpenID, &item.ExpiresAt, &used, &revoked, &item.CreatedAt, &item.TargetProduct, &item.SwitchConfirmed); err != nil {
+		var owner, used, revoked, primary sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.TokenHash, &item.TokenCiphertext, &item.Kind, &item.AccountID, &owner, &item.ExpectedOpenID, &item.ExpiresAt, &used, &revoked, &item.CreatedAt, &item.TargetProduct, &item.SwitchConfirmed, &item.AllowMultiChannel, &primary); err != nil {
 			return nil, err
 		}
 		item.OwnerUserID, item.UsedAt, item.RevokedAt = nullableInt64(owner), nullableInt64(used), nullableInt64(revoked)
+		item.MultiPrimaryID = nullableInt64(primary)
 		switch {
 		case item.RevokedAt != nil:
 			item.Status = "revoked"
