@@ -201,7 +201,7 @@ func TestAppIDDenyEndpointListsAndClears(t *testing.T) {
 	}
 	var listed struct {
 		Data struct {
-			Denied map[string]string `json:"denied"`
+			Denied map[string]string `json:"learned"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(out.Body.Bytes(), &listed); err != nil {

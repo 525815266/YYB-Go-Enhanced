@@ -288,7 +288,7 @@ func NewApp(cfg Config) (*App, error) {
 		qinglong:           newQingLongClient(cfg.QingLongType, cfg.QingLongURL, cfg.QingLongClientID, cfg.QingLongSecret, cfg.RequestTimeout),
 		notifier:           newOfflineNotifier(offlineNotifyTimeout),
 		circuit:            newCircuitBreaker(circuitConfigFor(cfg.DisableCircuitBreaker)),
-		appIDs:             newAppIDPolicy(cfg.CodeDenyAppIDs, cfg.CodeAllowAppIDs),
+		appIDs:             newAppIDPolicy(cfg.CodeDenyAppIDs, cfg.CodeAllowAppIDs, db),
 		dynamicAppIDs:      newDynamicAppIDDeny(db, cfg.CodeDynamicDenyThreshold, cfg.CodeAllowAppIDs, cfg.DisableDynamicAppIDDeny),
 		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), trafficSettings),
 		qrSessions:         map[string]*qrLoginSession{},

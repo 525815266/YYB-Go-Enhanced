@@ -26,6 +26,14 @@
         <div class="notice" id="runtimeNotice" hidden></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit" id="saveRuntime">保存运行参数</button><button class="btn" type="button" id="resetRuntime">恢复 env 默认</button></div>
       </form></section>
+      <section class="card" id="appidPolicyCard" hidden><h2>取码黑白名单</h2><p class="description">拒绝的 AppID 不发往上游；白名单优先级最高。内置项与 env 配置只读，面板名单保存到数据库。</p>
+        <div class="field"><label>添加黑名单</label><div style="display:flex;gap:8px"><input class="input" id="denyAdd" placeholder="wx 开头的 AppID"><button class="btn" type="button" id="denyAddBtn">拉黑</button></div></div>
+        <div class="field"><label>添加白名单（解除拦截）</label><div style="display:flex;gap:8px"><input class="input" id="allowAdd" placeholder="wx 开头的 AppID"><button class="btn" type="button" id="allowAddBtn">放行</button></div></div>
+        <div class="field"><label>黑名单（内置 / env / 面板）</label><div id="denyLists" style="font-size:12.5px;line-height:1.8;overflow-wrap:anywhere"></div></div>
+        <div class="field"><label>白名单</label><div id="allowList" style="font-size:12.5px;line-height:1.8;overflow-wrap:anywhere"></div></div>
+        <div class="field"><label>动态学习名单（<span id="learnedCount">0</span> 个）<button class="btn secondary" type="button" id="clearLearned" style="margin-left:8px">清空</button></label><div id="learnedList" style="font-size:12px;line-height:1.7;max-height:180px;overflow:auto;overflow-wrap:anywhere;color:var(--muted,#68707d)"></div></div>
+        <div class="notice" id="policyNotice" hidden></div>
+      </section>
       <section class="card"><h2>基本信息</h2><p class="description">用户名用于登录，不支持自行修改。</p><form id="profileForm"><div class="field"><label for="username">用户名</label><input class="input" id="username" disabled></div><div class="field"><label for="displayName">显示名</label><input class="input" id="displayName" maxlength="100" required></div><div class="notice" id="profileNotice" hidden></div><button class="btn primary" type="submit">保存信息</button></form></section>
       <section class="card"><h2>修改密码</h2><p class="description">修改后会自动注销其他设备上的会话。</p><form id="passwordForm"><div class="field"><label for="currentPassword">当前密码</label><input class="input" id="currentPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="newPassword">新密码</label><input class="input" id="newPassword" type="password" autocomplete="new-password" minlength="10" required></div><div class="notice" id="passwordNotice" hidden></div><button class="btn primary" type="submit">更新密码</button></form></section>
       <section class="card" style="grid-column:1/-1"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><h2>登录会话</h2><p class="description">查看仍有效的设备，或注销除当前设备以外的会话。</p></div><button class="btn danger" id="clearSessions" type="button">注销其他会话</button></div><div class="session-list" id="sessions"></div></section>
@@ -51,6 +59,22 @@
     $('runtimeForm').onsubmit = async event => { event.preventDefault(); $('saveRuntime').disabled = true; try { await api('/api/runtime-settings', { method: 'PUT', body: JSON.stringify({ code_min_gap_ms: Number($('rtMinGap').value)*1000, code_max_wait_ms: Number($('rtMaxWait').value)*1000, login_budget: Number($('rtBudget').value), login_window_ms: Math.max(1, Number($('rtWindow').value))*60000, fresh_session_window_ms: Number($('rtFresh').value)*60000, dynamic_deny_threshold: Number($('rtDenyThreshold').value), dynamic_deny_enabled: $('rtDenyEnabled').checked }) }); await loadRuntime(); notice('runtimeNotice', '运行参数已保存，1 秒内生效'); } catch (error) { notice('runtimeNotice', error.message, false); } finally { $('saveRuntime').disabled = false; } };
     $('resetRuntime').onclick = async () => { try { await api('/api/runtime-settings', { method: 'PUT', body: JSON.stringify({ reset: true }) }); await loadRuntime(); notice('runtimeNotice', '已恢复 env 默认取码参数'); } catch (error) { notice('runtimeNotice', error.message, false); } };
     loadRuntime().catch(() => { $('runtimeCard').hidden = true; });
+    let policyData = null;
+    async function loadPolicy(){ try { policyData = await api('/api/appid-deny'); } catch (e) { $('appidPolicyCard').hidden = true; return; } $('appidPolicyCard').hidden = false; renderPolicy(); }
+    function chips(map, removable, action) { return Object.entries(map || {}).map(([id, why]) => `<span class="channel-chip" style="height:auto;padding:2px 8px;cursor:${removable?'pointer':'default'}" ${removable?`data-action="${action}" data-appid="${escapeHTML(id)}"`:''} title="${escapeHTML(String(why))}">${escapeHTML(id)}</span>`).join(' ') || '<span style="color:var(--muted,#68707d)">（空）</span>'; }
+    function renderPolicy() {
+      if (!policyData) return;
+      $('denyLists').innerHTML = '<b>内置：</b>' + chips(policyData.builtin, false) + '<br><b>env：</b>' + chips(policyData.env_denied, false) + '<br><b>面板：</b>' + chips(policyData.persisted_deny, true, 'remove_deny');
+      $('allowList').innerHTML = (policyData.allow || []).map(id => `<span class="channel-chip" style="height:auto;padding:2px 8px;cursor:pointer" data-action="remove_allow" data-appid="${escapeHTML(id)}" title="点击移除">${escapeHTML(id)}</span>`).join(' ') || '<span style="color:var(--muted,#68707d)">（空）</span>';
+      $('learnedCount').textContent = policyData.learned_count;
+      $('learnedList').innerHTML = Object.entries(policyData.learned || {}).map(([id, why]) => `<div>${escapeHTML(id)} · ${escapeHTML(String(why))}</div>`).join('') || '（空）';
+    }
+    async function policyAction(action, appid) { try { await api('/api/appid-deny', { method: 'POST', body: new URLSearchParams({ action, app_id: appid }).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); policyData = await api('/api/appid-deny'); renderPolicy(); notice('policyNotice', '已' + (action.startsWith('add') ? '加入' : '移除') + '：' + appid); } catch (error) { notice('policyNotice', error.message, false); } }
+    $('denyAddBtn').onclick = async () => { const v = $('denyAdd').value.trim(); if (v) { await policyAction('add_deny', v); $('denyAdd').value = ''; } };
+    $('allowAddBtn').onclick = async () => { const v = $('allowAdd').value.trim(); if (v) { await policyAction('add_allow', v); $('allowAdd').value = ''; } };
+    $('clearLearned').onclick = async () => { try { await api('/api/appid-deny', { method: 'POST', body: new URLSearchParams({ action: 'clear_learned' }).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); policyData = await api('/api/appid-deny'); renderPolicy(); notice('policyNotice', '动态学习名单已清空'); } catch (error) { notice('policyNotice', error.message, false); } };
+    $('appidPolicyCard').addEventListener('click', event => { const chip = event.target.closest('[data-action]'); if (chip) policyAction(chip.dataset.action, chip.dataset.appid); });
+    loadPolicy().catch(() => {});
     load().catch(() => { location.href = "/login"; });
   </script>
   <script src="/static/js/platform.js?v=20261103-skin"></script>

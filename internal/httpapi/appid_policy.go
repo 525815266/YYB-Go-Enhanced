@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"yyb_go/internal/eventlog"
 	"yyb_go/internal/store"
 )
 
@@ -33,16 +34,25 @@ var builtinDeniedAppIDs = map[string]string{
 
 // appIDPolicy decides which AppIDs a code request may carry before anything is
 // sent upstream. It is traffic policy only: a refusal never changes account
-// status, clears credentials or touches the database.
+// status, clears credentials or touches the database. The deny/allow lists the
+// operator manages in the panel are persisted in the settings store and
+// override the env-configured lists (an allowance always wins).
 type appIDPolicy struct {
+	mu     sync.Mutex
 	denied map[string]string // lower-case AppID to the reason shown to the caller
+	db     *store.DB
 }
 
+const (
+	appIDPolicyDenySettingKey  = "code_appid_policy_deny"
+	appIDPolicyAllowSettingKey = "code_appid_policy_allow"
+)
+
 // newAppIDPolicy starts from the built-in list, adds the denials the operator
-// configured and then removes everything the operator allows, so an allowance
-// always wins.
-func newAppIDPolicy(deny, allow []string) *appIDPolicy {
-	p := &appIDPolicy{denied: map[string]string{}}
+// configured (env + panel-persisted) and then removes everything the operator
+// allows, so an allowance always wins.
+func newAppIDPolicy(deny, allow []string, db *store.DB) *appIDPolicy {
+	p := &appIDPolicy{denied: map[string]string{}, db: db}
 	for id, label := range builtinDeniedAppIDs {
 		p.denied[id] = fmt.Sprintf("是网站应用而不是小程序（%s），用它取码会让账号授权失效；确需使用请在服务端设置 YYB_CODE_ALLOW_APPIDS", label)
 	}
@@ -53,10 +63,174 @@ func newAppIDPolicy(deny, allow []string) *appIDPolicy {
 			}
 		}
 	}
+	for _, id := range p.loadPersisted(appIDPolicyDenySettingKey) {
+		if id = normalizeAppID(id); id != "" {
+			if _, builtin := p.denied[id]; !builtin {
+				p.denied[id] = "已在面板取码黑名单中禁用"
+			}
+		}
+	}
 	for _, id := range allow {
 		delete(p.denied, normalizeAppID(id))
 	}
+	for _, id := range p.loadPersisted(appIDPolicyAllowSettingKey) {
+		delete(p.denied, normalizeAppID(id))
+	}
 	return p
+}
+
+func (p *appIDPolicy) loadPersisted(key string) []string {
+	if p.db == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	raw, err := p.db.GetSetting(ctx, key)
+	if err != nil || raw == "" {
+		return nil
+	}
+	var list []string
+	if json.Unmarshal([]byte(raw), &list) != nil {
+		return nil
+	}
+	return list
+}
+
+func (p *appIDPolicy) persistList(key string, list []string) error {
+	if p.db == nil {
+		return errors.New("policy store unavailable")
+	}
+	raw := "[]"
+	if len(list) > 0 {
+		encoded, err := json.Marshal(list)
+		if err != nil {
+			return err
+		}
+		raw = string(encoded)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return p.db.SetSetting(ctx, key, raw)
+}
+
+func (p *appIDPolicy) removePersisted(key, appID string) error {
+	list := p.loadPersisted(key)
+	kept := make([]string, 0, len(list))
+	for _, existing := range list {
+		if normalizeAppID(existing) != normalizeAppID(appID) {
+			kept = append(kept, existing)
+		}
+	}
+	if len(kept) == len(list) {
+		return nil
+	}
+	return p.persistList(key, kept)
+}
+
+// AddDeny persists an operator-managed deny entry. Builtin entries cannot be
+// re-denied (already refused); an existing allow entry is lifted.
+func (p *appIDPolicy) AddDeny(appID, reason string) error {
+	id := normalizeAppID(appID)
+	if id == "" {
+		return errors.New("appid 为空")
+	}
+	if _, builtin := builtinDeniedAppIDs[id]; builtin {
+		return errors.New("该 AppID 是内置拦截项，无需重复添加")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if reason == "" {
+		reason = "管理员在面板黑名单中禁用"
+	}
+	p.denied[id] = reason
+	list := p.loadPersisted(appIDPolicyDenySettingKey)
+	for _, existing := range list {
+		if normalizeAppID(existing) == id {
+			return nil
+		}
+	}
+	list = append(list, id)
+	if err := p.persistList(appIDPolicyDenySettingKey, list); err != nil {
+		return err
+	}
+	return p.removePersisted(appIDPolicyAllowSettingKey, id)
+}
+
+// RemoveDeny lifts an operator-managed deny entry (builtin and env entries
+// cannot be lifted from here).
+func (p *appIDPolicy) RemoveDeny(appID string) error {
+	id := normalizeAppID(appID)
+	if _, builtin := builtinDeniedAppIDs[id]; builtin {
+		return errors.New("内置拦截项不可移除")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	reason, denied := p.denied[id]
+	if !denied || strings.Contains(reason, "YYB_CODE_DENY_APPIDS") {
+		return errors.New("该 AppID 不在面板黑名单中")
+	}
+	delete(p.denied, id)
+	list := p.loadPersisted(appIDPolicyDenySettingKey)
+	kept := make([]string, 0, len(list))
+	for _, existing := range list {
+		if normalizeAppID(existing) != id {
+			kept = append(kept, existing)
+		}
+	}
+	return p.persistList(appIDPolicyDenySettingKey, kept)
+}
+
+// AddAllow whitelists an AppID, lifting any refusal for it.
+func (p *appIDPolicy) AddAllow(appID string) error {
+	id := normalizeAppID(appID)
+	if id == "" {
+		return errors.New("appid 为空")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.denied, id)
+	list := p.loadPersisted(appIDPolicyAllowSettingKey)
+	for _, existing := range list {
+		if normalizeAppID(existing) == id {
+			return nil
+		}
+	}
+	list = append(list, id)
+	if err := p.persistList(appIDPolicyAllowSettingKey, list); err != nil {
+		return err
+	}
+	return p.removePersisted(appIDPolicyDenySettingKey, id)
+}
+
+// RemoveAllow drops a whitelisted AppID so the builtin/env/deny lists apply again.
+func (p *appIDPolicy) RemoveAllow(appID string) error {
+	id := normalizeAppID(appID)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	list := p.loadPersisted(appIDPolicyAllowSettingKey)
+	kept := make([]string, 0, len(list))
+	for _, existing := range list {
+		if normalizeAppID(existing) != id {
+			kept = append(kept, existing)
+		}
+	}
+	if err := p.persistList(appIDPolicyAllowSettingKey, kept); err != nil {
+		return err
+	}
+	if _, builtin := builtinDeniedAppIDs[id]; builtin {
+		p.denied[id] = fmt.Sprintf("是网站应用而不是小程序（%s），用它取码会让账号授权失效", builtinDeniedAppIDs[id])
+	}
+	return nil
+}
+
+// persistedDenyList returns a copy of the operator-managed deny entries.
+func (p *appIDPolicy) persistedDenyList() []string {
+	return p.loadPersisted(appIDPolicyDenySettingKey)
+}
+
+// persistedAllowList returns a copy of the operator-managed allow entries.
+func (p *appIDPolicy) persistedAllowList() []string {
+	return p.loadPersisted(appIDPolicyAllowSettingKey)
 }
 
 func normalizeAppID(appID string) string {
@@ -335,24 +509,116 @@ func (d *dynamicAppIDDeny) persistLocked() bool {
 // every AppID learned at run time, POST clears one (?app_id=wx…) or all of
 // them. The built-in list and the configured env lists are not editable here.
 func (a *App) handleAppIDDeny(w http.ResponseWriter, r *http.Request) {
+	if a.auth != nil {
+		if !requireAdmin(w, r) {
+			return
+		}
+	}
 	switch r.Method {
-	case http.MethodGet, http.MethodPost:
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, a.appIDPolicyView())
+		return
+	case http.MethodPost:
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid form: "+err.Error())
-			return
-		}
-		list, err := a.dynamicAppIDs.clear(strings.TrimSpace(r.FormValue("app_id")))
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid form: "+err.Error())
+		return
+	}
+	appID := strings.TrimSpace(r.FormValue("app_id"))
+	action := strings.TrimSpace(r.FormValue("action"))
+	if appID == "" {
+		appID = strings.TrimSpace(r.FormValue("appid"))
+	}
+	var message string
+	switch action {
+	case "", "clear_learned":
+		list, err := a.dynamicAppIDs.clear(appID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "persist deny list: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "denied": list})
+		message = "已清除动态学习名单"
+		_ = list
+	case "add_deny":
+		if err := a.appIDs.AddDeny(appID, strings.TrimSpace(r.FormValue("reason"))); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		message = "已加入黑名单：" + appID
+	case "remove_deny":
+		if err := a.appIDs.RemoveDeny(appID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		message = "已从黑名单移除：" + appID
+	case "add_allow":
+		if err := a.appIDs.AddAllow(appID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		message = "已加入白名单：" + appID
+	case "remove_allow":
+		if err := a.appIDs.RemoveAllow(appID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		message = "已从白名单移除：" + appID
+	default:
+		writeError(w, http.StatusBadRequest, "未知 action: "+action)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"denied": a.dynamicAppIDs.list()})
+	a.events.Emit("management.completed", eventlog.Fields{Route: "/api/appid-deny", Method: http.MethodPost, AppID: appID})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": message, "policy": a.appIDPolicyView()})
+}
+
+// appIDPolicyView is the full visibility the panel needs: every AppID the
+// policy refuses, with the list that refused it, plus the operator-managed
+// allow entries and the learned dynamic list.
+func (a *App) appIDPolicyView() map[string]any {
+	builtin := map[string]string{}
+	for id, label := range builtinDeniedAppIDs {
+		builtin[id] = label
+	}
+	envDenied := map[string]string{}
+	for _, id := range a.cfg.CodeDenyAppIDs {
+		if id = normalizeAppID(id); id != "" {
+			if _, isBuiltin := builtin[id]; !isBuiltin {
+				envDenied[id] = "YYB_CODE_DENY_APPIDS"
+			}
+		}
+	}
+	persistedDeny := map[string]string{}
+	for _, id := range a.appIDs.persistedDenyList() {
+		if id = normalizeAppID(id); id != "" {
+			if _, taken := builtin[id]; !taken {
+				if _, taken = envDenied[id]; !taken {
+					persistedDeny[id] = "面板黑名单"
+				}
+			}
+		}
+	}
+	allow := []string{}
+	for _, id := range a.cfg.CodeAllowAppIDs {
+		if id = normalizeAppID(id); id != "" {
+			allow = append(allow, id)
+		}
+	}
+	for _, id := range a.appIDs.persistedAllowList() {
+		if id = normalizeAppID(id); id != "" {
+			allow = append(allow, id)
+		}
+	}
+	learned := a.dynamicAppIDs.list()
+	return map[string]any{
+		"builtin":         builtin,
+		"env_denied":      envDenied,
+		"persisted_deny":  persistedDeny,
+		"allow":           allow,
+		"learned":         learned,
+		"learned_count":   len(learned),
+		"denied_total":    len(builtin) + len(envDenied) + len(persistedDeny),
+	}
 }

@@ -10,6 +10,16 @@
 - **修复两处编队 ID 维护错误：** ① “压缩账号 ID”只改账号自己的 ID，编队指针没有跟着改，压缩后成员会指向别的账号；② 删除编队的主账号或成员后，剩下的成员仍指向已经不存在、或之后被复用的 ID。现在压缩同步改指针；删除主账号时剩余成员交给 ID 最小的成员，只剩一个账号的编队自动解散。
 - 验证：新增 Go 测试覆盖批量合并与拆分、归属检查、unionid 不一致与缺失、压缩和删除时的编队指针、面板只列主账号（含延后同步）、渠道清单与前端内置副本一致；新增浏览器测试 `tests/multi-channel-ui.cjs`（扫码页、卡片、合并与拆分、补扫、新增渠道、手机宽度），用虚构的二维码和账号，不触达上游。**还没做的：** 用真实微信把三个渠道完整扫一遍（二维码和确认由手机完成）；上线后请在实验实例上先扫一次。详见[多渠道账号](docs/console-features.md#多渠道账号一个微信多个渠道)。
 
+## v0.2.83 - 2026-11-07
+
+- **取码黑白名单进面板（管理员）：** 此前内置拦截项、env 的 YYB_CODE_DENY/ALLOW_APPIDS、动态学习名单都只能在服务端配置或 curl 查看。现在「个人设置 → 取码黑白名单」卡片全量可见（内置 / env / 面板黑名单、白名单、动态学习名单分来源展示），面板黑名单与白名单可增删（持久化到数据库，重启不丢；白名单优先级最高，可解除内置/env 拦截）。`/api/appid-deny` 升级为完整策略视图 + `action=add_deny|remove_deny|add_allow|remove_allow|clear_learned`（管理员），响应从 `{denied}` 改为 `{builtin,env_denied,persisted_deny,allow,learned,...}`（脚本若解析旧字段需适配）。env 名单保持只读展示——要迁移到面板名单需在面板重新添加。
+
+## v0.2.82 - 2026-11-06
+
+- **Refresh PSK 持久化与实验室恢复探测（雷电/通用保活研究，protocolaudit）：** 手动授权握手除 access PSK（type 1）外还签发 refresh PSK（type 2），原生客户端持久化并在 access 被拒时用恢复握手，Go 历史上只在会话 blob 里存 access、refresh 直接丢弃——这正是 PR #144 雷电实验定位的传输恢复缺口。现在 WmpfSession 携带 RefreshPSK（blob 新增 refresh_psk_entry/has_refresh_psk，旧会话无此字段自动视为缺席），protocol-lab 新增 `--refresh-psk`：用 refresh PSK 走一次 0-RTT 业务探测，直接回答"网关是否接受 refresh 恢复、业务是否还能出码"。生产零行为变更（生产调度仍只用 access PSK）。
+- **ManualAuth 字段 6 实验开关：** PR #144 确认官方 ThirdApp 序列化器显式写空 bytes 字段 6 而 Go 省略。`buildManualAuthRequest` 支持 field6 变体（protocol-lab `--manualauth-field6`，仅对新鲜票据运行生效），生产布局不变。
+- **渠道 2 链路定论（docs/channel-pipeline-20261105.md）：** flue.dll 的 session_id 全是渲染会话；RadiumWMPF 的 ilink2.dll 含 `ilinkapp_getloginqrcode/checkloginqrcode/getoauthcode`——运行时自身的微信登录走 ilink 层、session_id 是 ilink 登录产物。渠道 2 是两层扫码叠加（运行时 ilink 登录 + 每应用 wxaruntime 授权），Go 复刻先从 ilink getloginqrcode/checkloginqrcode 两路由开始。
+
 ## v0.2.82 - 2026-11-06
 
 - **Refresh PSK 持久化与实验室恢复探测（雷电/通用保活研究，protocolaudit）：** 手动授权握手除 access PSK（type 1）外还签发 refresh PSK（type 2），原生客户端持久化并在 access 被拒时用恢复握手，Go 历史上只在会话 blob 里存 access、refresh 直接丢弃——这正是 PR #144 雷电实验定位的传输恢复缺口。现在 WmpfSession 携带 RefreshPSK（blob 新增 refresh_psk_entry/has_refresh_psk，旧会话无此字段自动视为缺席），protocol-lab 新增 `--refresh-psk`：用 refresh PSK 走一次 0-RTT 业务探测，直接回答"网关是否接受 refresh 恢复、业务是否还能出码"。生产零行为变更（生产调度仍只用 access PSK）。

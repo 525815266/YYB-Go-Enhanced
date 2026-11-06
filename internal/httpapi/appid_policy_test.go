@@ -36,7 +36,7 @@ func TestAppIDPolicyDecisions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := newAppIDPolicy(tc.deny, tc.allow).check(tc.appID)
+			got := newAppIDPolicy(tc.deny, tc.allow, nil).check(tc.appID)
 			if (got != nil) != tc.denied {
 				t.Fatalf("check(%q) denied=%v, want %v", tc.appID, got != nil, tc.denied)
 			}
