@@ -58,6 +58,14 @@ adiumwmpf\`）：
 
 wx7c011f53c0737655 本身查无公开出处（GitHub 仅命中本项目，两个官方 WMPF 包的二进制里也没有）——它是该容器运行时的私有 host 身份。
 
+### 2026-11-07 补充：游戏中心取码链路定论（pcyyb_sdk_dll 全量分析）
+
+pcyyb_sdk_dll.dll（Androws 2.1000.150.0，游戏中心内置的应用宝引擎）的 yybadaccess 接口**全是商店运营类**（app detail/client update/device check/report/cookiemapping/伪协议 token，businessid 候选 pc_yyb/pc_yyb_client/pc_yyb_partner，渠道值 pc_wechat_game_center）——**没有 login_buffer、没有 launch_param 加密接口**；6 个二进制里 wx7c011f53c0737655 与 wxd44977328b36e647 均 0 命中（host appid 由调用方传入）。
+
+真实取码链路（官方头文件 + ilink2.dll 实证）：宿主注入 `ilink_buffer_base64`（flue.dll JSAPI `WmpfSdkThirdAppLogin`，GlobalStorage 无保存时提示 require manual login）→ ilink2.dll `TdiThirdAppLoginAsync`（protobuf `ilink.pb_export.IlinkLoginRequest`，凭证校验类 `ThirdAppAuthCodeVerifyBuffer`）→ **mars 长连接 + MMTLS 至 sgilinklong.wechat.com / sgilinkshort.wechat.com**（微信自有域名族，非 longcloud.weixin.com）→ `IlinkLoginResponse`（ilink_uin/userinfo_pb）→ `SendWxaTransferRequest` 出码。AutoLogin 的 business buffer 官方注释留空即可。
+
+**Go 实现评估**：可复用现有 mmtls/ilink 代码（同一协议族），但端点族、登录命令与 buffer 签发方都不同——buffer 的原始签发方（微信主客户端哪个 CGI）不在游戏中心包内，需对微信主客户端取证。工作量等同重做一个渠道级协议栈，列为独立大项。
+
 ## 雷电模拟器（wx56135c126042c9e7）——PR #144，首次登录已通，保活差三步对照
 
 状态见 PR #144（保持草稿，按作者计划继续实验）：雷电 14 → 游戏中心 → 微信小游戏换票（`game-service.ldmnq.com/mini-game/wechat/login` 返回 base64 login_buffer）→ Go ManualAuth + wx.login 已出真码；AutoAuth 被拒（-13）。补完方向（优先级序）：①Refresh PSK 恢复（传输层，目前最明确线索）②ManualAuth 空 bytes 字段 6 对照 ③官方正常关闭对照 ④持续 runtime 生命周期。渠道化前提：换票接口无 refresh/无 unionid，身份绑定需要设计决策。
