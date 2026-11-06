@@ -30,6 +30,10 @@ wmpf/wmpf_demo_external 仓库仍存在（MIT）但只是 Android 硬件框架 d
 - **缺口 = session_id 的创建调用**（host 先与 wxaruntime 服务建立会话）。**2026-11-06 深挖定论**：flue.dll 里的 session_id 全是渲染会话（AskAI/资源表/web contents），不是 wxaruntime 的；RadiumWMPF 包里的 ilink2.dll 含 `ilinkapp_getloginqrcode`/`ilinkapp_checkloginqrcode`/`ilinkapp_getoauthcode` 路由——**运行时自身的微信登录走 ilink 层**（getloginqrcode 出码→checkloginqrcode 轮询→登录签发 session_id），session_id 是 ilink 登录后的产物。因此渠道 2 = **两层扫码叠加**（运行时 ilink 登录 + 每应用 wxaruntime 授权），比 gameassist 深一档；Go 实现需先复刻 ilink getloginqrcode/checkloginqrcode 两路由（同栈可复用现有 mmtls/ilink 代码），再叠 wxaruntime。下一步给 WeChatAppEx/WxgameDaemon 开 netlog（flue.dll 自带 `enable_netlog_once`）抓真实参数。
 - 与雷电实验的联动：PR #144 发现官方 WMPF SDK 的 ManualAuth **显式写空 bytes 字段 6** 而 Go 省略——同一 WMPF 家族，字段 6 对照实验可直接复用到本渠道。
 
+## 2026-11-07 实测：sdk/qrconnect 的 scope 门禁已收紧
+
+用 ZHwin/yyb（2026-09-14）的流程实测：getqrcodesignature 正常出签名（ErrCode=0），但  对**所有 scope 变体**（snsapi_userinfo,snsapi_runtime_apk 原样/URL 编码、单独 runtime_apk、snsapi_base、snsapi_login、snsapi_runtime_pcsdk、空 scope）一律返回 `-2 invalid scope or bad scope`；把 scope 带进 getqrcodesignature 再签名同样被拒。结论：**腾讯服务端收紧了 sdk/qrconnect 的 scope 白名单**（与 #116 "tx 打击" 时间线吻合），2026-09 的公开流程已失效。渠道 2 的 QR 入口需要新一轮真实客户端抓包（看现行客户端改用什么 scope/端点），或走 ilink 层 getloginqrcode 路线。此前映射的 transfer/login 端点族（wxaruntime/transfer、wxaruntime/login、CmdID 4963 信封）不受此影响——一旦拿到 session_id 依然可用。
+
 ## 渠道 5（微信小游戏 PC 客户端 1.0.0.44，wx7c011f53c0737655）——同栈，最有希望，官方接口已拿到
 
 scan-channel-research-20261105.md 已确认其 EXE 含 ilink2.dll（`ilinkapp_manualauth`/`ilinkapp_autoauth`/`ilinkapp_getoauthcode`/`ilinkapp_getloginqrcode` 等 7 条路由）——与应用宝/手游助手**同一 ilink 栈**。
