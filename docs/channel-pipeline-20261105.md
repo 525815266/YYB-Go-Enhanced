@@ -27,7 +27,7 @@ wmpf/wmpf_demo_external 仓库仍存在（MIT）但只是 Android 硬件框架 d
   - `https://long.open.weixin.qq.com/wxaruntime/qrconnect`（长轮询）
   实测探测（2026-11-05）：`Getuuid` 必带 `session_id` 参数——缺参 `-3 invalid session_id`，带假值 `-4 session_id not exist`；`appid/pageid/scope/state` 均为已知参数名。
 - 登录链：session_id → Getuuid → 用户扫码 → qrconnect 长轮询出 code → `WmpfSdkThirdAppLogin`（flue.dll js_api_pool，请求含 userinfo_pb/ilink_uin）→ IlinkAuthBuffer → ManualAuth → js-login。此前的"-12/no permission"实验即卡在 ThirdAppLogin 之后的权限层。
-- **缺口 = session_id 的创建调用**（host 先与 wxaruntime 服务建立会话）。下一步：WMPF runtime 支持 netlog（flue.dll 内有 `enable_netlog_once`）——给 WeChatAppEx/WxgameDaemon 开 netlog 抓一次真实链路即可补全 session_id 创建与全部参数。
+- **缺口 = session_id 的创建调用**（host 先与 wxaruntime 服务建立会话）。**2026-11-06 深挖定论**：flue.dll 里的 session_id 全是渲染会话（AskAI/资源表/web contents），不是 wxaruntime 的；RadiumWMPF 包里的 ilink2.dll 含 `ilinkapp_getloginqrcode`/`ilinkapp_checkloginqrcode`/`ilinkapp_getoauthcode` 路由——**运行时自身的微信登录走 ilink 层**（getloginqrcode 出码→checkloginqrcode 轮询→登录签发 session_id），session_id 是 ilink 登录后的产物。因此渠道 2 = **两层扫码叠加**（运行时 ilink 登录 + 每应用 wxaruntime 授权），比 gameassist 深一档；Go 实现需先复刻 ilink getloginqrcode/checkloginqrcode 两路由（同栈可复用现有 mmtls/ilink 代码），再叠 wxaruntime。下一步给 WeChatAppEx/WxgameDaemon 开 netlog（flue.dll 自带 `enable_netlog_once`）抓真实参数。
 - 与雷电实验的联动：PR #144 发现官方 WMPF SDK 的 ManualAuth **显式写空 bytes 字段 6** 而 Go 省略——同一 WMPF 家族，字段 6 对照实验可直接复用到本渠道。
 
 ## 渠道 5（微信小游戏 PC 客户端 1.0.0.44，wx7c011f53c0737655）——同栈，最有希望，官方接口已拿到
