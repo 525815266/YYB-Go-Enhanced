@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"yyb_go/internal/pcmgr"
@@ -21,40 +20,90 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fields := map[string]any{"success": false, "error_type": fmt.Sprintf("%T", err)}
-		if strings.HasPrefix(err.Error(), "PCMgr ") || strings.HasPrefix(err.Error(), "invalid PCMgr ") {
-			fields["stage_error"] = err.Error()
-		}
-		var manual *protocol.ManualAuthRejectedError
-		var buffer *pcmgr.BufferRejectedError
-		var short *protocol.ShortlinkRejectedError
-		if errors.As(err, &manual) {
-			fields["manualauth_code"] = manual.Code
-		}
-		if errors.As(err, &buffer) {
-			fields["pcmgr_code"] = buffer.Code
-		}
-		if errors.As(err, &short) {
-			fields["shortlink_code"] = short.Code
-		}
-		_ = json.NewEncoder(os.Stdout).Encode(fields)
+		_ = json.NewEncoder(os.Stdout).Encode(failureFields(err))
 		os.Exit(1)
 	}
 }
 
+func failureFields(err error) map[string]any {
+	fields := map[string]any{"success": false, "error_type": fmt.Sprintf("%T", err)}
+	var manual *protocol.ManualAuthRejectedError
+	var native *protocol.AutoAuthRejectedError
+	var buffer *pcmgr.BufferRejectedError
+	var short *protocol.ShortlinkRejectedError
+	if errors.As(err, &manual) {
+		fields["manualauth_code"] = manual.Code
+	}
+	if errors.As(err, &native) {
+		fields["native_autoauth_stage"] = native.Stage
+		fields["native_autoauth_code"] = native.Code
+	}
+	if errors.As(err, &buffer) {
+		fields["pcmgr_code"] = buffer.Code
+	}
+	if errors.As(err, &short) {
+		fields["shortlink_code"] = short.Code
+	}
+	return fields
+}
+
+func savePrivateSession(dir, statePath string, state []byte) error {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return errors.New("private session directory unavailable")
+	}
+	file, err := os.CreateTemp(dir, ".session-*")
+	if err != nil {
+		return errors.New("private session save unavailable")
+	}
+	defer os.Remove(file.Name())
+	_, writeErr := file.Write(state)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil || os.Rename(file.Name(), statePath) != nil {
+		return errors.New("private session save failed")
+	}
+	return nil
+}
+
+func recordNativeIntent(dir string) error {
+	file, err := os.OpenFile(filepath.Join(dir, "native-autoauth-intent.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return errors.New("native autoauth already attempted or intent unavailable")
+	}
+	_, writeErr := fmt.Fprintf(file, "{\"attempted_at\":%d}\n", time.Now().Unix())
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	return errors.Join(writeErr, syncErr, closeErr)
+}
+
+func recordNativeOutcome(dir string, outcome any) error {
+	file, err := os.OpenFile(filepath.Join(dir, "native-autoauth-result.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return errors.New("native outcome already recorded or unavailable")
+	}
+	writeErr := json.NewEncoder(file).Encode(outcome)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	return errors.Join(writeErr, syncErr, closeErr)
+}
+
 func run() error {
-	provider := flag.String("provider", "", "required: yyb, pcmgr or gameassist")
+	provider := flag.String("provider", "", "required: yyb, pcmgr, gameassist or ldplayer")
 	root := flag.String("state-root", "", "absolute private lab directory; each provider has a separate subdirectory")
 	inputPath := flag.String("ticket-file", "", "fresh YYB base64 ticket or PCMgr native protobuf response; omitted to reuse a session")
 	pcProfile := flag.String("pcmgr-profile", "", "private PCMgr profile for the independent Go transport")
 	pcRenew := flag.Bool("renew-pcmgr", false, "rotate the isolated PCMgr profile and persist before fetching a ticket")
+	nativeAutoAuth := flag.Bool("native-autoauth", false, "rotate the isolated saved ILink session once; records intent before sending")
 	flag.Parse()
-	if (*provider != "yyb" && *provider != "pcmgr" && *provider != "gameassist") || !filepath.IsAbs(*root) || flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "requires --provider yyb|pcmgr|gameassist --state-root ABSOLUTE_PATH [--ticket-file ABSOLUTE_PATH]")
+	if (*provider != "yyb" && *provider != "pcmgr" && *provider != "gameassist" && *provider != "ldplayer") || !filepath.IsAbs(*root) || flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "requires --provider yyb|pcmgr|gameassist|ldplayer --state-root ABSOLUTE_PATH [--ticket-file ABSOLUTE_PATH]")
 		return errors.New("invalid local lab arguments")
 	}
 	dir := filepath.Join(*root, *provider)
 	statePath := filepath.Join(dir, "session.json")
+	if *nativeAutoAuth && (*inputPath != "" || *pcProfile != "" || *pcRenew) {
+		return errors.New("native autoauth requires only a saved isolated session")
+	}
 	var input, saved []byte
 	var err error
 	if *pcProfile != "" {
@@ -106,24 +155,29 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	result, state, err := protocol.ProbeLocalCode(ctx, *provider, input, saved)
+	var result protocol.LabResult
+	var state []byte
+	if *nativeAutoAuth {
+		result, err = protocol.ProbeLocalNativeAutoAuth(ctx, *provider, saved,
+			func() error { return recordNativeIntent(dir) },
+			func(raw []byte) error { return savePrivateSession(dir, statePath, raw) })
+		outcome := any(result)
+		if err != nil {
+			outcome = failureFields(err)
+		}
+		if saveErr := recordNativeOutcome(dir, outcome); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
+	} else {
+		result, state, err = protocol.ProbeLocalCode(ctx, *provider, input, saved)
+	}
+	if len(state) > 0 && len(input) > 0 {
+		if saveErr := savePrivateSession(dir, statePath, state); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
+	}
 	if err != nil {
 		return err
-	}
-	if len(input) > 0 {
-		if err = os.MkdirAll(dir, 0700); err != nil {
-			return errors.New("private session directory unavailable")
-		}
-		file, err := os.CreateTemp(dir, ".session-*")
-		if err != nil {
-			return errors.New("private session save unavailable")
-		}
-		defer os.Remove(file.Name())
-		_, writeErr := file.Write(state)
-		closeErr := file.Close()
-		if writeErr != nil || closeErr != nil || os.Rename(file.Name(), statePath) != nil {
-			return errors.New("private session save failed")
-		}
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)
 }

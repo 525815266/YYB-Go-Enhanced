@@ -2,6 +2,8 @@
 
 v0.2.52 补齐独立 ILink AutoAuth；它与 YYB OAuth 刷新、PCMgr 账号 key 轮换是三条不同链路。尚不能据此宣称快速失效完全解决或已验证 30 天保活。
 
+雷电渠道的独立实测、官方 SDK 对照和 Refresh PSK / 连接生命周期差异见[雷电会话恢复审计](ldplayer-channel-audit-20261105.md)。首次取码成功不代表该渠道的 AutoAuth 或长期保活已通过。
+
 ## 实际修正
 
 - ManualAuth 成功时保存认证段字段 3 的 AutoKey、字段 4 的 EncKey，以及该次 AppBase 的原始设备值，跟随账号与协议出口持久化。

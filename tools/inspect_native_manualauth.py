@@ -68,7 +68,8 @@ def synthetic_objects(base):
     return data, device, ticket
 
 
-def serialize(image, base, memory, entry, object_offset, child_messages):
+def serialize(image, base, memory, entry, object_offset, child_messages,
+              writers=(0x1eeab0, 0x1eefc0, 0x1eed80)):
     emu = Uc(UC_ARCH_X86, UC_MODE_64)
     emu.mem_map(base, (len(image) + 4095) & ~4095)
     emu.mem_write(base, image)
@@ -85,15 +86,15 @@ def serialize(image, base, memory, entry, object_offset, child_messages):
 
     def hook(uc, address, size, user_data):
         rva = address - base
-        if rva not in (0x1eeab0, 0x1eefc0, 0x1eed80):
+        if rva not in writers:
             return
         field = uc.reg_read(UC_X86_REG_RCX)
         value = uc.reg_read(UC_X86_REG_RDX)
-        if rva == 0x1eefc0:  # WireFormatLite::WriteUInt32
+        if rva == writers[1]:  # WireFormatLite::WriteUInt32
             output.extend(varint(field * 8) + varint(value & 0xffffffff))
             trace.append({'field': field, 'wire_type': 0, 'value': value & 0xffffffff})
         else:
-            if rva == 0x1eed80:  # WireFormatLite::WriteMessage
+            if rva == writers[2]:  # WireFormatLite::WriteMessage
                 payload = child_messages[value]
             else:  # WireFormatLite::WriteBytes; MSVC std::string layout
                 length, capacity = struct.unpack('<QQ', uc.mem_read(value + 0x10, 16))

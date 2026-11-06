@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,8 @@ func labHost(provider string) ([]byte, error) {
 		// Same Androws WMPF host identity as yyb; the lab profile exists so
 		// gameassist tickets can be exercised under their own channel label.
 		return hostAppIDDefault, nil
+	case "ldplayer":
+		return []byte("wx56135c126042c9e7"), nil
 	default:
 		return nil, fmt.Errorf("unknown lab provider")
 	}
@@ -75,6 +78,10 @@ type labSavedSession struct {
 }
 
 func labReadSession(provider string, saved []byte) (WmpfSession, error) {
+	return labReadSavedSession(provider, saved, true)
+}
+
+func labReadSavedSession(provider string, saved []byte, requireAccess bool) (WmpfSession, error) {
 	host, err := labHost(provider)
 	if err != nil {
 		return WmpfSession{}, err
@@ -87,7 +94,7 @@ func labReadSession(provider string, saved []byte) (WmpfSession, error) {
 	key, keyErr := hex.DecodeString(st.PSK.PreSharedKey)
 	ticket, ticketErr := hex.DecodeString(st.PSK.TicketEntry)
 	if err != nil || !bytes.Equal(st.Session.HostAppID, host) || st.TCPProxy != "" ||
-		st.PSK.ExpiredAt <= time.Now().Unix() || st.PSK.PSKType != 1 ||
+		(requireAccess && st.PSK.ExpiredAt <= time.Now().Unix()) || st.PSK.PSKType != 1 ||
 		keyErr != nil || len(key) == 0 || ticketErr != nil || len(ticket) == 0 {
 		return WmpfSession{}, fmt.Errorf("lab session invalid, expired or belongs to another provider")
 	}
@@ -96,12 +103,64 @@ func labReadSession(provider string, saved []byte) (WmpfSession, error) {
 
 // LabResult intentionally exposes no code, identity, credentials or raw errors.
 type LabResult struct {
-	Provider     string `json:"provider"`
-	Success      bool   `json:"success"`
-	CodeLength   int    `json:"code_length"`
-	NewSession   bool   `json:"new_session"`
-	HostAppID    string `json:"host_appid"`
-	PSKExpiresAt int64  `json:"psk_expires_at"`
+	Provider       string `json:"provider"`
+	Success        bool   `json:"success"`
+	CodeLength     int    `json:"code_length"`
+	NewSession     bool   `json:"new_session"`
+	HostAppID      string `json:"host_appid"`
+	PSKExpiresAt   int64  `json:"psk_expires_at"`
+	NativeAutoAuth bool   `json:"native_autoauth,omitempty"`
+	AutoKeyRotated bool   `json:"auto_key_rotated,omitempty"`
+}
+
+// ProbeLocalNativeAutoAuth rotates only this isolated session. consume must
+// durably record intent before a rotating key is sent. persist saves new keys
+// before any business probe, including when the transport is incomplete.
+func ProbeLocalNativeAutoAuth(ctx context.Context, provider string, saved []byte, consume func() error, persist func([]byte) error) (LabResult, error) {
+	pool := NewPool(DefaultConfig(), nil)
+	return probeLocalNativeAutoAuth(ctx, provider, saved, consume, persist, pool.autoAuthSession, func(ctx context.Context, next WmpfSession) (int, error) {
+		plain := buildJSAPIPlaintext(next.Session.UIN, "wx3bb18aff4f2fe45f", jsLoginURL, jsLoginCmdID, nil, next.Session.HostAppID, nil)
+		envelope, err := buildTransferPacket(next.Session, plain)
+		if err != nil {
+			return 0, err
+		}
+		code, _, err := pool.sendEnvelope(ctx, next, envelope)
+		return len(code), err
+	})
+}
+
+func probeLocalNativeAutoAuth(ctx context.Context, provider string, saved []byte, consume func() error, persist func([]byte) error,
+	exchange func(context.Context, WmpfSession, func() error) (WmpfSession, error), probe func(context.Context, WmpfSession) (int, error)) (LabResult, error) {
+	result := LabResult{Provider: provider, NativeAutoAuth: true}
+	old, err := labReadSavedSession(provider, saved, false)
+	if err != nil || consume == nil || persist == nil || !old.AutoAuth.usable() {
+		return result, fmt.Errorf("native lab session or persistence callbacks invalid")
+	}
+	next, err := exchange(ctx, old, consume)
+	if next.Session.UIN == 0 {
+		if err == nil {
+			err = fmt.Errorf("native lab received no replacement session")
+		}
+		return result, err
+	}
+	raw, saveErr := json.Marshal(labSavedSession{Schema: 1, Provider: provider, Session: next.toBlob()})
+	if saveErr != nil {
+		return result, errors.Join(err, saveErr)
+	}
+	if saveErr = persist(raw); saveErr != nil {
+		return result, errors.Join(err, saveErr)
+	}
+	if err != nil {
+		return result, err
+	}
+	result.HostAppID, result.PSKExpiresAt = string(next.Session.HostAppID), next.PSK.ExpiredAt
+	result.AutoKeyRotated = !bytes.Equal(old.AutoAuth.Key, next.AutoAuth.Key)
+	result.CodeLength, err = probe(ctx, next)
+	result.Success = err == nil && result.CodeLength > 0
+	if err == nil && !result.Success {
+		err = fmt.Errorf("native lab received no code")
+	}
+	return result, err
 }
 
 // ProbeLocalCode requires either a fresh provider ticket or a previously saved
