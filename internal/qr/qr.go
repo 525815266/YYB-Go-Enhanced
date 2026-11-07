@@ -136,6 +136,18 @@ func OAuthURL(product string) (string, error) {
 		return oauthURL, nil
 	case "pcmgr":
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{"appid": {pcmgr.HostAppID}, "redirect_uri": {"https://security.guanjia.qq.com/login"}, "response_type": {"code"}, "scope": {"snsapi_login,snsapi_runtime_pcsdk"}, "state": {"233"}, "self_redirect": {"true"}}.Encode(), nil
+	case "qbbrowser":
+		// QQ Browser channel uses one-click login (bridge detection) instead
+		// of QR scanning, but a QR fallback is still useful when the bridge
+		// is not available.
+		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{
+			"appid":         {"wx0dbc1ae97f156c38"},
+			"redirect_uri":  {"https://kde.qq.com/callback"},
+			"response_type": {"code"},
+			"scope":         {"snsapi_login,snsapi_runtime_pcsdk"},
+			"state":         {"qbbrowser"},
+			"self_redirect": {"true"},
+		}.Encode(), nil
 	case "ldplayer":
 		// 雷电游戏中心的 OAuth 入口：标准 WeChat qrconnect 但 appid 和
 		// redirect 指向雷电，scope 与其它 runtime_pcsdk 渠道一致。
