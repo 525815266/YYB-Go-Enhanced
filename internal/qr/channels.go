@@ -28,6 +28,7 @@ var scanChannels = []ScanChannel{
 	{ID: "appstore", Name: "YYB", Badge: "yyb", Description: "应用宝"},
 	{ID: "pcmgr", Name: "PCMgr", Badge: "pcmgr", Description: "腾讯电脑管家"},
 	{ID: "gameassist", Name: "GameAssist", Badge: "gameassist", Description: "腾讯手游助手"},
+	{ID: "ldplayer", Name: "LDPlayer", Badge: "ldplayer", Description: "雷电模拟器（实验）"},
 }
 
 // ScanChannels returns the channels in display order. The first one is the

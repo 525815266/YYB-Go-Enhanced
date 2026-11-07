@@ -1139,6 +1139,8 @@ func (a *WechatAccount) Public() AccountPublic {
 		product = "gameassist"
 	case stringCredential(a.Credentials, "provider") == "qbbrowser":
 		product = "qbbrowser"
+	case stringCredential(a.Credentials, "provider") == "ldplayer":
+		product = "ldplayer"
 	}
 	var refreshTokenObservedAt *int64
 	rescanRecommended := a.SessionOnly()

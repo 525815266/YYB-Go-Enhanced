@@ -121,6 +121,8 @@ func ChannelFor(provider string) string {
 		return "gameassist"
 	case "qbbrowser":
 		return "qbbrowser"
+	case "ldplayer":
+		return "ldplayer"
 	default:
 		return "yyb"
 	}

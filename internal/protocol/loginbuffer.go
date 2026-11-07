@@ -152,9 +152,10 @@ func (c LoginBufferCredentials) Expired(skew time.Duration) bool {
 		return c.PCMgr.Validate() != nil
 	}
 	if c.Provider == "qbbrowser" {
-		// The companion extension keeps the browser token fresh; liveness is
-		// judged by the buffer fetch, not by an OAuth expiry.
 		return c.QBBrowser.Validate() != nil
+	}
+	if c.Provider == "ldplayer" {
+		return false // 雷电渠道由上游撤销决定，无本地过期语义
 	}
 	return time.Now().Add(skew).Unix() >= c.ExpiresAt
 }
@@ -194,6 +195,11 @@ func (c *LoginBufferClient) FetchLoginBuffer(ctx context.Context, creds LoginBuf
 	}
 	if creds.Provider == "qbbrowser" {
 		return qbbrowser.FetchBuffer(ctx, c.httpClient, creds.QBBrowser)
+	}
+	if creds.Provider == "ldplayer" {
+		// 雷电渠道 buffer 已在 acc.LoginBuffer；FetchLoginBuffer 对它没有意义
+		//（没有中间凭据层可刷新），调用方应使用会话恢复或重扫。
+		return "", errors.New("LDPlayer buffer is single-shot; re-scan required")
 	}
 	// gameassist shares the YYB request path: GameAssist is an Androws rebuild
 	// with the same WMPF host identity, only the credential issuance differs.
@@ -257,6 +263,12 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		if _, err := qbbrowser.FetchBuffer(ctx, c.httpClient, creds.QBBrowser); err != nil {
 			return LoginBufferCredentials{}, err
 		}
+		creds.ExpiresAt = time.Now().Unix() + 86400
+		creds.ExpiresIn = 86400
+		return creds, nil
+	}
+	if creds.Provider == "ldplayer" {
+		// 雷电渠道没有 refresh 接口——保活对它无意义。
 		creds.ExpiresAt = time.Now().Unix() + 86400
 		creds.ExpiresIn = 86400
 		return creds, nil
@@ -398,6 +410,9 @@ func (c *LoginBufferClient) FetchUserInfo(ctx context.Context, creds LoginBuffer
 	}
 	if creds.Provider == "qbbrowser" {
 		return map[string]any{"nickname": creds.QBBrowser.Nickname, "openid": creds.OpenID}, nil
+	}
+	if creds.Provider == "ldplayer" {
+		return map[string]any{"openid": creds.OpenID}, nil
 	}
 	ts, nonce := timestampMS(), nonce4()
 	var data map[string]any
