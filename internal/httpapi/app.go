@@ -600,6 +600,13 @@ func (a *App) handleQRRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	img, err := client.GetQRCodeImageForProduct(ctx, product)
 	if err != nil {
+		// The QQ Browser channel doesn't use QR scanning — it uses the
+		// one-click login bridge. Return a clear error instead of the
+		// cryptic "failed to parse WeChat QR uuid".
+		if product == "qbbrowser" {
+			writeError(w, http.StatusBadRequest, "QQ浏览器渠道使用一键登录：请在 QQ 浏览器中打开本页面，页面会自动检测登录桥并建号")
+			return
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

@@ -181,6 +181,9 @@ func OAuthURL(product string) (string, error) {
 }
 
 func (c *Client) CreateSessionForProduct(ctx context.Context, product string) (*Session, error) {
+	if product == "qbbrowser" {
+		return nil, errors.New("QQ浏览器渠道使用一键登录（页面自动检测），不支持二维码扫码")
+	}
 	oauth, err := OAuthURL(product)
 	if err != nil {
 		return nil, err
