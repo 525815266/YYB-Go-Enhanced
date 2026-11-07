@@ -15,6 +15,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -98,18 +100,21 @@ func FetchBuffer(ctx context.Context, client *http.Client, oauthCode string) (st
 	return strings.TrimSpace(out.Data), nil
 }
 
-// BufferIdentity derives a stable OpenID from the buffer's device_id (field 2).
-// Same LDPlayer installation → same device_id → same account identity.
+// BufferIdentity derives the account OpenID from the buffer's ticket (field 1).
+// Each scan produces a unique ticket → unique identity → unique account.
+// Re-scans intentionally create new accounts (the old one dies when the
+// upstream revokes it). The identity is SHA-256(ticket)[:16] in hex.
 func BufferIdentity(bufferB64 string) (string, error) {
 	decoded, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSpace(bufferB64))
 	if err != nil {
 		return "", errors.New("invalid LDPlayer ticket encoding")
 	}
 	fields, fieldErr := parsePBFields(decoded)
-	if fieldErr != nil || len(fields[2]) == 0 {
-		return "", errors.New("LDPlayer ticket has no device_id")
+	if fieldErr != nil || len(fields[1]) == 0 {
+		return "", errors.New("LDPlayer ticket has no ticket field")
 	}
-	return "ldplayer:" + fmt.Sprintf("%x", fields[2]), nil
+	hash := sha256.Sum256(fields[1])
+	return "ldplayer:" + hex.EncodeToString(hash[:8]), nil
 }
 
 // ValidateBuffer checks a base64 ticket's host appid without fetching.
