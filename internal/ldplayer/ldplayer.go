@@ -98,6 +98,20 @@ func FetchBuffer(ctx context.Context, client *http.Client, oauthCode string) (st
 	return strings.TrimSpace(out.Data), nil
 }
 
+// BufferIdentity derives a stable OpenID from the buffer's device_id (field 2).
+// Same LDPlayer installation → same device_id → same account identity.
+func BufferIdentity(bufferB64 string) (string, error) {
+	decoded, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSpace(bufferB64))
+	if err != nil {
+		return "", errors.New("invalid LDPlayer ticket encoding")
+	}
+	fields, fieldErr := parsePBFields(decoded)
+	if fieldErr != nil || len(fields[2]) == 0 {
+		return "", errors.New("LDPlayer ticket has no device_id")
+	}
+	return "ldplayer:" + fmt.Sprintf("%x", fields[2]), nil
+}
+
 // ValidateBuffer checks a base64 ticket's host appid without fetching.
 func ValidateBuffer(bufferB64 string) error {
 	decoded, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSpace(bufferB64))

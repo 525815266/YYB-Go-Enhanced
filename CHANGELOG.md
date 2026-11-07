@@ -10,6 +10,10 @@
 - **修复两处编队 ID 维护错误：** ① “压缩账号 ID”只改账号自己的 ID，编队指针没有跟着改，压缩后成员会指向别的账号；② 删除编队的主账号或成员后，剩下的成员仍指向已经不存在、或之后被复用的 ID。现在压缩同步改指针；删除主账号时剩余成员交给 ID 最小的成员，只剩一个账号的编队自动解散。
 - 验证：新增 Go 测试覆盖批量合并与拆分、归属检查、unionid 不一致与缺失、压缩和删除时的编队指针、面板只列主账号（含延后同步）、渠道清单与前端内置副本一致；新增浏览器测试 `tests/multi-channel-ui.cjs`（扫码页、卡片、合并与拆分、补扫、新增渠道、手机宽度），用虚构的二维码和账号，不触达上游。**还没做的：** 用真实微信把三个渠道完整扫一遍（二维码和确认由手机完成）；上线后请在实验实例上先扫一次。详见[多渠道账号](docs/console-features.md#多渠道账号一个微信多个渠道)。
 
+## v0.2.85 - 2026-11-07
+
+- **修复雷电渠道扫码保存失败（openid is required）：** 雷电 buffer 只含 ticket/device_id/host_appid，没有 openid——扫码流程的 UpsertAccount 拿到空 OpenID 直接拒绝。现在从 buffer 的 device_id（field 2）派生稳定身份  作为 OpenID（同一雷电安装 → 同一 device_id → 同一账号），与其他渠道的 Identity() 模式一致。
+
 ## v0.2.84 - 2026-11-07
 
 - **新增雷电模拟器渠道 `ldplayer`（实验）：** 第五条客户端凭据链。雷电 14 游戏中心的微信小游戏走标准 WeChat qrconnect（appid `wx56135c126042c9e7`，scope `snsapi_login,snsapi_runtime_pcsdk`，回调 `ldmnq.com`），扫码后 OAuth code → `POST game-service.ldmnq.com/mini-game/wechat/login` 换 ilink login_buffer → 共享 ilink 栈取码（PR #144 首次 wx.login 已真机验证）。已知边界：**没有 refresh 接口**——buffer 是单发的，上游撤销或过期后需重扫；**没有 unionid**——同微信多次授权无法自动绑定为同一账号；**没有 AutoAuth 恢复**——keepalive 对它只做存活标记不做刷新。取消 lab-only 限制，正式进扫码页/链接/设置/编队。更多细节见 docs/ldplayer-channel-audit-20261105.md。
