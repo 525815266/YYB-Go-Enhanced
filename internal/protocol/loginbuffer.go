@@ -268,9 +268,11 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		return creds, nil
 	}
 	if creds.Provider == "ldplayer" {
-		// 雷电渠道没有 refresh 接口——保活对它无意义。
-		creds.ExpiresAt = time.Now().Unix() + 86400
-		creds.ExpiresIn = 86400
+		// 雷电渠道没有 refresh 接口——保活只滑窗不实际刷新上游。
+		// 实际寿命由上游撤销决定（PR #144 实测最短约 20 分钟），此处 7 天
+		// 是 UI 展示的占位值，真实存活由 get_code 结果暴露。
+		creds.ExpiresAt = time.Now().Unix() + 7 * 86400
+		creds.ExpiresIn = 7 * 86400
 		return creds, nil
 	}
 	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" && creds.Provider != "qbbrowser" {

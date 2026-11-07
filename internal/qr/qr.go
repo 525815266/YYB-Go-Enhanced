@@ -347,8 +347,8 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 			}
 			sess.Credentials = &protocol.LoginBufferCredentials{
 				Provider: "ldplayer", OpenID: openid, LoginType: "WX",
-				ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
-				ExpiresIn: 86400, RefreshTokenObservedAt: time.Now().Unix(),
+				ExpiresAt: time.Now().Add(7 * 24 * time.Hour).Unix(),
+				ExpiresIn: 7 * 86400, RefreshTokenObservedAt: time.Now().Unix(),
 			}
 		}
 		buffer := sess.LoginBuffer
