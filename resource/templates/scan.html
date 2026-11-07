@@ -260,8 +260,35 @@
 	applyAuthModeUI();
 	$("scanProxyMode").addEventListener("change",toggleProxyFields); $("scanProxyProfile").addEventListener("change",showProxyChoice); $("scanProvince").addEventListener("change",event=>loadScanCities(event.target.value).catch(error=>$('scanProxyMessage').textContent=`城市列表读取失败：${error.message}`)); $("scanCity").addEventListener("change",showProxyChoice); $("scanLocationBtn").addEventListener("click",recommendLocation); $("scanLocationUseBtn").addEventListener("click",()=>useRecommendedLocation().catch(error=>$('scanProxyMessage').textContent=`采用推荐失败：${error.message}`)); $("scanLocationDismissBtn").addEventListener("click",hideLocationSuggestion); $("scanProxyTestBtn").addEventListener("click",testProxy); $("scanProxyApplyBtn").addEventListener("click",applyProxy); $("quickModeBtn").addEventListener("click",()=>showMode("quick")); $("qrModeBtn").addEventListener("click",()=>showMode("qr")); $("quickAuthBtn").addEventListener("click",authorizeQuick); $("quickRetryBtn").addEventListener("click",detectQuickLogin); $("refreshBtn").addEventListener("click",newQR); $("backBtn").addEventListener("click",async()=>{stopTimers();await retireQR();if(window.ScanMulti)await ScanMulti.stopAll();location.href="/";}); $("saveRemarkBtn").addEventListener("click",()=>saveRemark()); $("syncBtn").addEventListener("click",syncAccount); $("copyBtn").addEventListener("click",async()=>{ try{await copyText(account?.openid||"");setMessage("OpenID 已复制","ok");}catch{setMessage("OpenID 已选中，请按 Ctrl+C 完成复制","error");} });
     toggleProxyFields();
-	function channelMode(){quickConfig=null;quickProfile=null;quickPort=null;const quick=PC_LOGIN_ENABLED&&$('scanProduct').value==='appstore';$('quickModeBtn').hidden=!quick;$('modeSwitch').hidden=!quick;$('authMethodDescription').textContent=quick?'可选择本机微信确认或手机扫码':'请用手机微信扫一扫完成授权';$('qrModeNote').hidden=true;}
-	$('scanProduct').addEventListener('change',()=>{channelMode();$('quickPane').hidden=true;$('qrPane').hidden=false;newQR();});
+	async function qbReadLoginInfo(){
+		const b = self.browser || chrome;
+		const candidates = [];
+		const login = b.login || (b.browser && b.browser.login);
+		if (login && login.getAccountInfo) { try { const r = await new Promise((res, rej) => { const p = login.getAccountInfo(info => res(info)); if (p && p.then) p.then(res, rej); }); candidates.push({bridge: 'browser.login', info: r}); } catch(e) {} }
+		const acct = b.account || (b.chrome && b.chrome.account) || (window.chrome && window.chrome.account);
+		if (acct && acct.getLoginInfo) { try { const r = await new Promise(res => acct.getLoginInfo(info => res(info))); candidates.push({bridge: 'chrome.account', info: r}); } catch(e) {} }
+		for (const c of candidates) {
+			const info = c.info || {};
+			const token = info.accessToken || info.access_token || info.qb_access_token || info.token || '';
+			const uid = String(info.uid || info.user_id || info.userId || info.openid || '');
+			if (token && uid) return {token, uid, bridge: c.bridge};
+		}
+		throw new Error('没有可用登录桥: ' + (candidates.map(c => c.bridge).join('; ') || 'none'));
+	}
+	async function qbOneClickLogin(){
+		setStatus('正在读取 QQ 浏览器登录态…');
+		try {
+			const login = await qbReadLoginInfo();
+			setStatus('已读取登录态（' + login.bridge + '），正在创建账号…');
+			const result = await api('POST', '/api/qbbrowser/token', {access_token: login.token, user_id: login.uid, appid: 'wx0dbc1ae97f156c38'});
+			showAccount(result);
+			setStatus('QQ 浏览器渠道账号已保存', 'ok');
+		} catch(e) {
+			setStatus('一键登录失败: ' + e.message, 'error');
+		}
+	}
+	function channelMode(){quickConfig=null;quickProfile=null;quickPort=null;const isQB=$('scanProduct').value==='qbbrowser';const quick=PC_LOGIN_ENABLED&&!isQB&&$('scanProduct').value==='appstore';$('quickModeBtn').hidden=!quick;$('modeSwitch').hidden=!quick;$('authMethodDescription').textContent=isQB?'一键读取 QQ 浏览器登录态，无需扫码':(quick?'可选择本机微信确认或手机扫码':'请用手机微信扫一扫完成授权');$('qrModeNote').hidden=true;if(isQB)setTimeout(qbOneClickLogin,200);}
+	$('scanProduct').addEventListener('change',()=>{channelMode();$('quickPane').hidden=true;$('qrPane').hidden=$('scanProduct').value==='qbbrowser';if($('scanProduct').value!=='qbbrowser')newQR();});
 	function fillChannelOptions(){const select=$('scanProduct'),current=select.value;select.replaceChildren(...scanChannels().map(channel=>{const option=document.createElement('option');option.value=channel.id;option.textContent=channel.name;return option;}));if([...select.options].some(option=>option.value===current))select.value=current;}
 	async function stopSingle(){qrGeneration+=1;stopTimers();quickConfig=null;quickPort=null;quickProfile=null;await retireQR();}
 	function startSingle(){channelMode();showMode(PC_LOGIN_ENABLED&&$('scanProduct').value==='appstore'?'quick':'qr');}

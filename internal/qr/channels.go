@@ -29,6 +29,7 @@ var scanChannels = []ScanChannel{
 	{ID: "pcmgr", Name: "PCMgr", Badge: "pcmgr", Description: "腾讯电脑管家"},
 	{ID: "gameassist", Name: "GameAssist", Badge: "gameassist", Description: "腾讯手游助手"},
 	{ID: "ldplayer", Name: "LDPlayer", Badge: "ldplayer", Description: "雷电模拟器（实验）"},
+	{ID: "qbbrowser", Name: "QQ浏览器", Badge: "qbbrowser", Description: "QQ浏览器一键登录"},
 }
 
 // ScanChannels returns the channels in display order. The first one is the
