@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +29,7 @@ func TestNativeCachedSessionWireAudit(t *testing.T) {
 		t.Fatal("private session unavailable")
 	}
 	var blob map[string]any
-	if json.Unmarshal(raw, &blob) != nil {
+	if decodeAuditSessionJSON(raw, &blob) != nil {
 		t.Fatal("private session malformed")
 	}
 	st, err := sessionFromBlob(blob)

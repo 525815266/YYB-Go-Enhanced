@@ -176,7 +176,7 @@ func TestH5ComparisonLive(t *testing.T) {
 		RedirectURI string         `json:"redirect_uri"`
 		Scope       string         `json:"scope"`
 	}
-	if json.Unmarshal(raw, &input) != nil {
+	if decodeAuditSessionJSON(raw, &input) != nil {
 		t.Fatal("invalid private input")
 	}
 	st, err := sessionFromBlob(input.Session)

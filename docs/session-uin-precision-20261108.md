@@ -16,7 +16,7 @@
 
 ## 修复内容
 
-数据库会话读取改用 `json.Decoder.UseNumber()`，让 JSON 整数保持原始十进制文本，交给已有的 `int64FromAny(json.Number)` 精确转换。保留原始 JSON 作为原生会话 CAS 比较条件，继续拒绝尾随或损坏的 JSON。实验室保存会话的读取使用同样方式，避免离线恢复对照也损坏身份。
+数据库会话读取改用 `json.Decoder.UseNumber()`，让 JSON 整数保持原始十进制文本，交给已有的 `int64FromAny(json.Number)` 精确转换。保留原始 JSON 作为原生会话 CAS 比较条件，继续拒绝尾随或损坏的 JSON。实验室保存会话与显式审计入口中的会话快照读取使用同样方式，避免恢复、取码与 H5 对照也损坏身份；没有因此重新运行真实会话实验。
 
 没有修改数据库结构、OAuth 流程、保护窗口、登录预算、重试或刷新时机。
 
@@ -37,6 +37,7 @@
 - `TestSessionRoundTripPreservesIntegerPrecision`：小整数、`2^53+1`、负数及 `int64` 两端边界；SQL/JSON 往返、恢复读取和 CAS 更新后再次读取。
 - `TestCachedRequestsPreserveFreshLoginIdentity`：虚构 YYB/PCMgr 会话存入临时 SQLite，反复加载并关闭重开数据库；比较首次与缓存读回后的 WPKG、取码、手机号、encryptkey 请求明文，要求逐字节一致。
 - `TestSessionDecodeRejectsTrailingJSON`、`TestLabSavedSessionPreservesUINPrecision`：会话格式拒绝行为与实验室保存/重载。
+- `TestAuditSessionJSONPreservesUINPrecision`：直接及嵌套的审计会话快照保留 UIN，拒绝尾随数据；分别在 `protocolaudit`、`issue75probe` 构建标签下验证。
 - `go test ./...`、`go vet ./...`，以及 `go test -tags protocolaudit ./internal/protocol ./cmd/protocol-lab -run 'TestLab|TestNativeLab' -count=1` 均通过。
 
 测试均使用虚构数据，无上游网络请求。这证明本地整数与封包修复，不是长期保活或所有接口的端到端证明。
