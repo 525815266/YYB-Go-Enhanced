@@ -132,8 +132,7 @@ func ForAccount(acc *store.WechatAccount) Fields {
 	if acc == nil {
 		return Fields{}
 	}
-	provider, _ := acc.Credentials["provider"].(string)
-	return Fields{AccountID: acc.ID, Channel: ChannelFor(provider)}
+	return Fields{AccountID: acc.ID, Channel: ChannelFor(acc.ScanProduct())}
 }
 
 // Routes are router templates, never the requested URL or account-link token.
@@ -196,7 +195,7 @@ func (l *Logger) Emit(event string, f Fields) {
 	if f.AccountID < 0 {
 		f.AccountID = 0
 	}
-	if f.Channel != "yyb" && f.Channel != "pcmgr" && f.Channel != "gameassist" {
+	if f.Channel != "yyb" && f.Channel != "pcmgr" && f.Channel != "gameassist" && f.Channel != "qbbrowser" && f.Channel != "ldplayer" {
 		f.Channel = ""
 	}
 	if !safeRoute.MatchString(f.Route) {
