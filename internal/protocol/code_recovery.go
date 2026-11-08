@@ -33,15 +33,15 @@ type codeRepairAttempt struct {
 }
 
 // DefaultFreshSessionWindow is how long after a successful request on a session
-// a -14 is treated as the AppID's own refusal. Sessions do not expire within
-// seconds, so a new login inside this window cannot help and only adds logins
-// that the upstream may count against the authorization. YYB_FRESH_SESSION_WINDOW
-// and tuning.json change it; zero switches the guard off.
+// a -14 avoids another login: a recent success suggests an application-specific
+// refusal, and unnecessary logins may count against the authorization. This is
+// a heuristic, not proof of server-side validity. YYB_FRESH_SESSION_WINDOW and
+// tuning.json change it; zero switches the guard off.
 //
-// The guard rests on one assumption: that a session which just served a code can
-// serve the next AppID too. On accounts whose session is used up by one code the
-// next request needs a login, and the guard then refuses exactly the repair that
-// would have worked (see docs/dense-batch-lab-20261103.md).
+// The guard assumes a recently successful session remains reusable. Corruption
+// while reloading that session can also cause -14; a new login may mask it.
+// First-success/next-failure alone does not prove a session is single-use
+// (see docs/session-uin-precision-20261108.md).
 const DefaultFreshSessionWindow = 2 * time.Minute
 
 // EffectiveFreshWindow turns Config.FreshSessionWindow into the window the pool

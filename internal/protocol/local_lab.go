@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -87,7 +88,9 @@ func labReadSavedSession(provider string, saved []byte, requireAccess bool) (Wmp
 		return WmpfSession{}, err
 	}
 	var state labSavedSession
-	if json.Unmarshal(saved, &state) != nil || state.Schema != 1 || state.Provider != provider {
+	decoder := json.NewDecoder(bytes.NewReader(saved))
+	decoder.UseNumber()
+	if decoder.Decode(&state) != nil || decoder.Decode(new(any)) != io.EOF || state.Schema != 1 || state.Provider != provider {
 		return WmpfSession{}, fmt.Errorf("lab session provider mismatch or invalid schema")
 	}
 	st, err := sessionFromBlob(state.Session)
