@@ -35,12 +35,20 @@ v0.2.95 实现 #149 的 UI 熔断控制，修正手游助手图标，并收敛 #
 
 本轮读取 #138 正文与评论，没有新增客户端或接口参数；评论中的 QQ 独立扫码更新已在 v0.2.94 实现。核对公开对照仓库 `ZHwin/yyb` 的 `yyb-py/app/app/pure_wxcode/wmpf.py`、`type5_auth.py`，最近修改仍为 `e1e9c3608d4008d24e0c23301ef4258cf2e11391`（2026-09-14），没有新的 scope 或签发机制可取代前次被拒的流程。本轮不重复已失败的上游请求。
 
+新增静态线索：本机当前官方微信 **4.2.0.13** 的 `Weixin.dll` 含 `/cgi-bin/micromsg-bin/get_ilink_auth_code` 与 `/cgi-bin/micromsg-bin/mm_ilink_cloud_app_auth`，以及配套 `micromsg.GetILinkAuthCodeReq/Resp`、`micromsg.ILinkCloudAppAuthReq/Resp`、`ilink.IlinkAppAuthClientInfo`、`ilinkapp.ILinkAppAuthBuffer` 类型。主客户端已有 ILink 签发相关入口，可作为渠道 5 票据来源的候选继续追踪；**仅凭静态字符串尚未证明游戏中心使用它们，也未恢复 CGI ID、请求字段、微信会话签名或返回 buffer**。这些是微信已登录主客户端的 CGI 候选，不是可直接拿网站 OAuth token 调用的公开 HTTP API，不能拼 URL 后宣布渠道完成。
+
+复现时仅读取官方安装二进制，不读取账号目录：
+
+```powershell
+python scripts/inspect_channel_artifacts.py 'C:/Program Files/Tencent/Weixin/4.2.0.13/Weixin.dll' --pattern 'get_ilink_auth_code|mm_ilink_cloud_app_auth|GetILinkAuthCode|ILinkCloudAppAuth|IlinkAppAuthClientInfo|ILinkAppAuthBuffer' --context 30
+```
+
 | 渠道 | 已有证据 | 本轮结论 |
 | --- | --- | --- |
 | QQ 浏览器 | v0.2.94 服务端独立扫码、原生刷新及重启后取码验收 | 继续使用已有入口，长期寿命与真实电脑快捷确认仍需验证 |
 | 雷电 | 独立扫码取码成功，官方自动恢复存在拒绝样本 | 保留实验入口，不承诺固定七天，不重放已拒绝票据 |
 | 2／VX 小程序 | Windows-Ocean、Cmd4963、wxaruntime 及 ILink QR 路由已定位；旧 sdk/qrconnect scope 流程被上游拒绝 | 缺现行宿主会话创建与授权闭环，不是替换 AppID 就能新增 |
-| 5／VX 小游戏 | 官方游戏中心与 WMPF 头文件确认 `ThirdAppLogin(base64 buffer)`、`AutoLogin`，后者额外业务 buffer 可空 | 仍缺主客户端签发票据的完整流程；接口存在不能证明 Go 渠道已可用 |
+| 5／VX 小游戏 | 官方游戏中心与 WMPF 头文件确认 `ThirdAppLogin(base64 buffer)`、`AutoLogin`，后者额外业务 buffer 可空；微信 4.2.0.13 新定位到两个 ILink 授权 CGI 候选 | 仍缺签发调用与游戏中心的实际连接、字段及会话认证；接口存在不能证明 Go 渠道已可用 |
 
 扫码必须完成「真实授权 → 换票 → 实际取码」，持久化另验重启和跨期限恢复。渠道 2／5 未进入可用注册表，避免给用户展示无法完成的二维码。官方下载与已有逆向记录见[渠道研究](scan-channel-research-20261105.md)和[链路缺口](channel-pipeline-20261105.md)。
 
