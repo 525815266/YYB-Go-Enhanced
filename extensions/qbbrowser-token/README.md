@@ -1,4 +1,4 @@
-# QQ 浏览器 Token Bridge（实验）
+# QQ 浏览器 Token Bridge 1.2.0（实验）
 
 读取官方 QQ 浏览器已登录微信账号的 `ctk` 和原生设备参数，提交到 YYB `/api/qbbrowser/token`，由服务端调用官方 `GetWxLoginBuffer` 换票。不代替微信确认，没有实现纯服务端独立扫码或电脑快速登录。
 
@@ -7,17 +7,30 @@
 1. 在官方 QQ 浏览器打开 `qqbrowser://extensions/`，启用开发者模式，加载本目录。
 2. 扩展选项填写 YYB 服务地址和协议令牌（服务端未配置时留空）。`127.0.0.1` 仅指当前电脑，飞牛请填 NAS 实际地址。
 3. 点击“打开 QQ 浏览器官方登录”，手动用微信扫码或电脑微信确认。
-4. 点击“立即推送”。读取 `chrome.account.getLoginInfo` 的微信模式（`mode=3`）和 `ctk/openid`，以及 `qb_external` 或 `chrome.qbExternal` 的机器 ID、GUID、Q16、版本。
+4. 点击“立即推送”。扩展临时创建后台官方小游戏页，通过 `chrome.scripting` 的 MAIN world 读取原生 `getGuid/getFavSyncGuid/getQ16/getVersion`，随后关闭自己创建的标签。后台另行读取 `chrome.account.getLoginInfo` 的微信模式（`mode=3`）和 `ctk/openid`，再提交 YYB；账号凭据不进入官方网页。
 5. “换票已保存”只代表保存票据，仍需实际小程序取码验收。当前真实全流程与重启／延时恢复尚未完成验收。
 
 更新代码后在扩展管理页点击“重新加载”，再刷新选项页。只按 F5 不一定更新 service worker；已有官方登录无需重扫。
 
+## 1.2.0 修复原因与反馈
+
+- QQ 浏览器 22.3.7007.400 在第三方扩展页暴露同步函数，却可能返回 `undefined`；本机也未开放异步 `chrome.qbExternal`。1.1.0 仅补异步调用不能解决这个来源限制。
+- 官方公共页 `https://pcgame.qqbrowser.qq.com/main` 可以读取原生设备值。1.2.0 用临时后台标签读取，校验执行前、返回值及执行后的页面来源，只关闭自己创建的标签。
+- `chrome.environment.getMachineGuid` 与上述 `getGuid` 实测不同，不作为替代值。不伪装官方扩展 ID 或修改浏览器权限白名单。
+- 设置页显示扩展版本，点击后立即显示进度并禁重复提交；设备页 15 秒、服务请求（含响应体）15 秒、页面操作 40 秒超时，错误后恢复按钮。后台返回最终结果，避免只发空确认而显示旧状态。
+- 周期推送复用已保存设备参数，手动推送重新读取；并发操作共用一次推送。服务端原始响应不写入扩展状态，不跟随重定向发送凭据。
+- 已在全新、未登录的官方 QQ 浏览器中验证真实 MAIN 设备接口与临时标签清理；虚构账号回归覆盖推送和错误。**没有用此次设备测试冒充用户真实换票、wx.login 取码或长期恢复验收。**
+
+本次仅更新浏览器扩展，兼容 YYB v0.2.93 服务端，无需重启飞牛服务。
+
 ## 限制与持久化
 
 - 机器 ID 必须来自官方原生接口；GUID 按官方允许为空。不猜测 token 别名，不用 openid 或随机值冒充设备。
-- 提示机器标识缺失时，说明当前上下文未取得原生值。浏览器已登录不代表该 API 必然可用，请保留错误提示，不反复重扫。
+- 提示机器标识缺失时，说明官方页仍未取得原生值。浏览器已登录不代表该 API 必然可用，请保留错误提示，不反复重扫。
 - 安装、浏览器启动及每 30 分钟尝试转发当前 ctk。浏览器负责维护登录态；扩展没有服务器 OAuth 刷新，不保证自动自愈或长期保活。
 - 扩展存储服务地址、协议令牌、设备参数与状态，不存储 ctk。服务端凭据数据库仍是私有数据。
 - 普通 Chrome/Edge 没有这些 QQ 私有接口；同名函数存在也不代表能返回有效值。
 
 调用依据与验证范围见[复核记录](../../docs/channel-login-persistence-20261108.md)。
+
+开发回归：`node tests/qbbrowser-bridge.cjs`、`node tests/qbbrowser-extension.cjs`。真实设备检查需安装 Playwright、设置 `YYB_QB_EXECUTABLE` 后运行 `node tests/qbbrowser-native-device.cjs`；只使用新建未登录测试配置，不操作现有浏览器窗口。可选 `YYB_TEST_SHOTS` 保存设置页截图。

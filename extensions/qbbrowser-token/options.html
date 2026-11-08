@@ -3,17 +3,18 @@
 <style>body{font:14px/1.6 system-ui,"Microsoft YaHei";max-width:560px;margin:24px auto;padding:0 12px}
 .field{margin-bottom:12px}label{display:block;font-weight:600;margin-bottom:4px}
 input{width:100%;box-sizing:border-box;padding:8px;border:1px solid #d9e3e5;border-radius:8px;font:inherit}
-.notice{margin-top:12px;padding:8px;border-radius:6px;background:#f4fbf6;color:#287a49;display:none}
+.notice{margin-top:12px;padding:8px;border-radius:6px;background:#eef0f3;color:#20242b;display:none;overflow-wrap:anywhere;white-space:pre-line}
+.notice[data-kind="error"]{background:#fff1f3;color:#9b1735}.notice[data-kind="success"]{background:#f4fbf6;color:#20663b}
 button{padding:8px 14px;border:0;border-radius:8px;background:#c53255;color:#fff;cursor:pointer;font:inherit}
-button.secondary{background:#eef0f3;color:#20242b}</style></head>
+button.secondary{background:#eef0f3;color:#20242b}button:disabled{cursor:wait;opacity:.65}button:focus-visible{outline:2px solid #9b1735;outline-offset:3px}</style></head>
 <body>
-<h2>YYB Token Bridge 设置</h2>
+<h2>YYB Token Bridge 设置 <small id="version"></small></h2>
 <div class="field"><label for="serverUrl">YYB 服务地址</label><input id="serverUrl" placeholder="http://192.168.9.83:8000"></div>
-<div class="field"><label for="protocolToken">协议令牌 YYB_PROTOCOL_TOKEN（未设置可留空）</label><input id="protocolToken" placeholder="可选"></div>
+<div class="field"><label for="protocolToken">协议令牌 YYB_PROTOCOL_TOKEN（未设置可留空）</label><input id="protocolToken" type="password" autocomplete="off" placeholder="可选"></div>
 <div class="field"><button class="secondary" id="pushNow" type="button">立即推送</button></div>
 <div class="field"><button class="secondary" id="officialLogin" type="button">打开 QQ 浏览器官方登录</button></div>
-<div class="notice" id="status"></div>
+<div class="notice" id="status" role="status" aria-live="polite"></div>
+<p>点击推送后会临时打开后台官方小游戏页面读取设备参数，完成后自动关闭。不会在该页传入登录凭据，也无需重新扫码。</p>
 <p>实验接入：需要 QQ 浏览器实际提供账号及设备接口。推送成功只表示换票并保存，长期续期尚未验证；浏览器需保持运行。</p>
-<script src="bridge.js"></script>
 <script src="options.js"></script>
 </body></html>
