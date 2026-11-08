@@ -11,6 +11,36 @@ import (
 	"yyb_go/internal/store"
 )
 
+func TestNonRenewableChannelsNeverRecordRenewal(t *testing.T) {
+	for _, provider := range []string{"qbbrowser", "ldplayer"} {
+		t.Run(provider, func(t *testing.T) {
+			app := newKeepAliveTestApp(t)
+			defer app.Close()
+			ctx := context.Background()
+			acc := insertKeepAliveTestAccount(t, app, "synthetic-"+provider, time.Now().Add(-time.Hour))
+			acc.Credentials["provider"] = provider
+			if err := app.db.SetAccountCredential(ctx, acc.ID, acc.LoginBuffer, acc.Credentials); err != nil {
+				t.Fatal(err)
+			}
+			acc, _ = app.db.GetAccount(ctx, acc.ID)
+			app.refreshCredentials = func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error) {
+				t.Fatal("unsupported renewal called")
+				return protocol.LoginBufferCredentials{}, nil
+			}
+			for _, force := range []bool{false, true} {
+				status, renewed, err := app.refreshAccount(ctx, acc, force)
+				if status != "alive" || renewed || force && !errors.Is(err, protocol.ErrCredentialRenewalUnsupported) || !force && err != nil {
+					t.Fatalf("force=%t status=%s renewed=%t err=%v", force, status, renewed, err)
+				}
+			}
+			got, _ := app.db.GetAccount(ctx, acc.ID)
+			if !got.SameAuthorization(acc) {
+				t.Fatal("unsupported renewal changed stored authorization")
+			}
+		})
+	}
+}
+
 func TestRefreshAccountRenewsDueCredentials(t *testing.T) {
 	app := newKeepAliveTestApp(t)
 	defer app.Close()

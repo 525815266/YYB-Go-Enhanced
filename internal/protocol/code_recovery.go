@@ -224,6 +224,9 @@ func recoverCodeWithTickets(ctx context.Context, saved string, login func(contex
 		}
 		return WmpfSession{}, nil, errors.Join(savedErr, fmt.Errorf("fetch fresh code ticket: %w", err))
 	}
+	if buffer == saved {
+		return WmpfSession{}, nil, savedErr
+	}
 	st, err = login(ctx, buffer)
 	if err != nil {
 		return WmpfSession{}, nil, errors.Join(savedErr, fmt.Errorf("fresh ticket login: %w", err))

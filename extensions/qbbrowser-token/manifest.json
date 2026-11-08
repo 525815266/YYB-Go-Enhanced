@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YYB Token Bridge (QQ浏览器微信登录 → YYB 服务)",
-  "version": "1.0.0",
-  "description": "读取 QQ 浏览器微信登录态（chrome.account/browser.login），把 access_token 推送给 YYB Go 服务换取 ilink 登录票据，构成 QQ 浏览器取码渠道。",
+  "version": "1.1.0",
+  "description": "实验接入：读取 QQ 浏览器微信 ctk 及原生设备参数，换取 ilink 票据。需要浏览器提供私有账号接口，长期恢复尚未验证。",
   "permissions": ["storage", "alarms"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "serviceWorker.js" },

@@ -33,6 +33,9 @@ const (
 	// is an Androws rebuild, so the mini-program runtime identity is identical
 	// and only the credential issuance differs.
 	HostAppID = "wxd44977328b36e647"
+	// DefaultRefreshInterval is a conservative access-token refresh schedule,
+	// not the lifetime of the longer scan/refresh authorization.
+	DefaultRefreshInterval = 2 * 60 * 60
 )
 
 // ExchangeRejectedError carries only the gateway business code, never the
@@ -59,6 +62,7 @@ type Credentials struct {
 	Scope        string `json:"scope"`
 	ExpiresAt    int64  `json:"expires_at"`
 	ExpiresIn    int64  `json:"expires_in"`
+	ExpirySource string `json:"expiry_source,omitempty"`
 }
 
 func (c Credentials) Validate() error {
@@ -133,23 +137,19 @@ func ExchangeCode(ctx context.Context, client *http.Client, code, state string) 
 	// refreshtoken/logintype/scope/expires_in before landing on
 	// login_result.html). Try every source before diagnosing.
 	creds, parseErr := parseExchange(data)
-	if creds.OpenID == "" || creds.AccessToken == "" {
-		creds.fillFromCookies(client.Jar, cb)
-	}
-	if creds.OpenID == "" || creds.AccessToken == "" {
-		creds.fillFromCookies(recorder.cookiesFor(cb), cb)
-	}
+	// Cookies can supply the lifetime even when JSON already supplied tokens.
+	// Apply the scheduling fallback only after all callback sources were read.
+	creds.fillFromCookies(client.Jar, cb)
+	creds.fillFromCookies(recorder.cookiesFor(cb), cb)
 	if creds.OpenID == "" || creds.AccessToken == "" {
 		// The HTML hop itself may write the cookies via script literals.
 		fillFromHTML(&creds, data)
 	}
 	if creds.Validate() == nil {
-		// The cookie path carries expires_in but not always; without any
-		// signal fall back to the observed ~30-day scan window so the account
-		// is not born expired.
-		if creds.ExpiresAt <= 0 {
-			creds.ExpiresIn = 30 * 86400
+		if creds.ExpiresAt == 0 {
+			creds.ExpiresIn = DefaultRefreshInterval
 			creds.ExpiresAt = time.Now().Unix() + creds.ExpiresIn
+			creds.ExpirySource = "fallback"
 		}
 		if err := validateScope(creds.Scope); err != nil {
 			return Credentials{}, err
@@ -214,17 +214,14 @@ func parseExchange(data []byte) (Credentials, error) {
 	}
 	now := time.Now().Unix()
 	switch {
-	case decodeInt64(body, "expireTime", "expire_time") > now:
+	case decodeInt64(body, "expireTime", "expire_time") > 0:
 		creds.ExpiresAt = decodeInt64(body, "expireTime", "expire_time")
 		creds.ExpiresIn = creds.ExpiresAt - now
+		creds.ExpirySource = "upstream"
 	case decodeInt64(body, "expiresIn", "expires_in") > 0:
 		creds.ExpiresIn = decodeInt64(body, "expiresIn", "expires_in")
 		creds.ExpiresAt = now + creds.ExpiresIn
-	default:
-		// Observed official tokens carry a ~30-day window; keep the scan
-		// window default instead of pretending a two-hour lifetime.
-		creds.ExpiresIn = 30 * 86400
-		creds.ExpiresAt = now + creds.ExpiresIn
+		creds.ExpirySource = "upstream"
 	}
 	return creds, nil
 }
@@ -393,10 +390,11 @@ func (c *Credentials) fillFromCookie(name, value string) {
 			c.Scope = value
 		}
 	case "expires_in":
-		if c.ExpiresIn <= 0 {
+		if c.ExpiresAt == 0 {
 			if n, err := strconv.ParseInt(value, 10, 64); err == nil && n > 0 {
 				c.ExpiresIn = n
 				c.ExpiresAt = time.Now().Unix() + n
+				c.ExpirySource = "upstream"
 			}
 		}
 	}

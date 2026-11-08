@@ -127,18 +127,18 @@ type App struct {
 	refreshCredentials func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
 	// oauthH5Invoke lets tests stub the web-authorize call behind the
 	// /wx/oauth auto-exchange; nil means the real /wx/h5code invoke.
-	oauthH5Invoke wxappCall
-	checkLogin         func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
-	fetchLoginBuffer   func(context.Context, protocol.LoginBufferCredentials) (string, error)
-	exchangeAuthCode   func(context.Context, string) (protocol.LoginBufferResult, error)
-	fetchUserInfo      func(context.Context, protocol.LoginBufferCredentials) (map[string]any, error)
-	qinglong           *qingLongClient
-	auth               *auth.Store
-	notifier           *offlineNotifier
-	circuit            *circuitBreaker
-	appIDs             *appIDPolicy
-	dynamicAppIDs      *dynamicAppIDDeny
-	pacer              *accountPacer
+	oauthH5Invoke    wxappCall
+	checkLogin       func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
+	fetchLoginBuffer func(context.Context, protocol.LoginBufferCredentials) (string, error)
+	exchangeAuthCode func(context.Context, string) (protocol.LoginBufferResult, error)
+	fetchUserInfo    func(context.Context, protocol.LoginBufferCredentials) (map[string]any, error)
+	qinglong         *qingLongClient
+	auth             *auth.Store
+	notifier         *offlineNotifier
+	circuit          *circuitBreaker
+	appIDs           *appIDPolicy
+	dynamicAppIDs    *dynamicAppIDDeny
+	pacer            *accountPacer
 
 	mu                sync.Mutex
 	qrSessions        map[string]*qrLoginSession
@@ -604,7 +604,7 @@ func (a *App) handleQRRoot(w http.ResponseWriter, r *http.Request) {
 		// one-click login bridge. Return a clear error instead of the
 		// cryptic "failed to parse WeChat QR uuid".
 		if product == "qbbrowser" {
-			writeError(w, http.StatusBadRequest, "QQ浏览器渠道使用一键登录：请在 QQ 浏览器中打开本页面，页面会自动检测登录桥并建号")
+			writeError(w, http.StatusBadRequest, "QQ浏览器独立扫码交换尚未接通，请先在官方浏览器登录微信，再通过原生接口桥接导入")
 			return
 		}
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -1546,6 +1546,26 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		}
 		// A request using the retained PSK cannot trigger OAuth or ManualAuth.
 		return nil, callErr
+	}
+	if protocol.ProviderOf(acc) == "ldplayer" {
+		var ticket *protocol.ManualAuthRejectedError
+		if errors.As(callErr, &ticket) && ticket.Code == -10 {
+			// There is no verified ticket reissue endpoint for LDPlayer. Do not
+			// replay a definitively rejected scan ticket on every script call.
+			status := "expired"
+			if a.pool.HasReusableSession(ctx, acc.ID, proxyValue) {
+				status = store.StatusSessionOnly
+			}
+			applied, err := a.db.ApplyCredentialRefresh(ctx, acc, "", nil, status)
+			if err != nil {
+				return nil, errors.Join(callErr, err)
+			}
+			if !applied {
+				return nil, store.ErrAccountAuthorizationChanged
+			}
+			a.notifyOffline(acc, status, callErr)
+			return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID, cause: callErr}
+		}
 	}
 	if op == eventlog.OpH5Code {
 		// An H5 authorization confirmation can issue a one-time code, so a

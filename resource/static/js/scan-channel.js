@@ -8,7 +8,7 @@
     {id: 'pcmgr', name: 'PCMgr', badge: 'pcmgr', description: '腾讯电脑管家'},
     {id: 'gameassist', name: 'GameAssist', badge: 'gameassist', description: '腾讯手游助手'},
     {id: 'ldplayer', name: 'LDPlayer', badge: 'ldplayer', description: '雷电模拟器（实验）'},
-    {id: 'qbbrowser', name: 'QQ浏览器', badge: 'qbbrowser', description: 'QQ浏览器一键登录'}
+    {id: 'qbbrowser', name: 'QQ浏览器', badge: 'qbbrowser', description: 'QQ浏览器桥接（实验）'}
   ];
   const info = product => channels.find(item => item.id === (product || 'appstore'));
   window.scanChannels = () => channels.slice();

@@ -23,7 +23,7 @@
   const badgeImage = channel => {
     const image = document.createElement('img');
     image.alt = '';
-    image.src = `/static/images/scan-${channel.badge}.png`;
+    image.src = `/static/images/scan-${channel.badge}.png?v=093`;
     image.addEventListener('error', () => image.remove());
     return image;
   };
@@ -132,6 +132,20 @@
       this.refresh.classList.remove('primary');
       this.refresh.textContent = '重新生成';
       this.qr.classList.remove('waiting');
+	  if (this.channel.id === 'qbbrowser') {
+		this.refresh.textContent = '检测浏览器并导入';
+		this.qr.textContent = 'QQ 浏览器实验桥接：请先在官方浏览器登录微信。独立扫码和持续恢复尚未接通。';
+		this.state('loading', '正在检测原生账号与设备接口');
+		try {
+		  const account = await cfg.qbImport();
+		  if (gen !== this.gen) return;
+		  this.showDone(account, false);
+		  onConfirmed(account);
+		} catch (error) {
+		  if (gen === this.gen) this.state('error', error.message);
+		}
+		return;
+	  }
       this.qr.textContent = '正在生成二维码';
       this.state('loading', '正在获取二维码');
       try {

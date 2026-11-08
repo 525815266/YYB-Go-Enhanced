@@ -18,6 +18,44 @@ import (
 	"yyb_go/internal/store"
 )
 
+func TestLDPlayerRejectedTicketIsNotReplayed(t *testing.T) {
+	for _, withSession := range []bool{false, true} {
+		t.Run(fmt.Sprint(withSession), func(t *testing.T) {
+			app := newKeepAliveTestApp(t)
+			defer app.Close()
+			ctx := context.Background()
+			acc := insertKeepAliveTestAccount(t, app, "synthetic-ldplayer", time.Now().Add(time.Hour))
+			acc.Credentials["provider"] = "ldplayer"
+			if err := app.db.SetAccountCredential(ctx, acc.ID, acc.LoginBuffer, acc.Credentials); err != nil {
+				t.Fatal(err)
+			}
+			acc, _ = app.db.GetAccount(ctx, acc.ID)
+			if withSession {
+				putEligibleSession(t, app, acc)
+			}
+			app.fetchLoginBuffer = func(context.Context, protocol.LoginBufferCredentials) (string, error) {
+				t.Fatal("rejected ticket fetched again")
+				return "", nil
+			}
+			_, err := app.invokeWXApp(ctx, acc, "wx-synthetic", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+				return nil, &protocol.ManualAuthRejectedError{Code: -10}
+			})
+			var first *protocol.ManualAuthRejectedError
+			if !errors.As(err, &first) {
+				t.Fatal("first rejection lost")
+			}
+			got, _ := app.db.GetAccount(ctx, acc.ID)
+			want := "expired"
+			if withSession {
+				want = store.StatusSessionOnly
+			}
+			if accountStatus(got) != want || got.LoginBuffer != "" {
+				t.Fatal("rejected ticket still eligible for login")
+			}
+		})
+	}
+}
+
 func TestPCMgrTicketRefusalDoesNotRotateKeyOnEveryCall(t *testing.T) {
 	app := newKeepAliveTestApp(t)
 	defer app.Close()

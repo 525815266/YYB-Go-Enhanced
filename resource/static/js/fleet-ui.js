@@ -7,7 +7,7 @@
 
   const fleetKey = account => account.fleet_primary_id || account.id;
   const productOf = account => account.scan_product || 'appstore';
-  const badgeSrc = product => `/static/images/scan-${scanChannelBadge(product)}.png`;
+  const badgeSrc = product => `/static/images/scan-${scanChannelBadge(product)}.png?v=093`;
   const isFleet = group => group.members.length > 1;
   const idList = ids => ids.join('、');
 

@@ -2,8 +2,7 @@
 // WeChat sign-in (WUP WXAuth) yields an outer access token; the token is
 // exchanged for an ilink login buffer through kde.qq.com, which the shared
 // WMPF/ilink stack then consumes like any other channel. The token itself is
-// harvested by a companion browser extension that talks to
-// chrome.account/browser.login inside QQ Browser.
+// read by a companion browser extension through chrome.account inside QQ Browser.
 package qbbrowser
 
 import (
@@ -47,20 +46,32 @@ func (e *TokenRejectedError) Error() string {
 type Credentials struct {
 	QBAccessToken string `json:"qb_access_token"`
 	UserID        string `json:"user_id"`
+	OpenID        string `json:"openid,omitempty"`
 	GUID          string `json:"guid"`
 	Nickname      string `json:"nickname"`
+	// QBRNCookie carries the official runtime's device headers. UserID is
+	// GAME_H5_DEVICE_MACHINE_ID, not the account's openid; QBAccessToken is ctk.
+	QBRNCookie string `json:"qbrn_cookie,omitempty"`
 }
 
 func (c Credentials) Validate() error {
 	if strings.TrimSpace(c.QBAccessToken) == "" || strings.TrimSpace(c.UserID) == "" {
 		return errors.New("invalid QQBrowser credentials")
 	}
+	if len(c.QBRNCookie) > 8192 || strings.ContainsAny(c.QBRNCookie, "\r\n") {
+		return errors.New("invalid QQBrowser device header")
+	}
 	return nil
 }
 
-// Identity mirrors the PCMGR convention: a stable, non-openid marker. The
-// real WeChat openid only becomes visible after the first buffer exchange.
-func (c Credentials) Identity() string { return "qbbrowser:" + c.UserID }
+// Identity separates browser accounts on a shared machine. Older imported
+// records without an account openid retain their previous machine-based marker.
+func (c Credentials) Identity() string {
+	if c.OpenID != "" {
+		return "qbbrowser:" + c.OpenID
+	}
+	return "qbbrowser:" + c.UserID // compatibility with existing imported records
+}
 
 // FetchBuffer exchanges the browser token for an ilink login buffer and
 // verifies it belongs to this channel (protobuf field 3 carries the host
@@ -84,6 +95,9 @@ func FetchBuffer(ctx context.Context, client *http.Client, creds Credentials) (s
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("Accept", "application/json; charset=utf-8")
+	if creds.QBRNCookie != "" {
+		req.Header.Set("x-qbrn-cookie", creds.QBRNCookie)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", errors.New("QQBrowser buffer transport failed")
@@ -97,14 +111,23 @@ func FetchBuffer(ctx context.Context, client *http.Client, creds Credentials) (s
 		return "", errors.New("invalid QQBrowser buffer response")
 	}
 	var out struct {
-		LoginBuffer string `json:"login_buffer"`
-		ErrCode     int    `json:"err_code"`
+		LoginBuffer string          `json:"login_buffer"`
+		ErrCode     json.RawMessage `json:"err_code"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return "", errors.New("invalid QQBrowser buffer response")
 	}
-	if out.ErrCode != SuccessErrCode {
-		return "", &TokenRejectedError{Code: out.ErrCode}
+	// The official client consumes login_buffer directly. Proto3 gateways can
+	// omit the default zero field; an omitted code still requires the complete,
+	// channel-validated ticket below. Explicit null/string/error codes fail.
+	if len(out.ErrCode) != 0 {
+		var code *int
+		if json.Unmarshal(out.ErrCode, &code) != nil || code == nil {
+			return "", errors.New("invalid QQBrowser business code")
+		}
+		if *code != SuccessErrCode {
+			return "", &TokenRejectedError{Code: *code}
+		}
 	}
 	if strings.TrimSpace(out.LoginBuffer) == "" {
 		return "", errors.New("QQBrowser response has no login buffer")
@@ -125,19 +148,19 @@ func parsePBFields(raw []byte) (map[protowire.Number][]byte, error) {
 	fields := map[protowire.Number][]byte{}
 	for len(raw) > 0 {
 		num, typ, n := protowire.ConsumeTag(raw)
-		if n < 0 {
+		if n < 0 || !num.IsValid() {
 			return nil, errors.New("malformed tag")
 		}
 		raw = raw[n:]
 		if typ != protowire.BytesType {
-			v, n := protowire.ConsumeVarint(raw)
+			if num <= 3 {
+				return nil, errors.New("ticket field must be bytes")
+			}
+			n := protowire.ConsumeFieldValue(num, typ, raw)
 			if n < 0 {
-				return nil, errors.New("malformed varint")
+				return nil, errors.New("malformed field")
 			}
 			raw = raw[n:]
-			if num <= 3 {
-				fields[num] = []byte(fmt.Sprintf("%d", v))
-			}
 			continue
 		}
 		v, n := protowire.ConsumeBytes(raw)
@@ -145,6 +168,9 @@ func parsePBFields(raw []byte) (map[protowire.Number][]byte, error) {
 			return nil, errors.New("malformed bytes")
 		}
 		raw = raw[n:]
+		if num <= 3 && len(fields[num]) != 0 {
+			return nil, errors.New("duplicate ticket field")
+		}
 		fields[num] = v
 	}
 	return fields, nil

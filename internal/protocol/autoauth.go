@@ -221,6 +221,7 @@ func (p *Pool) autoAuthSession(ctx context.Context, saved WmpfSession, consume f
 		return next, errors.New("native autoauth returned no access PSK")
 	}
 	next.PSK = psk
+	next.RefreshPSK = pickRefreshPSK(keys)
 	return next, nil
 }
 

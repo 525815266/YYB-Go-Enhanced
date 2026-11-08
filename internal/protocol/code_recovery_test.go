@@ -194,6 +194,23 @@ func TestCodeTicketRecoveryStages(t *testing.T) {
 	}
 }
 
+func TestIdenticalRejectedTicketIsNotReplayed(t *testing.T) {
+	first := &ManualAuthRejectedError{Code: -10}
+	logins := 0
+	_, _, err := recoverCodeWithTickets(context.Background(), "saved", func(context.Context, string) (WmpfSession, error) {
+		logins++
+		return WmpfSession{}, first
+	}, func(context.Context) (string, error) {
+		return "saved", nil
+	}, func(context.Context, WmpfSession) (map[string]any, error) {
+		t.Fatal("rejected ticket must not reach a business request")
+		return nil, nil
+	})
+	if logins != 1 || !errors.Is(err, first) {
+		t.Fatal("identical ticket was replayed or first rejection lost")
+	}
+}
+
 func TestCancelledSavedTicketRejectionDoesNotFetch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	_, _, err := recoverCodeWithTickets(ctx, "saved", func(context.Context, string) (WmpfSession, error) {

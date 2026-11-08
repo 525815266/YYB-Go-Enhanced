@@ -312,6 +312,17 @@ func pickAccessPSK(entries []pskEntry) (pskEntry, bool) {
 	return pskEntry{}, false
 }
 
+// Preserve the server-issued refresh key separately. It must not be sent as
+// an access PSK; implementing its long-link resume handshake is separate work.
+func pickRefreshPSK(entries []pskEntry) pskEntry {
+	for _, e := range entries {
+		if e.PSKType == 2 && e.ExpiredAt > time.Now().Unix() {
+			return e
+		}
+	}
+	return pskEntry{}
+}
+
 func (m *mmtlsClient) sendApp(cmd uint32, body []byte) error {
 	pkt := buildShortlink(cmd, m.appSeq, body, defaultVer)
 	m.appSeq++

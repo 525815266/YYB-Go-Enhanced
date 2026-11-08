@@ -3,6 +3,7 @@ package gameassist
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -11,6 +12,10 @@ import (
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestParseExchangeEnvelopeCamelCase(t *testing.T) {
 	now := time.Now().Unix()
@@ -46,8 +51,39 @@ func TestParseExchangeFlatLoginState(t *testing.T) {
 	if creds.OpenID != "oLvh-flat" || creds.AccessToken != "1_flat" || creds.RefreshToken != "1_flatr" {
 		t.Fatalf("unexpected credentials: %+v", creds)
 	}
-	if creds.ExpiresIn != 30*86400 || creds.ExpiresAt <= time.Now().Unix() {
-		t.Fatalf("default 30-day window missing: %+v", creds)
+	if creds.ExpiresIn != 0 || creds.ExpiresAt != 0 {
+		t.Fatal("parser must leave missing lifetime unset for callback cookies")
+	}
+}
+
+func TestParseExchangePreservesPastExpiry(t *testing.T) {
+	expiry := time.Now().Add(-time.Hour).Unix()
+	creds, err := parseExchange([]byte(`{"openId":"synthetic","accessToken":"synthetic","expireTime":` + itoa(expiry) + `}`))
+	if err != nil || creds.ExpiresAt != expiry {
+		t.Fatal("past expiry must not become a fresh authorization window")
+	}
+}
+
+func TestExchangeCodeLifetimeSources(t *testing.T) {
+	for _, cookieLifetime := range []string{"", "3600"} {
+		t.Run("cookie_"+cookieLifetime, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				h := http.Header{}
+				if cookieLifetime != "" {
+					h.Add("Set-Cookie", "expires_in="+cookieLifetime+"; Path=/")
+				}
+				return &http.Response{StatusCode: 200, Header: h, Request: r,
+					Body: io.NopCloser(strings.NewReader(`{"openId":"synthetic","accessToken":"synthetic"}`))}, nil
+			})}
+			c, err := ExchangeCode(context.Background(), client, "synthetic", "1")
+			want := int64(DefaultRefreshInterval)
+			if cookieLifetime != "" {
+				want = 3600
+			}
+			if err != nil || c.ExpiresIn != want || c.ExpiresAt < time.Now().Unix()+want-5 {
+				t.Fatalf("lifetime source not applied: lifetime=%d err=%v", c.ExpiresIn, err)
+			}
+		})
 	}
 }
 
