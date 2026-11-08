@@ -136,6 +136,30 @@ func TestAccountPublicRecommendsRescanAfterTwentyFiveDays(t *testing.T) {
 	}
 }
 
+func TestAccountPublicDoesNotPublishInventedChannelLifetimes(t *testing.T) {
+	for _, provider := range []string{"ldplayer", "qbbrowser"} {
+		account := &WechatAccount{Credentials: map[string]any{"provider": provider, "expires_at": time.Now().Unix() + 86400, "expires_in": 86400, "refresh_refreshed_at": time.Now().Unix()}}
+		p := account.Public()
+		if p.CredentialExpiresAt != nil || p.CredentialExpiresIn != 0 {
+			t.Fatalf("%s still publishes invented expiry", provider)
+		}
+	}
+}
+
+func TestGameAssistPublicPreservesExpirySource(t *testing.T) {
+	issued := time.Now().Add(-3 * time.Hour).Unix()
+	account := &WechatAccount{Credentials: map[string]any{"provider": "gameassist", "expires_in": 30 * 86400, "expires_at": issued + 30*86400}}
+	public := account.Public()
+	if public.CredentialExpiresAt == nil || *public.CredentialExpiresAt != issued+7200 {
+		t.Fatal("legacy refresh schedule still presents the scan window")
+	}
+	account.Credentials["expiry_source"] = "upstream"
+	public = account.Public()
+	if public.CredentialExpiresAt == nil || *public.CredentialExpiresAt != issued+30*86400 {
+		t.Fatal("explicit upstream lifetime was replaced by the historical default correction")
+	}
+}
+
 func TestSetAccountStatusExpiredClearsCredentials(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {

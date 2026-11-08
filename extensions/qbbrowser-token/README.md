@@ -1,14 +1,23 @@
-# QQ 浏览器 Token Bridge 扩展
+# QQ 浏览器 Token Bridge（实验）
 
-把 QQ 浏览器的微信登录态（外层 access_token）推送给 YYB Go 服务，换取 ilink 登录票据——构成 QQ 浏览器取码渠道（host appid `wx0dbc1ae97f156c38`，buffer 由 `kde.qq.com/trpc.ad.wx_oauth_svr.WxOauthHttpSvr/GetWxLoginBuffer` 签发）。
+读取官方 QQ 浏览器已登录微信账号的 `ctk` 和原生设备参数，提交到 YYB `/api/qbbrowser/token`，由服务端调用官方 `GetWxLoginBuffer` 换票。不代替微信确认，没有实现纯服务端独立扫码或电脑快速登录。
 
-## 安装（QQ 浏览器）
-1. 打开扩展管理页（地址栏输入 `qqbrowser://extensions/`），开启"开发者模式"
-2. "加载已解压的扩展"，选择本目录（`extensions/qbbrowser-token`）
-3. 扩展卡片 → "选项"：填 YYB 服务地址（如 `http://192.168.9.83:8000`）与服务端 `YYB_PROTOCOL_TOKEN`（未设置可留空）
-4. 点"立即推送"——服务端校验 token 并自动建号（账号 OpenID 为 `qbbrowser:<uid>`，渠道显示"QQ浏览器"），之后与其它渠道一样可进编队、走 `/wx/code` 取码
+## 安装与使用
 
-## 行为
-- 安装时、浏览器启动时、每 30 分钟自动推送一次
-- token 由 QQ 浏览器自身维护（微信登录态），扩展只搬运；推送被拒（如浏览器里重新登录后 token 变化）会在下个周期自愈
-- 桥候选自动尝试：`browser.login.getAccountInfo` → `chrome.account.getLoginInfo`；失败原因记录在选项页
+1. 在官方 QQ 浏览器打开 `qqbrowser://extensions/`，启用开发者模式，加载本目录。
+2. 扩展选项填写 YYB 服务地址和协议令牌（服务端未配置时留空）。`127.0.0.1` 仅指当前电脑，飞牛请填 NAS 实际地址。
+3. 点击“打开 QQ 浏览器官方登录”，手动用微信扫码或电脑微信确认。
+4. 点击“立即推送”。读取 `chrome.account.getLoginInfo` 的微信模式（`mode=3`）和 `ctk/openid`，以及 `qb_external` 或 `chrome.qbExternal` 的机器 ID、GUID、Q16、版本。
+5. “换票已保存”只代表保存票据，仍需实际小程序取码验收。当前真实全流程与重启／延时恢复尚未完成验收。
+
+更新代码后在扩展管理页点击“重新加载”，再刷新选项页。只按 F5 不一定更新 service worker；已有官方登录无需重扫。
+
+## 限制与持久化
+
+- 机器 ID 必须来自官方原生接口；GUID 按官方允许为空。不猜测 token 别名，不用 openid 或随机值冒充设备。
+- 提示机器标识缺失时，说明当前上下文未取得原生值。浏览器已登录不代表该 API 必然可用，请保留错误提示，不反复重扫。
+- 安装、浏览器启动及每 30 分钟尝试转发当前 ctk。浏览器负责维护登录态；扩展没有服务器 OAuth 刷新，不保证自动自愈或长期保活。
+- 扩展存储服务地址、协议令牌、设备参数与状态，不存储 ctk。服务端凭据数据库仍是私有数据。
+- 普通 Chrome/Edge 没有这些 QQ 私有接口；同名函数存在也不代表能返回有效值。
+
+调用依据与验证范围见[复核记录](../../docs/channel-login-persistence-20261108.md)。

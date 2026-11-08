@@ -63,6 +63,7 @@ type WmpfSession struct {
 	Session          AppSession
 	AutoAuth         autoAuthState
 	PSK              pskEntry
+	RefreshPSK       pskEntry
 	ShortlinkTargets []Target
 	CreatedAt        time.Time
 	TCPProxy         string
@@ -557,7 +558,7 @@ func (p *Pool) loginTarget(ctx context.Context, target Target, loginBuffer, tcpP
 		return WmpfSession{}, fmt.Errorf("login finished but no access PSK was issued")
 	}
 	return WmpfSession{
-		Session: appSess, AutoAuth: autoAuth, PSK: psk, CreatedAt: time.Now(),
+		Session: appSess, AutoAuth: autoAuth, PSK: psk, RefreshPSK: pickRefreshPSK(psks), CreatedAt: time.Now(),
 		TCPProxy: tcpProxy, FallbackDirect: fallbackDirect, Device: device,
 	}, nil
 }
@@ -596,7 +597,7 @@ func sessionExpiresAt(st WmpfSession, ttl time.Duration) int64 {
 }
 
 func (st WmpfSession) toBlob() map[string]any {
-	return map[string]any{
+	blob := map[string]any{
 		"session": map[string]any{
 			"send_key":   encBytes(st.Session.SendKey),
 			"recv_key":   encBytes(st.Session.RecvKey),
@@ -614,6 +615,10 @@ func (st WmpfSession) toBlob() map[string]any {
 		"shortlink_targets": targetsToAny(st.ShortlinkTargets),
 		"tcp_proxy":         st.TCPProxy,
 	}
+	if st.RefreshPSK.PSKType == 2 {
+		blob["refresh_psk_entry"] = st.RefreshPSK
+	}
+	return blob
 }
 
 func sessionFromBlob(blob map[string]any) (WmpfSession, error) {
@@ -649,6 +654,13 @@ func sessionFromBlob(blob map[string]any) (WmpfSession, error) {
 	if am, ok := blob["native_autoauth"].(map[string]any); ok {
 		st.AutoAuth = autoAuthState{Device: decBytes(am["device"]), Key: decBytes(am["key"]),
 			EncKey: decBytes(am["enc_key"]), AttemptedAt: int64FromAny(am["attempted_at"])}
+	}
+	if rm, ok := blob["refresh_psk_entry"].(map[string]any); ok {
+		st.RefreshPSK = pskEntry{
+			PSKType:      int(int64FromAny(rm["psk_type"])),
+			PreSharedKey: stringAny(rm["pre_shared_key"]), TicketEntry: stringAny(rm["ticket_entry"]),
+			Lifetime: int64FromAny(rm["lifetime"]), ExpiredAt: int64FromAny(rm["expired_at"]),
+		}
 	}
 	if len(st.ShortlinkTargets) == 0 {
 		st.ShortlinkTargets = append([]Target(nil), shortlinkFallbackTargets...)

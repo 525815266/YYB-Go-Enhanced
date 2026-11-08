@@ -956,8 +956,8 @@
   </style>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
   <link rel="stylesheet" href="/static/css/multi-channel.css?v=051">
-  <script src="/static/js/scan-channel.js?v=050"></script>
-  <script src="/static/js/fleet-ui.js?v=050"></script>
+  <script src="/static/js/scan-channel.js?v=093"></script>
+  <script src="/static/js/fleet-ui.js?v=093"></script>
 </head>
 <body>
   <div class="app">
@@ -1458,6 +1458,7 @@
     function lifecycleMarkup(account) {
       if (account.status === "expired") return '<span class="account-lifecycle lifecycle-inactive">保活已停止 · 重新扫码后恢复</span>';
       if (account.status === "session_only") return '<span class="account-lifecycle lifecycle-inactive">授权已失效 · 仅尝试原会话，请重新扫码</span>';
+      if (['qbbrowser', 'ldplayer'].includes(account.scan_product)) return '<span class="account-lifecycle lifecycle-inactive">有效期未知 · 自动续期尚未验证，以实际取码结果为准</span>';
       const now = Math.floor(Date.now() / 1000);
       if(account.scan_product==='pcmgr'){
 		const due=Number(account.credential_expires_at||0),remaining=Math.max(0,due-now),interval=Number(account.credential_expires_in||86400),ratio=Math.min(1,remaining/interval);
@@ -1474,8 +1475,8 @@
       const scanClass = !observed || scanRemaining <= 0 ? "expired" : scanRemaining < 5 * 86400 ? "warn" : "scan";
       const autoClass = !expiresAt || autoRemaining <= 0 ? "expired" : autoRemaining < 15 * 60 ? "warn" : "";
       return `<span class="account-lifecycle" aria-label="账号有效期">
-        <span class="lifecycle-row ${autoClass}"><span class="lifecycle-label">保活凭据</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(autoRatio / 100)};width:${autoRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${expiresAt ? lifecycleDuration(autoRemaining) : "未记录"}</span></span>
-        <span class="lifecycle-row ${scanClass}"><span class="lifecycle-label">扫码 30天</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(scanRatio / 100)};width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-row ${autoClass}"><span class="lifecycle-label">${account.scan_product === 'gameassist' ? '刷新计划' : '保活凭据'}</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(autoRatio / 100)};width:${autoRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${expiresAt ? lifecycleDuration(autoRemaining) : "未记录"}</span></span>
+        <span class="lifecycle-row ${scanClass}" title="扫码后30天的重新授权提醒，不保证服务端在此期间持续可用"><span class="lifecycle-label">重扫提醒</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(scanRatio / 100)};width:${scanRatio.toFixed(1)}%"></span></span><span class="lifecycle-value">${observed ? lifecycleDuration(scanRemaining) : "未记录"}</span></span>
         <span class="lifecycle-note">${observed ? `扫码 ${formatChecked(observed)}` : "扫码时间未记录"}${account.credential_expires_at ? ` · 到期 ${formatChecked(account.credential_expires_at)}` : ""}</span>
       </span>`;
     }
@@ -1643,7 +1644,7 @@
               ${pendingConfirmation
                 ? `<button type="button" class="account-status account-status-toggle ${cls}" aria-expanded="false" aria-controls="confirm-account-${account.id}" aria-label="确认账号 ${escapeHTML(number)} 的状态"><span class="status-dot"></span>${status}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>`
                 : `<span class="account-status ${cls}" title="${account.status === "session_only" ? "授权已拒绝，原会话可尝试使用，不代表保活恢复" : account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>`}
-              <span class="scan-channel-badge" title="扫码渠道：${scanChannelName(account.scan_product)}" aria-label="${scanChannelName(account.scan_product)} 渠道"><img alt="" src="/static/images/scan-${scanChannelBadge(account.scan_product)}.png"></span>
+              <span class="scan-channel-badge" title="扫码渠道：${scanChannelName(account.scan_product)}" aria-label="${scanChannelName(account.scan_product)} 渠道"><img alt="" src="/static/images/scan-${scanChannelBadge(account.scan_product)}.png?v=093"></span>
               </span>
             </span>
             <span class="account-meta" title="最后检查 ${formatChecked(account.last_checked_at)}">ID ${escapeHTML(number)} · ${escapeHTML(proxy)}${!isExpired && state.proxyConfigs.get(String(account.id))?.keepalive_supported === false ? " · 不可保活" : ""}</span>

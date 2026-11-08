@@ -12,6 +12,33 @@ import (
 
 type loginBufferRoundTripFunc func(*http.Request) (*http.Response, error)
 
+func TestUnsupportedRenewalDoesNotProbeOrExtendLifetime(t *testing.T) {
+	client := NewLoginBufferClientWithHTTPClient(&http.Client{Transport: loginBufferRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("unsupported renewal must not send a probe")
+		return nil, errors.New("unexpected probe")
+	})}, time.Second)
+	for _, provider := range []string{"qbbrowser", "ldplayer"} {
+		_, err := client.RefreshCredentials(context.Background(), LoginBufferCredentials{Provider: provider})
+		if !errors.Is(err, ErrCredentialRenewalUnsupported) {
+			t.Fatalf("%s: %v", provider, err)
+		}
+	}
+}
+
+func TestLegacyGameAssistRefreshSchedule(t *testing.T) {
+	issued := time.Now().Add(-3 * time.Hour).Unix()
+	c := CredentialsFromMap(map[string]any{"provider": "gameassist", "expires_in": 30 * 86400, "expires_at": issued + 30*86400})
+	if c.ExpiresIn != 7200 || c.ExpiresAt != issued+7200 {
+		t.Fatal("legacy scan window still delays access refresh")
+	}
+	for _, source := range []string{"upstream", "fallback"} {
+		c = CredentialsFromMap(map[string]any{"provider": "gameassist", "expiry_source": source, "expires_in": 30 * 86400, "expires_at": issued + 30*86400})
+		if c.ExpiresIn != 30*86400 || c.ExpiresAt != issued+30*86400 || c.ToMap()["expiry_source"] != source {
+			t.Fatal("explicit expiry source was lost or treated as a legacy placeholder")
+		}
+	}
+}
+
 func (f loginBufferRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }

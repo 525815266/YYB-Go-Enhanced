@@ -21,6 +21,9 @@ import (
 
 var ErrMissingRefreshToken = errors.New("missing refresh token")
 
+// ErrCredentialRenewalUnsupported must not be recorded as a successful renewal.
+var ErrCredentialRenewalUnsupported = errors.New("channel has no verified credential renewal; existing protocol session may still be usable")
+
 type RefreshRejectedError struct {
 	Code      int
 	Message   string
@@ -76,6 +79,7 @@ type LoginBufferCredentials struct {
 	Nickname               string                `json:"nickname"`
 	ExpiresAt              int64                 `json:"expires_at"`
 	ExpiresIn              int64                 `json:"expires_in"`
+	ExpirySource           string                `json:"expiry_source,omitempty"`
 }
 
 func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
@@ -85,6 +89,18 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 		if refreshedAt := int64FromMap(m, "refresh_refreshed_at"); refreshedAt > 0 {
 			expiresAt = refreshedAt + expiresIn
 		}
+	}
+	expirySource := stringFromMap(m, "expiry_source")
+	if stringFromMap(m, "provider") == "gameassist" && expirySource == "" && expiresIn == 30*86400 && expiresAt > 0 {
+		// Older releases confused the scan window with the access refresh
+		// schedule. Correct that default in memory without renewing the token
+		// or moving its original issuance time forward.
+		expiresAt = expiresAt - expiresIn + 7200
+		expiresIn = 7200
+		expirySource = "legacy_schedule"
+	}
+	if provider := stringFromMap(m, "provider"); provider == "qbbrowser" || provider == "ldplayer" {
+		expiresIn, expiresAt = 0, 0
 	}
 	var pc pcmgr.Credentials
 	if value, ok := m["pcmgr"]; ok {
@@ -107,10 +123,15 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 		Nickname:               stringFromMap(m, "nickname"),
 		ExpiresAt:              expiresAt,
 		ExpiresIn:              expiresIn,
+		ExpirySource:           expirySource,
 	}
 }
 
 func (c LoginBufferCredentials) ToMap() map[string]any {
+	expiresIn := defaultInt64(c.ExpiresIn, 7200)
+	if c.Provider == "qbbrowser" || c.Provider == "ldplayer" {
+		c.ExpiresAt, expiresIn = 0, 0
+	}
 	result := map[string]any{
 		"openid":                    c.OpenID,
 		"accesstoken":               c.AccessToken,
@@ -120,11 +141,14 @@ func (c LoginBufferCredentials) ToMap() map[string]any {
 		"logintype":                 defaultString(c.LoginType, "WX"),
 		"nickname":                  c.Nickname,
 		"expires_at":                c.ExpiresAt,
-		"expires_in":                defaultInt64(c.ExpiresIn, 7200),
+		"expires_in":                expiresIn,
 		"refresh_refreshed_at":      time.Now().Unix(),
 	}
 	if c.Provider != "" {
 		result["provider"] = c.Provider
+	}
+	if c.ExpirySource != "" {
+		result["expiry_source"] = c.ExpirySource
 	}
 	if c.Provider == "pcmgr" {
 		result["pcmgr"] = c.PCMgr
@@ -256,24 +280,8 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		creds.ExpiresIn = creds.ExpiresAt - pc.RenewedAt
 		return creds, nil
 	}
-	if creds.Provider == "qbbrowser" {
-		// The companion extension rotates the browser token; a refresh here
-		// is a liveness probe through the buffer gateway with the latest
-		// pushed token.
-		if _, err := qbbrowser.FetchBuffer(ctx, c.httpClient, creds.QBBrowser); err != nil {
-			return LoginBufferCredentials{}, err
-		}
-		creds.ExpiresAt = time.Now().Unix() + 86400
-		creds.ExpiresIn = 86400
-		return creds, nil
-	}
-	if creds.Provider == "ldplayer" {
-		// 雷电渠道没有 refresh 接口——保活只滑窗不实际刷新上游。
-		// 实际寿命由上游撤销决定（PR #144 实测最短约 20 分钟），此处 7 天
-		// 是 UI 展示的占位值，真实存活由 get_code 结果暴露。
-		creds.ExpiresAt = time.Now().Unix() + 7 * 86400
-		creds.ExpiresIn = 7 * 86400
-		return creds, nil
+	if creds.Provider == "qbbrowser" || creds.Provider == "ldplayer" {
+		return LoginBufferCredentials{}, ErrCredentialRenewalUnsupported
 	}
 	if creds.Provider != "" && creds.Provider != "appstore" && creds.Provider != "gameassist" && creds.Provider != "qbbrowser" {
 		return LoginBufferCredentials{}, fmt.Errorf("unsupported credential provider %q", creds.Provider)
@@ -372,8 +380,13 @@ func (c *LoginBufferClient) requestCredentials(ctx context.Context, creds LoginB
 	if loginType := firstString(info, "login_type", "loginType"); loginType != "" && loginType != defaultString(creds.LoginType, "WX") {
 		return LoginBufferCredentials{}, fmt.Errorf("credential response login type mismatch")
 	}
-	expiresIn := defaultInt64(firstInt64(info, "expires_in", "expiresIn"), 7200)
+	expiresIn := firstInt64(info, "expires_in", "expiresIn")
 	refreshed := creds
+	refreshed.ExpirySource = "upstream"
+	if expiresIn <= 0 {
+		expiresIn = 7200
+		refreshed.ExpirySource = "fallback"
+	}
 	refreshed.RefreshBusinessID = business
 	refreshed.LoginType = defaultString(creds.LoginType, "WX")
 	refreshed.AccessToken = firstString(info, "access_token", "accessToken")

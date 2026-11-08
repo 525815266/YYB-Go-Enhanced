@@ -137,14 +137,13 @@ func OAuthURL(product string) (string, error) {
 	case "pcmgr":
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{"appid": {pcmgr.HostAppID}, "redirect_uri": {"https://security.guanjia.qq.com/login"}, "response_type": {"code"}, "scope": {"snsapi_login,snsapi_runtime_pcsdk"}, "state": {"233"}, "self_redirect": {"true"}}.Encode(), nil
 	case "qbbrowser":
-		// QQ Browser channel uses one-click login (bridge detection) instead
-		// of QR scanning, but a QR fallback is still useful when the bridge
-		// is not available.
+		// Official browser OAuth entry only. Its native WUP WXAuth/QbAuth
+		// exchange is required before a runtime login buffer can be issued.
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{
 			"appid":         {"wx0dbc1ae97f156c38"},
-			"redirect_uri":  {"https://kde.qq.com/callback"},
+			"redirect_uri":  {"https://go.browser.qq.com/wx-login.html"},
 			"response_type": {"code"},
-			"scope":         {"snsapi_login,snsapi_runtime_pcsdk"},
+			"scope":         {"snsapi_login"},
 			"state":         {"qbbrowser"},
 			"self_redirect": {"true"},
 		}.Encode(), nil
@@ -182,7 +181,7 @@ func OAuthURL(product string) (string, error) {
 
 func (c *Client) CreateSessionForProduct(ctx context.Context, product string) (*Session, error) {
 	if product == "qbbrowser" {
-		return nil, errors.New("QQ浏览器渠道使用一键登录（页面自动检测），不支持二维码扫码")
+		return nil, errors.New("QQ浏览器独立扫码换票尚未接通，请在官方浏览器中登录微信，再用具备原生接口的桥接环境导入")
 	}
 	oauth, err := OAuthURL(product)
 	if err != nil {
@@ -362,8 +361,7 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 			}
 			sess.Credentials = &protocol.LoginBufferCredentials{
 				Provider: "ldplayer", OpenID: openid, LoginType: "WX",
-				ExpiresAt: time.Now().Add(7 * 24 * time.Hour).Unix(),
-				ExpiresIn: 7 * 86400, RefreshTokenObservedAt: time.Now().Unix(),
+				RefreshTokenObservedAt: time.Now().Unix(),
 			}
 		}
 		buffer := sess.LoginBuffer
@@ -376,13 +374,12 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 			if err != nil {
 				return protocol.LoginBufferResult{}, err
 			}
-			// RefreshBusinessID stays empty: refresh follows the default pc_yyb
-			// main route with the -109 check-login fallback, like appstore QR
-			// credentials, until the syzs gateway proves otherwise.
+			// The provider routes later refresh/check-login to syzslogin.
 			sess.Credentials = &protocol.LoginBufferCredentials{
 				Provider: "gameassist", OpenID: ga.OpenID, AccessToken: ga.AccessToken, RefreshToken: ga.RefreshToken,
 				LoginType: defaultString(ga.LoginType, "WX"), Nickname: ga.Nickname,
 				ExpiresAt: ga.ExpiresAt, ExpiresIn: ga.ExpiresIn, RefreshTokenObservedAt: time.Now().Unix(),
+				ExpirySource: ga.ExpirySource,
 			}
 		}
 		buffer, err := c.loginBuffers.FetchLoginBuffer(ctx, *sess.Credentials)

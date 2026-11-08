@@ -1163,6 +1163,15 @@ func (a *WechatAccount) Public() AccountPublic {
 			credentialExpiresAtValue = refreshedAt + credentialExpiresIn
 		}
 	}
+	if product == "gameassist" && stringCredential(a.Credentials, "expiry_source") == "" && credentialExpiresIn == 30*86400 && credentialExpiresAtValue > 0 {
+		credentialExpiresAtValue = credentialExpiresAtValue - credentialExpiresIn + 7200
+		credentialExpiresIn = 7200
+	}
+	if product == "qbbrowser" || product == "ldplayer" {
+		// Previous versions stored fabricated one/seven-day placeholders.
+		credentialExpiresAtValue, credentialExpiresIn = 0, 0
+		refreshTokenObservedAt = nil
+	}
 	if credentialExpiresAtValue > 0 {
 		expiresAt := credentialExpiresAtValue
 		credentialExpiresAt = &expiresAt

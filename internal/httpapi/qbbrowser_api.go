@@ -22,8 +22,10 @@ import (
 type qbTokenPush struct {
 	AccessToken string `json:"access_token"`
 	UserID      string `json:"user_id"`
+	OpenID      string `json:"openid"`
 	GUID        string `json:"guid"`
 	Nickname    string `json:"nickname"`
+	QBRNCookie  string `json:"qbrn_cookie"`
 }
 
 func (a *App) handleQBBrowserToken(w http.ResponseWriter, r *http.Request) {
@@ -39,8 +41,10 @@ func (a *App) handleQBBrowserToken(w http.ResponseWriter, r *http.Request) {
 	creds := qbbrowser.Credentials{
 		QBAccessToken: strings.TrimSpace(body.AccessToken),
 		UserID:        strings.TrimSpace(body.UserID),
+		OpenID:        strings.TrimSpace(body.OpenID),
 		GUID:          strings.TrimSpace(body.GUID),
 		Nickname:      strings.TrimSpace(body.Nickname),
+		QBRNCookie:    strings.TrimSpace(body.QBRNCookie),
 	}
 	if err := creds.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -64,10 +68,8 @@ func (a *App) handleQBBrowserToken(w http.ResponseWriter, r *http.Request) {
 	status := "alive"
 	credMap := protocol.LoginBufferCredentials{
 		Provider: "qbbrowser", OpenID: openID,
-		QBBrowser:        creds,
-		LoginType:        "WX",
-		ExpiresAt:        time.Now().Unix() + 86400,
-		ExpiresIn:        86400,
+		QBBrowser:              creds,
+		LoginType:              "WX",
 		RefreshTokenObservedAt: time.Now().Unix(),
 	}.ToMap()
 	acc, err := a.db.UpsertAccount(ctx, openID, buffer, nil, nil, nil, nil, credMap, &status)
@@ -78,4 +80,3 @@ func (a *App) handleQBBrowserToken(w http.ResponseWriter, r *http.Request) {
 	a.events.Emit("management.completed", eventlog.Fields{Route: "/api/qbbrowser/token", Method: http.MethodPost})
 	writeJSON(w, http.StatusOK, acc.Public())
 }
-

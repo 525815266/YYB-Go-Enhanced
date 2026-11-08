@@ -11,6 +11,35 @@ import (
 	"yyb_go/internal/store"
 )
 
+func TestRefreshPSKSurvivesDatabaseReload(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "refresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	acc, err := db.UpsertAccount(ctx, "synthetic-refresh-psk", "", nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := syntheticNativeSession()
+	fresh.RefreshPSK = pskEntry{PSKType: 2, PreSharedKey: "aabb", TicketEntry: "ccdd", Lifetime: 3600, ExpiredAt: time.Now().Unix() + 3600}
+	if err := db.PutSessionForAccount(ctx, acc, fresh.Session.UIN, fresh.toBlob(), fresh.PSK.ExpiredAt, ""); err != nil {
+		t.Fatal(err)
+	}
+	row, err := db.GetSessionForRecovery(ctx, acc.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := sessionFromBlob(row.SessionBlob)
+	if err != nil || got.RefreshPSK != fresh.RefreshPSK || got.PSK != fresh.PSK {
+		t.Fatal("refresh/access PSK lost or interchanged during reload")
+	}
+	if _, ok := pickAccessPSK([]pskEntry{fresh.RefreshPSK}); ok {
+		t.Fatal("refresh PSK selected for application traffic")
+	}
+}
+
 // A fresh login uses an int64 directly. All later JSAPI calls reload its JSON
 // cache. They must send exactly the same identity, including the low 32 bits
 // carried in both the inner and outer JSAPI session info.

@@ -256,6 +256,12 @@ func (a *App) refreshAccountOnce(ctx context.Context, acc *store.WechatAccount, 
 	}
 
 	creds := protocol.CredentialsFromMap(latest.Credentials)
+	if creds.Provider == "qbbrowser" || creds.Provider == "ldplayer" {
+		if force {
+			return accountStatus(latest), false, protocol.ErrCredentialRenewalUnsupported
+		}
+		return accountStatus(latest), false, nil
+	}
 	refreshAhead, err := a.accountRefreshAhead(ctx, latest.ID)
 	if err != nil {
 		return accountStatus(latest), false, err
@@ -489,6 +495,9 @@ func (a *App) fetchUserInfoWithProxy(ctx context.Context, creds protocol.LoginBu
 }
 
 func credentialsDueForRefresh(creds protocol.LoginBufferCredentials, now time.Time, ahead time.Duration) bool {
+	if creds.Provider == "qbbrowser" || creds.Provider == "ldplayer" {
+		return false
+	}
 	if creds.Provider == "pcmgr" {
 		// This is the native key's next renewal schedule, not an OAuth expiry.
 		// Applying the OAuth lead time would repeatedly rotate short intervals.
