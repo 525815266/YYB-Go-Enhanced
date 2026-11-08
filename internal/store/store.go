@@ -13,8 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"yyb_go/internal/qbbrowser"
+
 	_ "modernc.org/sqlite"
 )
+
+var ErrQQBrowserBridgeDowngrade = errors.New("QQBrowser standalone authorization cannot be replaced by a browser token push")
 
 const schema = `
 CREATE TABLE IF NOT EXISTS wechat_accounts (
@@ -474,8 +478,22 @@ func (db *DB) UpsertAccount(ctx context.Context, openid, loginBuffer string, ali
 	// Reuse the lowest free account slot. This keeps a single account at ID 1
 	// after it is deleted and scanned again, while preserving existing IDs.
 	var existingID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM wechat_accounts WHERE openid=?", openid).Scan(&existingID)
+	var previousCredentials sql.NullString
+	err = tx.QueryRowContext(ctx, "SELECT id,credentials FROM wechat_accounts WHERE openid=?", openid).Scan(&existingID, &previousCredentials)
 	if err == nil {
+		if credentials["provider"] == "qbbrowser" {
+			var previous, incoming struct {
+				Provider string                `json:"provider"`
+				QQ       qbbrowser.Credentials `json:"qbbrowser"`
+			}
+			_ = json.Unmarshal([]byte(previousCredentials.String), &previous)
+			_ = json.Unmarshal([]byte(credJSON.String), &incoming)
+			// An extension left running must not erase the standalone refresh
+			// chain. Check inside the write transaction to cover concurrent scans.
+			if previous.Provider == "qbbrowser" && previous.QQ.CanRefresh() && !incoming.QQ.CanRefresh() {
+				return nil, ErrQQBrowserBridgeDowngrade
+			}
+		}
 		_, err = tx.ExecContext(ctx,
 			`UPDATE wechat_accounts SET login_buffer=?, alias=?, nickname=?, avatar=?, user_info=?, credentials=?, status=?, updated_at=? WHERE id=?`,
 			loginBuffer, nullableString(alias), nullableString(nickname), nullableString(avatar),
@@ -1167,7 +1185,19 @@ func (a *WechatAccount) Public() AccountPublic {
 		credentialExpiresAtValue = credentialExpiresAtValue - credentialExpiresIn + 7200
 		credentialExpiresIn = 7200
 	}
-	if product == "qbbrowser" || product == "ldplayer" {
+	if product == "qbbrowser" {
+		var qb qbbrowser.Credentials
+		raw, _ := json.Marshal(a.Credentials["qbbrowser"])
+		_ = json.Unmarshal(raw, &qb)
+		// Native WXAuth has an upstream expiry; historical ctk-only imports
+		// do not. Neither has a verified 30-day authorization lifetime.
+		credentialExpiresAtValue, credentialExpiresIn = int64Credential(a.Credentials, "expires_at"), int64Credential(a.Credentials, "expires_in")
+		if !qb.CanRefresh() {
+			credentialExpiresAtValue, credentialExpiresIn = 0, 0
+		}
+		refreshTokenObservedAt, rescanRecommended = nil, a.SessionOnly()
+	}
+	if product == "ldplayer" {
 		// Previous versions stored fabricated one/seven-day placeholders.
 		credentialExpiresAtValue, credentialExpiresIn = 0, 0
 		refreshTokenObservedAt = nil

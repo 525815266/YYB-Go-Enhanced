@@ -956,7 +956,7 @@
   </style>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
   <link rel="stylesheet" href="/static/css/multi-channel.css?v=051">
-  <script src="/static/js/scan-channel.js?v=093"></script>
+  <script src="/static/js/scan-channel.js?v=094"></script>
   <script src="/static/js/fleet-ui.js?v=093"></script>
 </head>
 <body>
@@ -1458,8 +1458,12 @@
     function lifecycleMarkup(account) {
       if (account.status === "expired") return '<span class="account-lifecycle lifecycle-inactive">保活已停止 · 重新扫码后恢复</span>';
       if (account.status === "session_only") return '<span class="account-lifecycle lifecycle-inactive">授权已失效 · 仅尝试原会话，请重新扫码</span>';
-      if (['qbbrowser', 'ldplayer'].includes(account.scan_product)) return '<span class="account-lifecycle lifecycle-inactive">有效期未知 · 自动续期尚未验证，以实际取码结果为准</span>';
+      if (account.scan_product === 'ldplayer' || account.scan_product === 'qbbrowser' && !account.credential_expires_at) return '<span class="account-lifecycle lifecycle-inactive">有效期未知 · 自动续期尚未验证，以实际取码结果为准</span>';
       const now = Math.floor(Date.now() / 1000);
+      if(account.scan_product==='qbbrowser'){
+        const due=Number(account.credential_expires_at),remaining=Math.max(0,due-now),interval=Number(account.credential_expires_in||due-now),ratio=interval>0?Math.min(1,remaining/interval):0;
+        return `<span class="account-lifecycle" aria-label="QQ 浏览器凭据有效期"><span class="lifecycle-row"><span class="lifecycle-label">访问凭据</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(ratio)};width:${(ratio*100).toFixed(1)}%"></span></span><span class="lifecycle-value">${remaining?lifecycleDuration(remaining):'待刷新'}</span></span><span class="lifecycle-note">按上游期限刷新 · 长期寿命待验证</span></span>`;
+      }
       if(account.scan_product==='pcmgr'){
 		const due=Number(account.credential_expires_at||0),remaining=Math.max(0,due-now),interval=Number(account.credential_expires_in||86400),ratio=Math.min(1,remaining/interval);
 		return `<span class="account-lifecycle" aria-label="PCMgr 续期计划"><span class="lifecycle-row" title="计划执行续期的时间，不代表服务端真实有效期"><span class="lifecycle-label">下次续期</span><span class="lifecycle-track"><span style="--lifecycle-color:${lifecycleColor(ratio)};width:${(ratio*100).toFixed(1)}%"></span></span><span class="lifecycle-value">${due?remaining?lifecycleDuration(remaining):'待续期':'未记录'}</span></span><span class="lifecycle-note">PCMgr · 续期计划，非实际有效期</span></span>`;

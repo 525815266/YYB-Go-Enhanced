@@ -99,7 +99,7 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 		expiresIn = 7200
 		expirySource = "legacy_schedule"
 	}
-	if provider := stringFromMap(m, "provider"); provider == "qbbrowser" || provider == "ldplayer" {
+	if provider := stringFromMap(m, "provider"); provider == "ldplayer" {
 		expiresIn, expiresAt = 0, 0
 	}
 	var pc pcmgr.Credentials
@@ -111,6 +111,14 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 	if value, ok := m["qbbrowser"]; ok {
 		raw, _ := json.Marshal(value)
 		_ = json.Unmarshal(raw, &qb)
+	}
+	if stringFromMap(m, "provider") == "qbbrowser" {
+		// Only a native WXAuth response supplies a usable refresh chain and
+		// an upstream schedule. Browser-only ctk imports still have no expiry.
+		expiresIn, expiresAt = int64FromMap(m, "expires_in"), int64FromMap(m, "expires_at")
+		if !qb.CanRefresh() {
+			expiresIn, expiresAt = 0, 0
+		}
 	}
 	return LoginBufferCredentials{
 		Provider: stringFromMap(m, "provider"), PCMgr: pc, QBBrowser: qb,
@@ -129,8 +137,10 @@ func CredentialsFromMap(m map[string]any) LoginBufferCredentials {
 
 func (c LoginBufferCredentials) ToMap() map[string]any {
 	expiresIn := defaultInt64(c.ExpiresIn, 7200)
-	if c.Provider == "qbbrowser" || c.Provider == "ldplayer" {
+	if c.Provider == "ldplayer" || c.Provider == "qbbrowser" && !c.QBBrowser.CanRefresh() {
 		c.ExpiresAt, expiresIn = 0, 0
+	} else if c.Provider == "qbbrowser" {
+		expiresIn = c.ExpiresIn
 	}
 	result := map[string]any{
 		"openid":                    c.OpenID,
@@ -176,7 +186,7 @@ func (c LoginBufferCredentials) Expired(skew time.Duration) bool {
 		return c.PCMgr.Validate() != nil
 	}
 	if c.Provider == "qbbrowser" {
-		return c.QBBrowser.Validate() != nil
+		return c.QBBrowser.Validate() != nil || c.QBBrowser.CanRefresh() && c.ExpiresAt > 0 && time.Now().Add(skew).Unix() >= c.ExpiresAt
 	}
 	if c.Provider == "ldplayer" {
 		return false // 雷电渠道由上游撤销决定，无本地过期语义
@@ -278,6 +288,28 @@ func (c *LoginBufferClient) RefreshCredentials(ctx context.Context, creds LoginB
 		creds.PCMgr = pc
 		creds.ExpiresAt = pc.NextRenewAt()
 		creds.ExpiresIn = creds.ExpiresAt - pc.RenewedAt
+		return creds, nil
+	}
+	if creds.Provider == "qbbrowser" && creds.QBBrowser.CanRefresh() {
+		result, err := qbbrowser.Refresh(ctx, c.httpClient, creds.QBBrowser)
+		if err != nil {
+			var rejected *qbbrowser.AuthError
+			if errors.As(err, &rejected) {
+				message := "QQBrowser WeChat refresh rejected"
+				if rejected.Reauthorize {
+					message = "invalid refresh_token; re-scan required"
+				}
+				return LoginBufferCredentials{}, &RefreshRejectedError{Code: int(rejected.Code), Message: message, Operation: "qbbrowser_wx_refresh"}
+			}
+			return LoginBufferCredentials{}, err
+		}
+		creds.QBBrowser = result.Credentials
+		creds.AccessToken, creds.RefreshToken = result.Credentials.QBAccessToken, result.Credentials.WXRefreshToken
+		creds.ExpiresIn, creds.ExpiresAt = result.ExpiresIn, 0
+		if result.ExpiresIn > 0 {
+			creds.ExpiresAt = time.Now().Unix() + result.ExpiresIn
+		}
+		creds.ExpirySource = "upstream"
 		return creds, nil
 	}
 	if creds.Provider == "qbbrowser" || creds.Provider == "ldplayer" {
@@ -424,7 +456,7 @@ func (c *LoginBufferClient) FetchUserInfo(ctx context.Context, creds LoginBuffer
 		return map[string]any{"nickname": creds.PCMgr.Nickname, "headimgurl": creds.PCMgr.Avatar, "unionid": creds.PCMgr.UnionID}, nil
 	}
 	if creds.Provider == "qbbrowser" {
-		return map[string]any{"nickname": creds.QBBrowser.Nickname, "openid": creds.OpenID}, nil
+		return map[string]any{"nickname": creds.QBBrowser.Nickname, "openid": creds.OpenID, "unionid": creds.QBBrowser.UnionID}, nil
 	}
 	if creds.Provider == "ldplayer" {
 		return map[string]any{"openid": creds.OpenID}, nil

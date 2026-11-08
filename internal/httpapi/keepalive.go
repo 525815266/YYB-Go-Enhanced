@@ -256,7 +256,7 @@ func (a *App) refreshAccountOnce(ctx context.Context, acc *store.WechatAccount, 
 	}
 
 	creds := protocol.CredentialsFromMap(latest.Credentials)
-	if creds.Provider == "qbbrowser" || creds.Provider == "ldplayer" {
+	if creds.Provider == "ldplayer" || creds.Provider == "qbbrowser" && !creds.QBBrowser.CanRefresh() {
 		if force {
 			return accountStatus(latest), false, protocol.ErrCredentialRenewalUnsupported
 		}
@@ -495,7 +495,7 @@ func (a *App) fetchUserInfoWithProxy(ctx context.Context, creds protocol.LoginBu
 }
 
 func credentialsDueForRefresh(creds protocol.LoginBufferCredentials, now time.Time, ahead time.Duration) bool {
-	if creds.Provider == "qbbrowser" || creds.Provider == "ldplayer" {
+	if creds.Provider == "ldplayer" || creds.Provider == "qbbrowser" && (!creds.QBBrowser.CanRefresh() || creds.ExpiresAt <= 0) {
 		return false
 	}
 	if creds.Provider == "pcmgr" {

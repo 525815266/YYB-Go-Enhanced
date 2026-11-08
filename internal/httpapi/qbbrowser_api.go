@@ -11,6 +11,7 @@ import (
 	"yyb_go/internal/eventlog"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/qbbrowser"
+	"yyb_go/internal/store"
 )
 
 // QQ Browser token push: the companion extension (extensions/qbbrowser-token)
@@ -74,6 +75,10 @@ func (a *App) handleQBBrowserToken(w http.ResponseWriter, r *http.Request) {
 	}.ToMap()
 	acc, err := a.db.UpsertAccount(ctx, openID, buffer, nil, nil, nil, nil, credMap, &status)
 	if err != nil {
+		if errors.Is(err, store.ErrQQBrowserBridgeDowngrade) {
+			writeError(w, http.StatusConflict, "此 QQ 账号已由独立扫码管理，请停用扩展推送，使用扫码页更新授权")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "保存账号失败: "+err.Error())
 		return
 	}
