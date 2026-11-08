@@ -5,13 +5,14 @@ window.AccountLinkMulti = (() => {
   const element = (tag, text, cls) => { const el = document.createElement(tag); if (text) el.textContent = text; if (cls) el.className = cls; return el; };
   function stop() {
     closed = true;
-    for (const card of cards) { clearTimeout(card.timer); card.controller?.abort(); card.button.disabled = true; if (!card.saved) card.qr.textContent = '授权已结束'; }
+    for (const card of cards) { clearTimeout(card.timer); card.controller?.abort(); card.button.disabled = true; card.identityButton.disabled = true; if (!card.saved) card.qr.textContent = '授权已结束'; }
     if ($('linkFinish')) $('linkFinish').disabled = true;
     if ($('linkMultiToggle')) $('linkMultiToggle').disabled = true;
     if ($('linkSingleProduct')) $('linkSingleProduct').disabled = true;
   }
   async function cancel(card) {
     ++card.generation; clearTimeout(card.timer); card.controller?.abort();
+    card.identityButton.hidden = true; card.confirmSameWechat = false;
     const sid = card.sid; card.sid = '';
     if (sid && !card.saved) await api(`/qr/${encodeURIComponent(sid)}/cancel`, {method:'POST',body:'{}'}).catch(() => {});
   }
@@ -52,22 +53,25 @@ window.AccountLinkMulti = (() => {
       if (['authorized','confirmed'].includes(result.status)) {
         card.saving = true; card.button.disabled = true; progress(); message(card, '正在核验微信身份并保存');
         if (++card.attempts > 12) throw new Error('保存超时，请重新生成二维码');
-        const account = await api(`/qr/${encodeURIComponent(card.sid)}/confirm`, {method:'POST',body:'{}',signal:card.controller.signal});
+        const account = await api(`/qr/${encodeURIComponent(card.sid)}/confirm`, {method:'POST',body:JSON.stringify({confirm_same_wechat:!!card.confirmSameWechat}),signal:card.controller.signal});
         if (closed || generation !== card.generation) return;
         completed.set(card.product, account.id); card.saved = true; card.root.dataset.state = 'done';
-        card.qr.textContent = '✓ 已保存'; message(card, `账号 ID ${account.id}`, 'ok'); card.button.hidden = true; retry = false;
+        card.qr.textContent = '✓ 已保存'; message(card, `已归入原账号组 · 渠道 ID ${account.id}`, 'ok'); card.button.hidden = true; card.identityButton.hidden = true; retry = false;
       } else if (result.status === 'scanned') message(card, '已扫码，请在手机上确认');
       else if (result.status === 'pending') message(card, '等待扫码');
       else { message(card, '二维码已过期，可重新生成', 'error'); card.qr.textContent = '二维码不可用'; retry = false; }
     } catch (error) {
       if (closed || generation !== card.generation || error.name === 'AbortError') return;
       message(card, error.message, 'error');
+      if (error.data?.identity_confirmation_required) {
+        card.identityButton.hidden = false; card.root.dataset.state = 'identity-confirmation';
+      }
       retry = (error.status === 409 && error.message.startsWith('buffer not ready') || error.status === 502) && card.attempts < 12;
       // A lost confirmation response is safe to retry: the server caches its result.
       if (!error.status && card.attempts > 0 && card.attempts < 12) retry = true;
       if (error.status === 410) expire(error.message);
     } finally {
-      card.saving = false; card.button.disabled = closed || card.saved; progress();
+      card.saving = false; card.button.disabled = closed || card.saved; card.identityButton.disabled = closed || card.saved; progress();
       if (retry && !closed && !finishing && generation === card.generation) card.timer = setTimeout(() => poll(card, generation), 1500);
     }
   }
@@ -83,8 +87,10 @@ window.AccountLinkMulti = (() => {
       const root = element('article', '', 'link-channel'); root.dataset.product = channel.id;
       const title = element('h2', channel.name), description = element('p', channel.description);
       const qr = element('div', '', 'qr'), state = element('div', '', 'state'), button = element('button', '重新生成二维码', 'btn'); button.type = 'button';
-      root.append(title,description,qr,state,button);
-      const card = {root,qr,state,button,product:channel.id,name:channel.name,generation:0,sid:'',saved:completed.has(channel.id)};
+      const identityButton = element('button', '确认使用同一微信，继续关联', 'btn'); identityButton.type = 'button'; identityButton.hidden = true;
+      root.append(title,description,qr,state,identityButton,button);
+      const card = {root,qr,state,button,identityButton,product:channel.id,name:channel.name,generation:0,sid:'',saved:completed.has(channel.id)};
+      identityButton.onclick = () => { if (closed || finishing || card.saving) return; card.confirmSameWechat = true; identityButton.disabled = true; poll(card,card.generation); };
       button.onclick = () => create(card);
       if (card.saved) { root.dataset.state = 'done'; qr.textContent = '✓ 已保存'; message(card, `账号 ID ${completed.get(channel.id)}`, 'ok'); button.hidden = true; }
       return card;
@@ -98,7 +104,7 @@ window.AccountLinkMulti = (() => {
     document.querySelector('.panel').classList.add('multi-link');
     document.querySelector('.scan-channel').classList.add('hidden'); $('qr').classList.add('hidden'); $('retry').classList.add('hidden');
     $('intro').textContent = meta.kind === 'update' ? `为${meta.target || '账号 ID '+meta.account_id}更新或补充渠道，保留原 ID。` : '首次扫码建立新账号，其余渠道须使用同一微信。';
-    $('linkHint').textContent = '每个渠道保存后立即生效。核验失败不会修改该渠道；已保存的授权会保留。点击“完成授权”关闭链接，未扫渠道无需补齐。';
+    $('linkHint').textContent = '各渠道请使用同一微信。无法跨渠道自动核验时，需你确认后才关联；同渠道身份冲突不会覆盖。新增渠道作为原账号的成员保存，对外仍使用原主账号 ID。';
     const host = $('linkMulti'); host.classList.remove('hidden');
     const toolbar = element('div', '', 'link-multi-toolbar'), label = element('label');
     const toggle = element('input'); toggle.type = 'checkbox'; toggle.id = 'linkMultiToggle'; toggle.checked = true; label.append(toggle, document.createTextNode('同时显示多渠道二维码'));

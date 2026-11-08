@@ -257,6 +257,16 @@ func (p *Pool) Invalidate(ctx context.Context, accountID int64, tcpProxy string)
 	return p.db.InvalidateSession(ctx, accountID, tcpProxy)
 }
 
+// PrepareSession consumes a newly confirmed scan ticket while it is fresh and
+// persists the protocol state. It requests no application code and makes no
+// claim about the server accepting future business calls or long-term renewal.
+func (p *Pool) PrepareSession(ctx context.Context, acc *store.WechatAccount, proxy string, fallback bool) error {
+	_, err := p.run(ctx, acc.LoginBuffer, acc.ID, proxy, fallback, func(context.Context, WmpfSession) (map[string]any, error) {
+		return nil, nil
+	}, acc)
+	return err
+}
+
 func (p *Pool) invalidateExpected(ctx context.Context, accountID int64, proxy string, expected ...*store.WechatAccount) error {
 	lock := p.lockFor(fmt.Sprintf("%d\x00%s", accountID, proxy))
 	if err := acquire(ctx, lock); err != nil {
@@ -290,7 +300,7 @@ func (p *Pool) run(ctx context.Context, loginBuffer string, accountID int64, tcp
 	if err == nil {
 		st.FallbackDirect = fallbackDirect
 		res, err := op(ctx, st)
-		if err == nil || tcpProxy == "" || !fallbackDirect || IsApplicationRequestRejection(err) || st.CachedOnly {
+		if err == nil || tcpProxy == "" || !fallbackDirect || IsApplicationRequestRejection(err) || IsBusinessResponseRejection(err) || errors.Is(err, ErrLoginCodeMalformed) || st.CachedOnly {
 			return res, err
 		}
 		_ = p.invalidateExpected(ctx, accountID, tcpProxy, expected...)

@@ -8,8 +8,9 @@ import (
 	"yyb_go/internal/store"
 )
 
-// Account enumeration is for scripts by default: one saved authorization per
-// explicit fleet. The console opts into the full list for channel management.
+// Account enumeration is for scripts by default: one callable primary per
+// explicit fleet. Its status summarizes the best visible member. Identity and
+// profile remain the primary's; the console opts into the real member records.
 // Selection uses stored status only; listing never refreshes or probes a login.
 func accountListForRequest(w http.ResponseWriter, r *http.Request, accounts []*store.WechatAccount) ([]*store.WechatAccount, bool) {
 	if value := r.URL.Query().Get("include_members"); value != "" {
@@ -27,22 +28,26 @@ func accountListForRequest(w http.ResponseWriter, r *http.Request, accounts []*s
 
 func accountRepresentatives(accounts []*store.WechatAccount) []*store.WechatAccount {
 	out := make([]*store.WechatAccount, 0, len(accounts))
-	groups := make(map[int64]int)
+	best := make(map[int64]*store.WechatAccount)
+	for _, account := range accounts {
+		root := fleetPrimaryOf(account)
+		if root <= 0 {
+			continue
+		}
+		if current := best[root]; current == nil || accountAvailabilityRank(account) < accountAvailabilityRank(current) {
+			best[root] = account
+		}
+	}
 	for _, account := range accounts {
 		root := fleetPrimaryOf(account)
 		if root <= 0 {
 			out = append(out, account)
-			continue
-		}
-		if index, exists := groups[root]; exists {
-			current := out[index]
-			rank, currentRank := accountAvailabilityRank(account), accountAvailabilityRank(current)
-			if rank < currentRank || rank == currentRank && (account.ID == root || current.ID != root && account.ID < current.ID) {
-				out[index] = account
-			}
-		} else {
-			groups[root] = len(out)
-			out = append(out, account)
+		} else if account.ID == root {
+			// Do not mutate the real primary's status or substitute a member's
+			// identity. If the primary is not visible, omit this group entirely.
+			publicView := *account
+			publicView.Status = best[root].Status
+			out = append(out, &publicView)
 		}
 	}
 	return out

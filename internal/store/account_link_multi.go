@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -34,7 +35,7 @@ func (db *DB) AccountLinkScans(ctx context.Context, id int64) ([]AccountLinkScan
 // snapshots prevent that verification from racing an account replacement.
 // claim runs before commit because the ownership store can be a separate DB.
 // The caller compensates a newly created claim if this transaction fails.
-func (db *DB) SaveAccountLinkScan(ctx context.Context, link *AccountLink, primary, target *WechatAccount, product, openID, buffer string, nickname, avatar *string, info, creds map[string]any, claim func(int64, bool) error) (*WechatAccount, error) {
+func (db *DB) SaveAccountLinkScan(ctx context.Context, link *AccountLink, primary, target *WechatAccount, product, openID, buffer string, nickname, avatar *string, info, creds map[string]any, claim func(int64, bool) error, confirmSameWechat ...bool) (*WechatAccount, error) {
 	if link == nil || !link.AllowMultiChannel || openID == "" || buffer == "" {
 		return nil, ErrAccountLinkChanged
 	}
@@ -112,18 +113,25 @@ AND allow_multi_channel=1 AND used_at IS NULL AND revoked_at IS NULL AND expires
 		if err != nil {
 			return nil, err
 		}
-		if !current.SameAuthorization(target) || current.OpenID != openID || primary == nil ||
+		replaceTicket := len(confirmSameWechat) > 0 && confirmSameWechat[0] && product == "ldplayer" && current.ScanProduct() == "ldplayer" &&
+			current.Status != nil && *current.Status == "expired" && strings.HasPrefix(current.OpenID, "ldplayer:") && strings.HasPrefix(openID, "ldplayer:")
+		if !current.SameAuthorization(target) || current.OpenID != openID && !replaceTicket || primary == nil ||
 			(current.ID != primary.ID && (current.FleetPrimaryID == nil || *current.FleetPrimaryID != primary.ID)) {
 			return nil, ErrAccountIdentityConflict
 		}
 		id = current.ID
-		_, err = tx.ExecContext(ctx, `UPDATE wechat_accounts SET login_buffer=?,credentials=?,nickname=?,alias=?,avatar=?,user_info=?,
-uin=NULL,status='alive',last_checked_at=?,updated_at=? WHERE id=?`, buffer, credJSON, nullableString(nickname), nullableString(nickname), nullableString(avatar), userJSON, now, now, id)
+		_, err = tx.ExecContext(ctx, `UPDATE wechat_accounts SET openid=?,login_buffer=?,credentials=?,nickname=?,alias=?,avatar=?,user_info=?,
+uin=NULL,status='alive',last_checked_at=?,updated_at=? WHERE id=?`, openID, buffer, credJSON, nullableString(nickname), nullableString(nickname), nullableString(avatar), userJSON, now, now, id)
 		if err != nil {
 			return nil, err
 		}
 		if _, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE wechat_account_id=?", id); err != nil {
 			return nil, err
+		}
+		if replaceTicket && id == link.AccountID {
+			if _, err = tx.ExecContext(ctx, "UPDATE account_links SET expected_openid=? WHERE id=?", openID, link.ID); err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		var duplicate int64

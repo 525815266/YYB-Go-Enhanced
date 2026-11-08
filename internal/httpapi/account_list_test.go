@@ -11,7 +11,7 @@ import (
 	"yyb_go/internal/store"
 )
 
-func TestAccountEnumerationSelectsOneUsableAuthorizationPerFleet(t *testing.T) {
+func TestAccountEnumerationReturnsPrimaryWithFleetAvailability(t *testing.T) {
 	root := int64(2)
 	account := func(id int64, status string) *store.WechatAccount {
 		return &store.WechatAccount{ID: id, FleetPrimaryID: &root, Status: &status}
@@ -20,18 +20,28 @@ func TestAccountEnumerationSelectsOneUsableAuthorizationPerFleet(t *testing.T) {
 		name    string
 		members []*store.WechatAccount
 		want    int64
+		status  string
 	}{
-		{"healthy primary preferred", []*store.WechatAccount{account(1, "alive"), account(2, "alive"), account(3, "alive")}, 2},
-		{"expired primary falls back", []*store.WechatAccount{account(2, "expired"), account(3, "alive")}, 3},
-		{"saved session before unverified", []*store.WechatAccount{account(2, "unknown"), account(3, "session_only")}, 3},
-		{"alive before saved session", []*store.WechatAccount{account(2, "session_only"), account(3, "alive")}, 3},
-		{"all offline retains primary", []*store.WechatAccount{account(1, "expired"), account(2, "expired")}, 2},
-		{"unseen primary not fetched", []*store.WechatAccount{account(4, "expired"), account(3, "alive")}, 3},
+		{"healthy primary", []*store.WechatAccount{account(1, "alive"), account(2, "alive"), account(3, "alive")}, 2, "alive"},
+		{"expired primary usable member", []*store.WechatAccount{account(2, "expired"), account(3, "alive")}, 2, "alive"},
+		{"saved session before unverified", []*store.WechatAccount{account(2, "unknown"), account(3, "session_only")}, 2, "session_only"},
+		{"alive before saved session", []*store.WechatAccount{account(2, "session_only"), account(3, "alive")}, 2, "alive"},
+		{"all offline", []*store.WechatAccount{account(1, "expired"), account(2, "expired")}, 2, "expired"},
+		{"unseen primary omitted", []*store.WechatAccount{account(4, "expired"), account(3, "alive")}, 0, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := accountRepresentatives(tc.members)
+			if tc.want == 0 {
+				if len(got) != 0 {
+					t.Fatal("exposed member without a visible primary")
+				}
+				return
+			}
 			if len(got) != 1 || got[0].ID != tc.want {
 				t.Fatalf("representatives=%v, want ID %d", got, tc.want)
+			}
+			if got[0].Status == nil || *got[0].Status != tc.status {
+				t.Fatal("incorrect fleet availability")
 			}
 			if got[0].FleetPrimaryID == nil || *got[0].FleetPrimaryID != root {
 				t.Fatal("returned authorization lost its original primary reference")
@@ -86,9 +96,10 @@ func TestAccountEnumerationOptInAndOwnerFiltering(t *testing.T) {
 		want   []int64
 		status int
 	}{
-		{"", owner, []int64{ids[1]}, 200},
+		{"", owner, []int64{ids[0]}, 200},
 		{"?include_members=1", owner, ids[:2], 200},
-		{"?include_members=false", owner, []int64{ids[1]}, 200},
+		{"?include_members=false", owner, []int64{ids[0]}, 200},
+		{"", other, []int64{}, 200},
 		{"?include_members=true", other, ids[2:], 200},
 		{"?include_members=invalid", owner, nil, 400},
 	} {
@@ -165,9 +176,13 @@ func TestIntegrationAccountEnumerationCount(t *testing.T) {
 		if len(reply.Data.Items) != tc.want || reply.Data.Count != tc.want {
 			t.Fatalf("%s: items=%d count=%d want %d", tc.query, len(reply.Data.Items), reply.Data.Count, tc.want)
 		}
-		if tc.want == 1 && (reply.Data.Items[0].ID == root || reply.Data.Items[0].Status != "alive") {
-			t.Fatal("integration did not return the usable member's real ID")
+		if tc.want == 1 && (reply.Data.Items[0].ID != root || reply.Data.Items[0].Status != "alive") {
+			t.Fatal("integration did not return the primary ID with group availability")
 		}
+	}
+	primary, _ := app.db.GetAccount(ctx, root)
+	if primary.Status == nil || *primary.Status != "expired" {
+		t.Fatal("enumeration mutated real primary status")
 	}
 }
 

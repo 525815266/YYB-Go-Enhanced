@@ -127,18 +127,19 @@ type App struct {
 	refreshCredentials func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
 	// oauthH5Invoke lets tests stub the web-authorize call behind the
 	// /wx/oauth auto-exchange; nil means the real /wx/h5code invoke.
-	oauthH5Invoke    wxappCall
-	checkLogin       func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
-	fetchLoginBuffer func(context.Context, protocol.LoginBufferCredentials) (string, error)
-	exchangeAuthCode func(context.Context, string) (protocol.LoginBufferResult, error)
-	fetchUserInfo    func(context.Context, protocol.LoginBufferCredentials) (map[string]any, error)
-	qinglong         *qingLongClient
-	auth             *auth.Store
-	notifier         *offlineNotifier
-	circuit          *circuitBreaker
-	appIDs           *appIDPolicy
-	dynamicAppIDs    *dynamicAppIDDeny
-	pacer            *accountPacer
+	oauthH5Invoke      wxappCall
+	checkLogin         func(context.Context, protocol.LoginBufferCredentials) (protocol.LoginBufferCredentials, error)
+	fetchLoginBuffer   func(context.Context, protocol.LoginBufferCredentials) (string, error)
+	exchangeAuthCode   func(context.Context, string) (protocol.LoginBufferResult, error)
+	fetchUserInfo      func(context.Context, protocol.LoginBufferCredentials) (map[string]any, error)
+	prepareScanSession func(context.Context, *store.WechatAccount, string, bool) error
+	qinglong           *qingLongClient
+	auth               *auth.Store
+	notifier           *offlineNotifier
+	circuit            *circuitBreaker
+	appIDs             *appIDPolicy
+	dynamicAppIDs      *dynamicAppIDDeny
+	pacer              *accountPacer
 
 	mu                sync.Mutex
 	qrSessions        map[string]*qrLoginSession
@@ -536,6 +537,7 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 	// Desktop-WeChat authorization is experimental and remains opt-in.
 	html := strings.ReplaceAll(string(data), "__YYB_PC_LOGIN_ENABLED__", fmt.Sprintf("%t", a.cfg.EnablePCLogin))
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(html))
 }
@@ -762,12 +764,16 @@ func (a *App) handleQR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "保存账号代理失败: "+err.Error())
 			return
 		}
+		dropAfterConfirm = true
+		if err := a.activateScannedAccount(r.Context(), acc); err != nil {
+			writeProtocolCallError(w, err)
+			return
+		}
 		if login.DeferPanelSync {
 			a.autoSyncAfterScanLater(acc, deferredPanelSyncDelay)
 		} else {
 			a.autoSyncAfterScan(acc)
 		}
-		dropAfterConfirm = true
 		writeJSON(w, http.StatusOK, acc.Public())
 	default:
 		writeError(w, http.StatusNotFound, "qr session not found")
@@ -1579,7 +1585,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	var codeRecovery *protocol.CodeSessionRecoveryError
 	var credentialRecovery *protocol.CodeCredentialRecoveryError
 	ticketAccessRejected := errors.As(callErr, &codeRecovery) && errors.As(callErr, &credentialRecovery)
-	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || protocol.IsApplicationRequestRejection(callErr) || codeRecovery != nil && !ticketAccessRejected {
+	if errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || errors.Is(callErr, protocol.ErrLoginCodeMalformed) || protocol.IsBusinessResponseRejection(callErr) || protocol.IsApplicationRequestRejection(callErr) || codeRecovery != nil && !ticketAccessRejected {
 		// An empty code or a bare authenticated application -14 does not
 		// establish account expiry. Other apps may use this same session.
 		return nil, callErr
@@ -1922,6 +1928,7 @@ func requestLogger(next http.Handler) http.Handler {
 }
 
 func serveFileOrText(w http.ResponseWriter, r *http.Request, path, fallback string) {
+	w.Header().Set("Cache-Control", "no-store")
 	if _, err := os.Stat(path); err == nil {
 		http.ServeFile(w, r, path)
 		return

@@ -1718,27 +1718,30 @@
 
     let circuitLoadSequence = 0;
     let circuitSaving = false;
+    let circuitMasterEnabled = false;
     async function loadAccountCircuit() {
       const sequence = ++circuitLoadSequence;
       const account = getSelectedAccount();
       $("accountCircuitEnabled").disabled = true;
+      $("accountCircuitEnabled").checked = false;
       $("saveAccountCircuit").disabled = true;
       $("accountCircuitStatus").textContent = account ? "正在读取熔断设置" : "选择账号后读取设置";
       if (!account) { $("accountCircuitEnabled").checked = false; return; }
       try {
         const data = await api("GET", `/accounts/circuit-settings?ref=${encodeURIComponent(account.id)}`);
         if (sequence !== circuitLoadSequence) return;
-        $("accountCircuitEnabled").checked = data.account_enabled;
-        $("accountCircuitStatus").textContent = !data.global_enabled ? "当前不生效：全局总控已关闭，账号选择仍会保留" : data.effective ? "当前生效：此账号启用熔断" : "当前生效：此账号已关闭熔断";
-        $("accountCircuitEnabled").disabled = circuitSaving;
-        $("saveAccountCircuit").disabled = circuitSaving;
+        circuitMasterEnabled = data.global_enabled;
+        $("accountCircuitEnabled").checked = data.effective;
+        $("accountCircuitStatus").textContent = !data.global_enabled ? `当前不生效：全局总控已关闭。账号原设置：${data.account_enabled ? "开启" : "关闭"}，总控开启后恢复。` : data.effective ? "当前生效：此账号启用熔断" : "当前生效：此账号已关闭熔断";
+        $("accountCircuitEnabled").disabled = circuitSaving || !data.global_enabled;
+        $("saveAccountCircuit").disabled = circuitSaving || !data.global_enabled;
       } catch (error) {
         if (sequence === circuitLoadSequence) $("accountCircuitStatus").textContent = `读取失败：${error.message}，请刷新重试`;
       }
     }
     $("saveAccountCircuit").addEventListener("click", async () => {
       const account = getSelectedAccount();
-      if (!account || circuitSaving) return;
+      if (!account || circuitSaving || !circuitMasterEnabled) return;
       const enabled = $("accountCircuitEnabled").checked;
       circuitSaving = true;
       $("accountCircuitEnabled").disabled = true;
@@ -1755,6 +1758,13 @@
         await loadAccountCircuit();
         if (saveError && getSelectedAccount()?.id === account.id) $("accountCircuitStatus").textContent = `保存失败：${saveError}。当前选择已重新读取，请重试。`;
       }
+    });
+
+    window.addEventListener("storage", event => {
+      if (event.key === "yyb-circuit-settings-changed" && !circuitSaving) loadAccountCircuit();
+    });
+    window.addEventListener("focus", () => {
+      if (!circuitSaving) loadAccountCircuit();
     });
 
     function renderFeatures() {
@@ -1835,9 +1845,10 @@
       if (!endpoint) throw new Error("当前没有可调用能力。");
       if (feature?.requiresAppID !== false && !appID) throw new Error("请输入 APPID。");
       const isOAuth = endpoint === "oauth", isQRCodeAuth = endpoint === "qrcodeauth";
+      const protocolRef = account && endpoint !== "getUserInfo" && account.fleet_primary_id ? String(account.fleet_primary_id) : account?.openid;
       const body = isQRCodeAuth ? (account ? {product: account.scan_product || "appstore"} : undefined)
         : isOAuth ? {ref: String(account.id), appid: appID, redirect_uri: $("oauthRedirectInput").value.trim(), scope: $("oauthScopeInput").value, state: $("oauthStateInput").value.trim()}
-        : {ref: account.openid};
+        : {ref: protocolRef};
       if (!isOAuth && feature?.requiresAppID !== false) body.app_id = appID;
       if (isOAuth && !body.redirect_uri) throw new Error("请填写公众号回调地址。");
       if (feature?.needsPayload) {

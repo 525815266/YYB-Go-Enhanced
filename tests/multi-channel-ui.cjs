@@ -24,6 +24,13 @@ async function fresh(browser) {
   const context = await browser.newContext({viewport: {width: 1280, height: 1000}});
   const login = await context.request.post(base + '/login', {data: {username: process.env.YYB_TEST_USER, password: process.env.YYB_TEST_PASS}});
   assert.equal((await login.json()).code, 0);
+  // These legacy grouping fixtures cover three providers; registry expansion
+  // and QQ/LD identity consent are covered by account-link-multi-ui.cjs.
+  await context.route('**/api/scan-channels', async route => {
+    const data = await (await context.request.get(base+'/api/scan-channels')).json();
+    data.data.channels = data.data.channels.filter(channel => ['appstore','pcmgr','gameassist'].includes(channel.id));
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
+  });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -122,7 +129,7 @@ async function resetFleets(browser) {
       const {context, page, errors} = await fresh(browser);
       const S = await seeded(context);
       const [appstore, pcmgr, gameassist] = S.alice;
-      const channels = (await (await context.request.get(base + '/api/scan-channels')).json()).data.channels;
+      const channels = (await (await context.request.get(base + '/api/scan-channels')).json()).data.channels.filter(c => ['appstore','pcmgr','gameassist'].includes(c.id));
       assert(channels.length >= 3);
       const ids = channels.map(channel => channel.id);
       const qr = await mockQR(context, await withAccounts(context, [['appstore', appstore], ['pcmgr', pcmgr], ['gameassist', gameassist]]));
@@ -274,59 +281,20 @@ async function resetFleets(browser) {
       await context.close();
     }
 
-    // Adding channels to an account that already has some: only the missing ones get a QR.
+    // Existing-account supplementation now creates one root-anchored update link.
     {
       const {context, page, errors} = await fresh(browser);
       const S = await seeded(context);
-      const [boomApp, , boomGame] = S.boom;
-      const qr = await mockQR(context, await withAccounts(context, [['gameassist', boomGame]]));
-      await page.goto(base + '/scan?ref=' + boomApp);
-      await page.waitForSelector('.multi-card[data-state="bound"]');
-      assert.equal(await page.locator('.multi-card[data-state="bound"]').count(), 3);
-      assert.equal(await page.locator('#multiScanSwitch').isDisabled(), true);
-      assert.equal(await page.locator('#multiScanSwitch').isChecked(), true);
-      assert.equal(qr.requested.length, 0, 'every channel is bound: no QR');
-      assert.equal(await page.locator('.multi-member').count(), 3);
-      assert.match(await member(page, boomApp).locator('small').innerText(), /主账号/);
-      await shot(page, 'scan-multi-supplement-full');
-      // Re-scanning one channel renews it in place.
-      await page.locator('.multi-card[data-product="gameassist"] .btn').click();
-      await page.waitForSelector('.multi-card[data-product="gameassist"][data-state="waiting"]');
-      assert.deepEqual(qr.requested, ['gameassist']);
-      qr.scan('gameassist');
-      await done(page, 'gameassist');
-      assert.equal(qr.bound.length, 0, 'an account already in the fleet needs no bind');
+      const [boomApp, boomMember] = S.boom;
+      let requested;
+      await context.route('**/api/account-links',route=>{requested=route.request().postDataJSON();return route.fulfill(json({url:base+'/account-link/synthetic-update'}));});
+      await context.route('**/account-link/synthetic-update',route=>route.fulfill({status:200,contentType:'text/html',body:'<p>更新链接</p>'}));
+      const qr = await mockQR(context, {});
+      await page.goto(base+'/scan?ref='+boomMember);
+      await page.waitForURL(base+'/account-link/synthetic-update');
+      assert.deepEqual(requested,{kind:'update',ref:String(boomApp),allow_multi_channel:true});
+      assert.equal(qr.requested.length,0);
       assert.deepEqual(errors, []);
-      await context.close();
-    }
-    {
-      const {context, page, errors} = await fresh(browser);
-      const S = await seeded(context);
-      const [appstore, pcmgr, gameassist] = S.alice;
-      const qr = await mockQR(context, await withAccounts(context, [['pcmgr', pcmgr], ['gameassist', gameassist]]));
-      await page.goto(base + '/scan?ref=' + appstore);
-      await waiting(page, 2);
-      assert.deepEqual(qr.requested.sort(), ['gameassist', 'pcmgr']);
-      assert.equal(await page.locator('.multi-card[data-product="appstore"][data-state="bound"]').count(), 1);
-      assert.match(await page.locator('#multiBase').innerText(), /补扫渠道/);
-      assert.equal(await page.locator('#accountId').innerText(), String(appstore));
-      qr.scan('pcmgr');
-      await done(page, 'pcmgr');
-      await page.waitForFunction(id => /已合并/.test(document.querySelector(`.multi-member[data-account="${id}"] small`).textContent), pcmgr);
-      assert.deepEqual({primary: qr.bound.at(-1).primary_ref, members: qr.bound.at(-1).member_refs}, {primary: String(appstore), members: [String(pcmgr)]});
-      const list = await accountsOf(context);
-      assert.equal(byId(list, appstore).fleet_primary_id, appstore);
-      assert.equal(byId(list, pcmgr).fleet_primary_id, appstore);
-      await page.click('#syncBtn');
-      await page.waitForFunction(() => /已添加到面板/.test(document.getElementById('actionMessage').textContent));
-      assert.deepEqual(qr.sync.at(-1), {ref: String(appstore)});
-      // Leaving cancels the sessions that are still open.
-      assert([...qr.sessions.values()].some(session => session.live));
-      await page.click('#backBtn');
-      await page.waitForURL(base + '/');
-      assert.equal([...qr.sessions.values()].filter(session => session.live).length, 0, 'every channel session is cancelled on leaving');
-      assert.deepEqual(errors, []);
-      await dissolve(context, appstore);
       await context.close();
     }
 
@@ -493,8 +461,8 @@ async function resetFleets(browser) {
       const fleet = page.locator(`.account-card.fleet[data-fleet="${S.boom[0]}"]`);
       await fleet.waitFor();
       await page.waitForFunction(id => document.querySelector(`.account-card.fleet[data-fleet="${id}"] .channel-chip.missing`), S.boom[0]);
-      assert.equal(await fleet.locator('.channel-chip.missing').count(), 1);
-      assert.match(await fleet.locator('.channel-chip.missing').getAttribute('href'), new RegExp(`/scan\\?ref=${S.boom[0]}$`));
+      assert.equal(await fleet.locator('.channel-chip.missing').count(), registry.length + 1 - 3);
+      assert.match(await fleet.locator('.channel-chip.missing').first().getAttribute('href'), new RegExp(`/scan\\?ref=${S.boom[0]}$`));
       assert.equal(await page.locator('#accountLinkProduct option').count(), registry.length + 1);
       assert.deepEqual(errors.filter(message => !/avatar|404/.test(message)), []);
       await context.close();

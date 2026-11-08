@@ -418,11 +418,16 @@
       if (ref) {
         try {
           await loadBase(ref);
-          want = true;
-          toggle.disabled = true;
-          $('multiScanHint').textContent = `正在给 ID ${base.primary.id} 补扫渠道，开关已锁定；新扫到的渠道会合并进这个账号。`;
+          // Updating an existing group must use one server transaction, not
+          // save a standalone account followed by a best-effort browser bind.
+          const result = await cfg.api('POST', '/api/account-links', {kind:'update',ref:String(base.primary.id),allow_multi_channel:true});
+          location.replace(result.url);
+          return;
         } catch (error) {
-          $('multiScanHint').textContent = `补扫失败：${error.message}。可以直接新增账号。`;
+          $('multiScanHint').textContent = `补扫未开始：${error.message}。原账号未修改，请返回控制台使用或作废已有授权链接后重试。`;
+          toggle.disabled = true;
+          $('qrWrap').textContent = '未创建新的扫码授权';
+          return;
         }
       }
       if (want) await setActive(true);

@@ -50,6 +50,8 @@ var catalog = map[string]definition{
 	"keepalive.renewed":          {"keepalive", "info", "后台凭据续期完成"},
 	"account.expired":            {"account", "warn", "账号授权失效，需重新扫码"},
 	"account.scanned":            {"account", "info", "扫码授权已保存"},
+	"account.session_prepared":   {"account", "info", "扫码协议会话已建立并保存，长期恢复仍待验证"},
+	"account.session_failed":     {"account", "error", "扫码授权已保存，但协议会话建立失败"},
 	"account.refreshed":          {"account", "info", "凭据已按需或手动刷新"},
 	"account.refresh_failed":     {"account", "warn", "凭据按需或手动刷新失败"},
 	"account.notified":           {"account", "info", "已推送掉线提醒"},
@@ -159,7 +161,7 @@ func safeOperation(op string) bool {
 
 func safeStage(stage string) bool {
 	switch stage {
-	case "refresh_token", "check_login", "login_buffer", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "shortlink_transport", "shortlink_application", "pcmgr_login_buffer", "pcmgr_key_renewal", "circuit_target", "circuit_session":
+	case "refresh_token", "check_login", "login_buffer", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "shortlink_transport", "shortlink_application", "jslogin_business", "jslogin_result", "h5_oauth_business", "pcmgr_login_buffer", "pcmgr_key_renewal", "circuit_target", "circuit_session":
 		return true
 	}
 	return false

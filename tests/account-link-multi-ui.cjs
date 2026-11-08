@@ -29,6 +29,7 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
     const share = await page.locator('#accountLinkURL').inputValue();
     const url = share.match(/https?:\/\/\S+/)[0];
     const meta = (await (await context.request.get(url+'/meta')).json()).data;
+    const channels = (await (await context.request.get(base+'/api/scan-channels')).json()).data.channels;
     assert.equal(meta.allow_multi_channel,true);
     await page.locator('#accountLinkDoneBtn').click();
     const pending = new Map(), saved = new Map(); let seq=0, rejected=true, finished=false, lost=false, confirmAttempts=0;
@@ -47,6 +48,7 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
       if (action === 'cancel') return route.fulfill(reply({cancelled:true}));
       if (action === 'poll') return route.fulfill(reply({status:session.status}));
       if (action === 'confirm') {
+        if (session.product === 'qbbrowser' && !route.request().postDataJSON().confirm_same_wechat) return route.fulfill({status:422,contentType:'application/json',body:JSON.stringify({msg:'请确认同一微信，无需重新扫码',data:{identity_confirmation_required:true}})});
         if (session.product === 'pcmgr' && rejected) return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({msg:'请使用原微信扫码：微信身份不一致，账号未修改'})});
         if (!saved.has(session.product)) saved.set(session.product,500+saved.size);
         if (session.product === 'gameassist') {confirmAttempts++;if (!lost){lost=true;return route.abort('failed');}}
@@ -56,14 +58,14 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
     });
     await page.goto(url);
     await page.waitForSelector('.link-channel[data-state=waiting]');
-    await page.waitForFunction(() => document.querySelectorAll('.link-channel[data-state=waiting]').length === 3);
+    await page.waitForFunction(n => document.querySelectorAll('.link-channel[data-state=waiting]').length === n, channels.length);
     assert(await page.locator('#linkFinish').isDisabled());
     // A rejected channel stops itself without cancelling other channels.
     [...pending.values()].find(s => s.product === 'pcmgr').status='authorized';
     await page.waitForFunction(() => document.querySelector('[data-product=pcmgr] .state').textContent.includes('身份不一致'));
     assert.equal(await page.locator('.link-channel[data-state=done]').count(),0);
-    rejected=false;const beforeRetry=seq;await page.locator('[data-product=pcmgr] button').click();
-    await page.waitForFunction(() => document.querySelector('[data-product=pcmgr] img')?.getAttribute('src')?.includes('fixture-4'));
+    rejected=false;const beforeRetry=seq;await page.locator('[data-product=pcmgr]').getByRole('button',{name:'重新生成二维码'}).click();
+    await page.waitForFunction(n => document.querySelector('[data-product=pcmgr] img')?.getAttribute('src')?.includes('fixture-'+n), beforeRetry+1);
     assert(seq>beforeRetry);
     [...pending.values()].filter(s => s.product === 'pcmgr').at(-1).status='authorized';
     await page.waitForSelector('[data-product=pcmgr][data-state=done]');
@@ -72,13 +74,22 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
     await page.waitForSelector('[data-product=gameassist][data-state=done]',{timeout:15000});
     assert.equal(confirmAttempts,2);
     assert.equal(saved.size,2);
+    // Cross-platform identities require explicit consent using the SAME QR.
+    const beforeConsent=seq, qb=[...pending.values()].find(s => s.product === 'qbbrowser');
+    qb.status='authorized';
+    await page.waitForSelector('[data-product=qbbrowser][data-state=identity-confirmation]');
+    assert.equal(saved.has('qbbrowser'),false);
+    if(process.env.YYB_TEST_SHOTS){fs.mkdirSync(process.env.YYB_TEST_SHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.YYB_TEST_SHOTS,'identity-consent.png'),fullPage:true});}
+    await page.locator('[data-product=qbbrowser] button', {hasText:'确认使用同一微信'}).click();
+    await page.waitForSelector('[data-product=qbbrowser][data-state=done]');
+    assert.equal(seq,beforeConsent,'consent must not allocate another QR');
     await page.reload();
     await page.waitForSelector('[data-product=pcmgr][data-state=done]');
-    assert.equal(await page.locator('.link-channel[data-state=done]').count(),2);
+    assert.equal(await page.locator('.link-channel[data-state=done]').count(),3);
     await page.locator('#linkMultiToggle').uncheck();
     await page.waitForFunction(() => document.querySelectorAll('.link-channel').length === 1);
     await page.locator('#linkMultiToggle').check();
-    await page.waitForFunction(() => document.querySelectorAll('.link-channel').length === 3);
+    await page.waitForFunction(n => document.querySelectorAll('.link-channel').length === n, channels.length);
     for (const width of [1280,768,390,320]) {
       await page.setViewportSize({width,height:1000});
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),'horizontal overflow at '+width);
@@ -89,6 +100,6 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
     assert(finished);assert(await page.locator('#linkMultiToggle').isDisabled());
     assert.deepEqual(errors,[]);
     await context.close();
-    console.log('PASS multi-link opt-in, independent QR, identity error, lost-response retry, persisted progress, mode toggle, finish, 320–1280px');
+    console.log('PASS multi-link registry, identity conflict, explicit same-QR consent, lost-response retry, persisted progress, mode toggle, finish, 320–1280px');
   } finally {await browser.close();}
 })().catch(e => {console.error(e);process.exitCode=1;});
