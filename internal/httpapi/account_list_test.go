@@ -170,3 +170,50 @@ func TestIntegrationAccountEnumerationCount(t *testing.T) {
 		}
 	}
 }
+
+func TestFleetListingDoesNotRelabelHistoricalExpiredLDPlayerAsYYB(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	ctx := context.Background()
+	alive, expired := "alive", "expired"
+	primary, err := app.db.UpsertAccount(ctx, "synthetic-yyb", "ticket", nil, nil, nil, nil, nil, &alive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce the old persisted shape: LDPlayer namespace, no credentials.
+	member, err := app.db.UpsertAccount(ctx, "ldplayer:synthetic-expired", "", nil, nil, nil, nil, nil, &expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, acc := range []*store.WechatAccount{primary, member} {
+		if err = app.db.SetAccountFleet(ctx, acc.ID, primary.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, all := range []bool{false, true} {
+		path := "/accounts"
+		if all {
+			path += "?include_members=1"
+		}
+		w := httptest.NewRecorder()
+		app.handleAccountsRoot(w, httptest.NewRequest("GET", path, nil))
+		var reply struct{ Data []store.AccountPublic }
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &reply) != nil {
+			t.Fatal("account listing failed", w.Code)
+		}
+		want := 1
+		if all {
+			want = 2
+		}
+		if len(reply.Data) != want || reply.Data[0].ID != primary.ID || reply.Data[0].ScanProduct != "appstore" {
+			t.Fatal("listing added an account or changed the primary")
+		}
+		if all && (reply.Data[1].ID != member.ID || reply.Data[1].ScanProduct != "ldplayer" || *reply.Data[1].Status != "expired") {
+			t.Fatal("expired LDPlayer member appeared as another YYB authorization")
+		}
+	}
+	saved, _ := app.db.GetAccount(ctx, member.ID)
+	if saved.Credentials != nil || saved.LoginBuffer != "" || *saved.Status != "expired" {
+		t.Fatal("listing modified or resurrected a rejected authorization")
+	}
+}

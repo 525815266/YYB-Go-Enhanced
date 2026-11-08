@@ -143,14 +143,13 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 	return p
 }
 
-// ProviderOf returns the credential provider marker of an account. Appstore
-// accounts store none; pcmgr and gameassist carry their channel name.
+// ProviderOf keeps routing consistent with the saved channel identity, including
+// historical namespaced records whose credentials were wiped. YYB uses "".
 func ProviderOf(acc *store.WechatAccount) string {
-	if acc == nil {
+	if acc == nil || acc.ScanProduct() == "appstore" {
 		return ""
 	}
-	provider, _ := acc.Credentials["provider"].(string)
-	return provider
+	return acc.ScanProduct()
 }
 
 func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
