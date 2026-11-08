@@ -112,6 +112,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS account_circuit_settings (
+    account_id INTEGER PRIMARY KEY REFERENCES wechat_accounts(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL CHECK(enabled IN (0,1))
+);
+
 CREATE TABLE IF NOT EXISTS account_links (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     token_hash      TEXT    NOT NULL UNIQUE,
@@ -758,6 +763,7 @@ func (db *DB) CompactAccountIDs(ctx context.Context) (map[int64]int64, error) {
 		{"account_script_jobs", "account_id"},
 		{"account_push_settings", "account_id"},
 		{"account_proxy_settings", "account_id"},
+		{"account_circuit_settings", "account_id"},
 		{"account_links", "account_id"},
 		{"account_links", "multi_primary_id"},
 		{"account_link_scans", "account_id"},

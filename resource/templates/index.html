@@ -957,7 +957,7 @@
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
   <link rel="stylesheet" href="/static/css/multi-channel.css?v=051">
   <script src="/static/js/scan-channel.js?v=094"></script>
-  <script src="/static/js/fleet-ui.js?v=093"></script>
+  <script src="/static/js/fleet-ui.js?v=095"></script>
 </head>
 <body>
   <div class="app">
@@ -1064,6 +1064,15 @@
                 <strong id="accountProxyStatus">选择账号后读取配置</strong>
               </div>
               <a class="btn secondary" id="proxySettingsLink" href="/proxies">管理代理</a>
+            </div>
+            <div class="proxy-summary">
+              <div class="proxy-summary-copy">
+                <label for="accountCircuitEnabled"><input id="accountCircuitEnabled" type="checkbox" disabled aria-describedby="accountCircuitStatus"> 当前账号启用协议熔断</label>
+                <p class="field-note" id="accountCircuitStatus" role="status">选择账号后读取设置</p>
+                <span class="field-note">仅控制当前渠道账号。全局关闭时所有账号均不熔断，独立限速与黑名单不变。</span>
+                <a id="accountCircuitGlobalLink" href="/settings#circuitCard" hidden>管理全局总控</a>
+              </div>
+              <button class="btn secondary" id="saveAccountCircuit" type="button" disabled>保存账号熔断</button>
             </div>
             <div class="form-grid">
               <div class="field">
@@ -1393,6 +1402,7 @@
           if (element) element.hidden = !isAdmin;
         });
         $("qingLongSettings").hidden = !isAdmin;
+		$("accountCircuitGlobalLink").hidden = !isAdmin;
         document.querySelector(".account-maintenance").hidden = !isAdmin;
         $("panelAdminNote").hidden = isAdmin;
       } catch {
@@ -1648,7 +1658,7 @@
               ${pendingConfirmation
                 ? `<button type="button" class="account-status account-status-toggle ${cls}" aria-expanded="false" aria-controls="confirm-account-${account.id}" aria-label="确认账号 ${escapeHTML(number)} 的状态"><span class="status-dot"></span>${status}<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>`
                 : `<span class="account-status ${cls}" title="${account.status === "session_only" ? "授权已拒绝，原会话可尝试使用，不代表保活恢复" : account.rescan_recommended ? "RefreshToken 已使用约 25 天，建议在失效前重新扫码" : ""}"><span class="status-dot"></span>${status}</span>`}
-              <span class="scan-channel-badge" title="扫码渠道：${scanChannelName(account.scan_product)}" aria-label="${scanChannelName(account.scan_product)} 渠道"><img alt="" src="/static/images/scan-${scanChannelBadge(account.scan_product)}.png?v=093"></span>
+              <span class="scan-channel-badge" title="扫码渠道：${scanChannelName(account.scan_product)}" aria-label="${scanChannelName(account.scan_product)} 渠道"><img alt="" src="/static/images/scan-${scanChannelBadge(account.scan_product)}.png?v=095"></span>
               </span>
             </span>
             <span class="account-meta" title="最后检查 ${formatChecked(account.last_checked_at)}">ID ${escapeHTML(number)} · ${escapeHTML(proxy)}${!isExpired && state.proxyConfigs.get(String(account.id))?.keepalive_supported === false ? " · 不可保活" : ""}</span>
@@ -1687,6 +1697,7 @@
     }
 
     async function loadAccountProxySummary() {
+      loadAccountCircuit();
       const account = getSelectedAccount();
       if (!account) {
         $("accountProxyStatus").textContent = "选择账号后读取配置";
@@ -1704,6 +1715,47 @@
         if (state.selectedOpenID === openid) $("accountProxyStatus").textContent = `读取失败：${error.message}`;
       }
     }
+
+    let circuitLoadSequence = 0;
+    let circuitSaving = false;
+    async function loadAccountCircuit() {
+      const sequence = ++circuitLoadSequence;
+      const account = getSelectedAccount();
+      $("accountCircuitEnabled").disabled = true;
+      $("saveAccountCircuit").disabled = true;
+      $("accountCircuitStatus").textContent = account ? "正在读取熔断设置" : "选择账号后读取设置";
+      if (!account) { $("accountCircuitEnabled").checked = false; return; }
+      try {
+        const data = await api("GET", `/accounts/circuit-settings?ref=${encodeURIComponent(account.id)}`);
+        if (sequence !== circuitLoadSequence) return;
+        $("accountCircuitEnabled").checked = data.account_enabled;
+        $("accountCircuitStatus").textContent = !data.global_enabled ? "当前不生效：全局总控已关闭，账号选择仍会保留" : data.effective ? "当前生效：此账号启用熔断" : "当前生效：此账号已关闭熔断";
+        $("accountCircuitEnabled").disabled = circuitSaving;
+        $("saveAccountCircuit").disabled = circuitSaving;
+      } catch (error) {
+        if (sequence === circuitLoadSequence) $("accountCircuitStatus").textContent = `读取失败：${error.message}，请刷新重试`;
+      }
+    }
+    $("saveAccountCircuit").addEventListener("click", async () => {
+      const account = getSelectedAccount();
+      if (!account || circuitSaving) return;
+      const enabled = $("accountCircuitEnabled").checked;
+      circuitSaving = true;
+      $("accountCircuitEnabled").disabled = true;
+      $("saveAccountCircuit").disabled = true;
+      let saveError = "";
+      try {
+        await api("PUT", `/accounts/circuit-settings?ref=${encodeURIComponent(account.id)}`, {enabled});
+        setActivity(`账号 ID ${account.id} 熔断设置已保存`);
+      } catch (error) {
+        saveError = error.message;
+        setActivity(`保存熔断设置失败：${error.message}`);
+      } finally {
+        circuitSaving = false;
+        await loadAccountCircuit();
+        if (saveError && getSelectedAccount()?.id === account.id) $("accountCircuitStatus").textContent = `保存失败：${saveError}。当前选择已重新读取，请重试。`;
+      }
+    });
 
     function renderFeatures() {
       const select = $("featureSel");
