@@ -36,6 +36,12 @@ func fleetTestSetup(t *testing.T) (*App, *store.WechatAccount, *store.WechatAcco
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each temporary DB reuses IDs 1/2. Its dispatch history must not come
+	// from an unrelated App constructed by a previous test.
+	fleetLRU.mu.Lock()
+	delete(fleetLRU.last, a.ID)
+	delete(fleetLRU.last, b.ID)
+	fleetLRU.mu.Unlock()
 	return app, a, b
 }
 

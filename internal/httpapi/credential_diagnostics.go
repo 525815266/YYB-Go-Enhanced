@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"regexp"
@@ -50,6 +51,12 @@ func credentialDiagnostics(err error) []upstreamDiagnostic {
 			item.Stage, item.UpstreamCode, message = "login_buffer", int64(e.Code), e.Message
 		case *protocol.ManualAuthRejectedError:
 			item.Stage, item.UpstreamCode = "manual_auth", e.Code
+		case *protocol.LoginCodeRejectedError:
+			if e.Stage == "jslogin_business" || e.Stage == "jslogin_result" {
+				item.Stage, item.UpstreamCode = e.Stage, int64(e.Code)
+			}
+		case *protocol.ErrH5OAuthBusinessRejected:
+			item.Stage, item.UpstreamCode = "h5_oauth_business", int64(e.Ret)
 		case *protocol.AutoAuthRejectedError:
 			switch e.Stage {
 			case "transport", "application", "business":
@@ -96,6 +103,11 @@ func writeAccountExpired(w http.ResponseWriter, err accountExpiredError) {
 }
 
 func writeProtocolCallError(w http.ResponseWriter, err error) {
+	var member *fleetMemberReferenceError
+	if errors.As(err, &member) {
+		writeRawJSON(w, http.StatusConflict, apiEnvelope{Code: http.StatusConflict, Msg: member.Error(), Data: map[string]any{"primary_ref": member.PrimaryID, "member_ref_not_allowed": true}})
+		return
+	}
 	diagnostics := credentialDiagnostics(err)
 	if len(diagnostics) == 0 {
 		writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
@@ -104,6 +116,6 @@ func writeProtocolCallError(w http.ResponseWriter, err error) {
 	writeRawJSON(w, http.StatusBadGateway, apiEnvelope{
 		Code: http.StatusBadGateway,
 		Msg:  "call failed: " + err.Error(),
-		Data: map[string]any{"upstream_errors": diagnostics, "request_rejected": protocol.IsApplicationRequestRejection(err)},
+		Data: map[string]any{"upstream_errors": diagnostics, "request_rejected": protocol.IsApplicationRequestRejection(err) || protocol.IsBusinessResponseRejection(err)},
 	})
 }

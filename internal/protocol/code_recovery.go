@@ -161,12 +161,13 @@ func (p *Pool) requestLoginCode(ctx context.Context, st WmpfSession, appID strin
 	if err != nil {
 		return nil, err
 	}
-	code, _, err := p.sendEnvelope(ctx, st, envelope)
+	_, response, err := p.sendEnvelope(ctx, st, envelope)
 	if err != nil {
 		return nil, err
 	}
-	if len(code) == 0 {
-		return nil, ErrLoginCodeUnavailable
+	code, err := parseLoginCodeResponse(response)
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{"code": string(code), "errMsg": "login:ok"}, nil
 }

@@ -3,9 +3,9 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
-	"time"
 
 	"yyb_go/internal/eventlog"
 	"yyb_go/internal/pcmgr"
@@ -23,28 +23,28 @@ import (
 // fleetLRU is process-local and resets on restart; it only steers fairness,
 // never correctness.
 var fleetLRU = struct {
-	mu   sync.Mutex
-	last map[int64]int64
+	mu       sync.Mutex
+	last     map[int64]int64
+	sequence int64
 }{last: map[int64]int64{}}
 
 func fleetMarkUsed(id int64) {
 	fleetLRU.mu.Lock()
 	defer fleetLRU.mu.Unlock()
-	fleetLRU.last[id] = time.Now().UnixNano()
-}
-
-func fleetLastUsed(id int64) int64 {
-	fleetLRU.mu.Lock()
-	defer fleetLRU.mu.Unlock()
-	return fleetLRU.last[id]
+	// A sequence preserves order when Windows clock readings tie or the wall
+	// clock moves backwards. This is process-local scheduling, not a timestamp.
+	fleetLRU.sequence++
+	fleetLRU.last[id] = fleetLRU.sequence
 }
 
 // fleetOrder puts the least recently used member first (ties by id) so that
 // concurrent callers naturally rotate through the fleet.
 func fleetOrder(members []*store.WechatAccount) []*store.WechatAccount {
 	ordered := append([]*store.WechatAccount(nil), members...)
+	fleetLRU.mu.Lock()
+	defer fleetLRU.mu.Unlock()
 	sort.SliceStable(ordered, func(i, j int) bool {
-		li, lj := fleetLastUsed(ordered[i].ID), fleetLastUsed(ordered[j].ID)
+		li, lj := fleetLRU.last[ordered[i].ID], fleetLRU.last[ordered[j].ID]
 		if li != lj {
 			return li < lj
 		}
@@ -61,8 +61,7 @@ func fleetFailover(err error) bool {
 	if err == nil {
 		return false
 	}
-	var h5Rejected *protocol.ErrH5OAuthBusinessRejected
-	if errors.As(err, &h5Rejected) {
+	if protocol.IsBusinessResponseRejection(err) {
 		// The upstream judged the request itself (appid/redirect pairing,
 		// scope...). Every member would receive the same verdict.
 		return false
@@ -113,6 +112,9 @@ func fleetFailover(err error) bool {
 // machinery; the caller's `call` stays identical for each member.
 func (a *App) invokeWithFleet(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, call wxappCall) (map[string]any, error) {
 	primary := fleetPrimaryOf(acc)
+	if primary > 0 && primary != acc.ID {
+		return nil, &fleetMemberReferenceError{PrimaryID: primary}
+	}
 	if primary <= 0 {
 		return a.invokeWXApp(ctx, acc, appID, payload, call)
 	}
@@ -145,6 +147,12 @@ func (a *App) invokeWithFleet(ctx context.Context, acc *store.WechatAccount, app
 		})
 	}
 	return nil, lastErr
+}
+
+type fleetMemberReferenceError struct{ PrimaryID int64 }
+
+func (e *fleetMemberReferenceError) Error() string {
+	return fmt.Sprintf("channel member cannot be called directly; use primary account ref=%d", e.PrimaryID)
 }
 
 func fleetPrimaryOf(acc *store.WechatAccount) int64 {

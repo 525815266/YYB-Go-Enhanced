@@ -780,8 +780,12 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 		a.clearKeepAliveRetry(acc.ID)
 		a.circuit.forget(acc.ID)
 		a.events.Emit("account.scanned", eventlog.ForAccount(acc))
-		warning := a.syncUpdatedAccountReferences(acc)
 		dropAfterConfirm = true
+		if err := a.activateScannedAccount(r.Context(), acc); err != nil {
+			writeProtocolCallError(w, err)
+			return
+		}
+		warning := a.syncUpdatedAccountReferences(acc)
 		writeJSON(w, 200, struct {
 			store.AccountPublic
 			Warning string `json:"warning,omitempty"`
@@ -821,6 +825,11 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 			return
 		}
 	}
+	dropAfterConfirm = true
+	if err := a.activateScannedAccount(r.Context(), acc); err != nil {
+		writeProtocolCallError(w, err)
+		return
+	}
 	a.autoSyncAfterScan(acc)
 	// The link is one-time. Keep the used marker only long enough to win the
 	// atomic race above, then remove the row and release its management ID.
@@ -829,7 +838,6 @@ func (a *App) confirmAccountLinkQR(w http.ResponseWriter, r *http.Request, token
 		// the periodic cleanup pass if a transient delete error occurs.
 		log.Printf("account-links: delete consumed link id=%d: %v", link.ID, err)
 	}
-	dropAfterConfirm = true
 	writeJSON(w, http.StatusOK, acc.Public())
 }
 

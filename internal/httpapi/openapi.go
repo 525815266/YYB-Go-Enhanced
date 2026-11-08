@@ -205,7 +205,7 @@ func newOpenAPISpec() map[string]any {
 				"get": openAPIOperation(
 					[]string{"accounts"},
 					"获取账号列表",
-					[]map[string]any{queryStringParam("include_members", "默认 false，每个多渠道组只返回一个账号：优先存活渠道，同状态优先主账号。true 返回全部渠道供管理使用。", false)},
+					[]map[string]any{queryStringParam("include_members", "默认 false，每组返回可调用的主账号 ID，status 汇总组内最佳状态。true 返回全部渠道及各自真实状态，仅供管理；子 ID 不可直接调用协议。", false)},
 					nil,
 					defaulted(map[string]any{
 						"200": jsonResponse("可见账号列表；按已保存状态选择组内可用授权，全部失效时仍保留一条状态记录。返回真实账号 ID，fleet_primary_id 指向原主账号；读取不发起上游刷新或取码。", arraySchema(refSchema("AccountPublic"))),
@@ -603,7 +603,7 @@ func newOpenAPISpec() map[string]any {
 					"upstream_errors": arraySchema(refSchema("UpstreamDiagnostic")),
 				}),
 				"UpstreamDiagnostic": objectSchema([]string{"stage", "upstream_code"}, map[string]any{
-					"stage":         map[string]any{"type": "string", "enum": []string{"shortlink_application", "shortlink_transport", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "login_buffer", "refresh_token", "check_login"}},
+					"stage":         map[string]any{"type": "string", "enum": []string{"shortlink_application", "shortlink_transport", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "jslogin_business", "jslogin_result", "h5_oauth_business", "login_buffer", "refresh_token", "check_login"}},
 					"upstream_code": map[string]any{"type": "integer", "description": "已解析的业务拒绝码。"},
 					"wechat_code":   map[string]any{"type": "integer", "description": "业务消息中明确提供的已知微信拒绝码；不能从请求标识或网络错误猜测。"},
 				}),
