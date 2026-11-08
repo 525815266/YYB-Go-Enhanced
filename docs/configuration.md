@@ -236,7 +236,10 @@ YYB_CIRCUIT_BREAKER=on
 - **会话层：** 同一账号 5 分钟内有 3 个不同 AppID 的取码被 `-14` 拒绝，暂停该账号全部业务请求 15 分钟。
 - 一次成功清空该账号的会话层和对应目标；重新扫码、手动置失效也会清空。
 - 记录：运行日志 `protocol.circuit_open` / `protocol.circuit_deferred`，v0.2.60 起事件带 `app_id` 与请求类型。
-- 设为 `off` 恢复旧行为；阈值为编译期默认值。详见[取码熔断与触发规律](code-circuit-breaker-20261101.md)。
+- v0.2.95 起，管理员可在「个人设置 → 协议熔断总控」保存总开关；首页「调用配置」可保存当前渠道账号的开关。**全局关闭覆盖所有账号，全局开启时按账号开关执行**，账号未设置默认开启。多渠道同微信的账号各自保存，切换渠道账号后分别设置。
+- 总控尚未保存时以 `YYB_CIRCUIT_BREAKER` 为默认，保存后 SQLite 中的总控优先于环境变量；重启后保留。开关修改清除相应冷却计数，下次请求生效，不取消已经发出的上游请求。删除账号会清理设置，压缩 ID 会同步迁移，授权合并保留目标账号设置。
+- 管理 API：`GET/PUT /api/circuit-settings`（管理员），`GET/PUT /accounts/circuit-settings?ref=<账号引用>`（仅可见账号），PUT 为 `{"enabled":true}` 或 `{"enabled":false}`。响应含 `global_enabled`、`account_enabled`、`effective`；仅使用网页登录管理权限，协议令牌不能修改。
+- 关闭熔断不关闭独立限速、AppID 黑白名单／动态名单、登录预算或授权失效处理；仍可能收到 `pacing` 的 429 或上游拒绝。它不触发刷新，不延长授权寿命。阈值保持编译期默认值。详见[取码熔断与触发规律](code-circuit-breaker-20261101.md)。
 
 ## 登录预算与取码限速（v0.2.61 起）
 

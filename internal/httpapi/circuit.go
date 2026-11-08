@@ -302,3 +302,13 @@ func (c *circuitBreaker) forget(accountID int64) {
 		}
 	}
 }
+
+func (c *circuitBreaker) reset() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.targets = map[targetKey]*targetBreaker{}
+	c.sessions = map[int64]*sessionBreaker{}
+}

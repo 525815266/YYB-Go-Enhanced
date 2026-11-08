@@ -287,7 +287,7 @@ func NewApp(cfg Config) (*App, error) {
 		fetchUserInfo:      qrClient.LoginBuffers().FetchUserInfo,
 		qinglong:           newQingLongClient(cfg.QingLongType, cfg.QingLongURL, cfg.QingLongClientID, cfg.QingLongSecret, cfg.RequestTimeout),
 		notifier:           newOfflineNotifier(offlineNotifyTimeout),
-		circuit:            newCircuitBreaker(circuitConfigFor(cfg.DisableCircuitBreaker)),
+		circuit:            newCircuitBreaker(defaultCircuitConfig()),
 		appIDs:             newAppIDPolicy(cfg.CodeDenyAppIDs, cfg.CodeAllowAppIDs, db),
 		dynamicAppIDs:      newDynamicAppIDDeny(db, cfg.CodeDynamicDenyThreshold, cfg.CodeAllowAppIDs, cfg.DisableDynamicAppIDDeny),
 		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), trafficSettings),
@@ -441,6 +441,8 @@ func (a *App) Handler() http.Handler {
 	router.POST("/api/maintenance", gin.WrapF(a.handleMaintenance))
 	router.Any("/api/auth/profile", gin.WrapF(a.handleProfile))
 	router.Any("/api/scan-settings", gin.WrapF(a.handleScanSettings))
+	router.Any("/api/circuit-settings", gin.WrapF(a.handleCircuitSettings))
+	router.Any("/accounts/circuit-settings", gin.WrapF(a.handleCircuitSettings))
 	router.Any("/api/scan-channels", gin.WrapF(a.handleScanChannels))
 	router.Any("/api/appid-deny", gin.WrapF(a.handleAppIDDeny))
 	router.Any("/api/fleet", gin.WrapF(a.handleFleetAPI))
@@ -1495,8 +1497,14 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	if accountNeedsRescan(acc) {
 		return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID}
 	}
-	if breakerErr := a.circuit.check(acc.ID, appID, op); breakerErr != nil {
-		return nil, breakerErr
+	circuitEnabled, err := a.accountCircuitEnabled(ctx, acc.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read circuit policy: %w", err)
+	}
+	if circuitEnabled {
+		if breakerErr := a.circuit.check(acc.ID, appID, op); breakerErr != nil {
+			return nil, breakerErr
+		}
 	}
 	// Held-off requests above never take a slot. Everything that reaches the
 	// upstream is spaced per account, so a burst of scripts cannot turn into a
@@ -1509,7 +1517,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		return nil, fmt.Errorf("resolve account proxy: %w", err)
 	}
 	result, callErr := call(ctx, acc, appID, payload, proxyValue, fallbackDirect)
-	a.recordCircuitOutcome(acc, appID, op, callErr)
+	a.recordCircuitOutcome(ctx, acc, appID, op, callErr)
 	if callErr == nil {
 		// A code that arrived proves the AppID is not one of the dangerous
 		// website applications; forget any earlier hiccup.
@@ -1647,7 +1655,10 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 // application -14 or an empty code count toward holding a target or session
 // off; network, ManualAuth and OAuth failures are handled elsewhere and never
 // trip it. A success clears the account's breaker state.
-func (a *App) recordCircuitOutcome(acc *store.WechatAccount, appID, op string, callErr error) {
+func (a *App) recordCircuitOutcome(ctx context.Context, acc *store.WechatAccount, appID, op string, callErr error) {
+	if enabled, err := a.accountCircuitEnabled(ctx, acc.ID); err != nil || !enabled {
+		return
+	}
 	outcome := circuitOther
 	switch {
 	case callErr == nil:

@@ -90,10 +90,12 @@ func (a *App) handleAccountCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for oldID := range mapping {
+		a.circuit.forget(oldID)
 		a.invalidateProxyLease(oldID)
 		a.clearKeepAliveRetry(oldID)
 	}
 	for _, newID := range mapping {
+		a.circuit.forget(newID)
 		a.invalidateProxyLease(newID)
 		a.clearKeepAliveRetry(newID)
 	}
