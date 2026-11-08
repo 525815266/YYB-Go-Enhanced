@@ -25,12 +25,13 @@
     <button class="btn hidden" id="retry" type="button">重新生成二维码</button>
     <div class="hint" id="linkHint">请确认微信中登录的是要授权的账号。链接只能成功使用一次，并会在有效期结束后自动失效。</div>
   </main>
-  <script src="/static/js/scan-channel.js?v=050"></script>
+  <script src="/static/js/scan-channel.js?v=094"></script>
   <script src="/static/js/account-link-multi.js?v=1"></script>
   <script>
     const token=location.pathname.split('/').filter(Boolean).pop();
     const $=id=>document.getElementById(id);let sid='',timer=null,expiryTimer=null,pollBusy=false,linkExpiresAt=0,saveAttempts=0;
 	let generation=0,meta=null,selectedProduct='',confirmedProduct='',saving=false,completed=false;
+    $('scanProduct').replaceChildren(...scanChannels().map(channel=>{const option=document.createElement('option');option.value=channel.id;option.textContent=channel.name;return option;}));
     async function api(path,options={}){const response=await fetch(`/account-link/${encodeURIComponent(token)}${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const text=await response.text();let data;try{data=text?JSON.parse(text):null}catch{const error=new Error(`服务返回异常（HTTP ${response.status}）`);error.status=response.status;throw error}if(!response.ok){const error=new Error(data?.msg||'链接已失效或授权失败');error.status=response.status;throw error}return data.data??data}
     function setState(text,kind=''){ $('state').textContent=text;$('state').className=`state ${kind}` }
     function stop(){if(timer){clearInterval(timer);timer=null}}

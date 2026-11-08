@@ -170,3 +170,64 @@ func TestQuickLoginDisabledByDefault(t *testing.T) {
 		t.Fatalf("POST /quick-login status = %d, want %d; body=%s", response.Code, http.StatusNotFound, response.Body.String())
 	}
 }
+
+func TestQQQuickCallbackBindsChannelAndSessionState(t *testing.T) {
+	const base = "https://go.browser.qq.com/wx-login.html?code=synthetic&state=per-session-state"
+	if got, err := parseQuickAuthorizeRedirectForProduct(base, "qbbrowser", "per-session-state"); err != nil || got != "synthetic" {
+		t.Fatalf("QQ callback rejected: %v", err)
+	}
+	for _, raw := range []string{
+		base + "&state=other", base + "&code=another", base + "#fragment",
+		"https://go.browser.qq.com:443/wx-login.html?code=synthetic&state=per-session-state",
+		"https://go.browser.qq.com@evil.example/wx-login.html?code=synthetic&state=per-session-state",
+		"https://go.browser.qq.com/wx-login.html?code=synthetic&state=web",
+		"https://yybadaccess.3g.qq.com/pc_yyb/pcyyb_oauth?code=synthetic&state=per-session-state&login_type=WX",
+	} {
+		if _, err := parseQuickAuthorizeRedirectForProduct(raw, "qbbrowser", "per-session-state"); err == nil {
+			t.Fatal("unbound QQ callback accepted")
+		}
+	}
+	if _, err := parseQuickAuthorizeRedirect(base); err == nil {
+		t.Fatal("QQ callback accepted by appstore")
+	}
+	if _, err := parseQuickAuthorizeRedirectForProduct(base, "qbbrowser", ""); err == nil {
+		t.Fatal("missing expected state accepted")
+	}
+}
+
+func TestQQQuickSessionUsesRuntimeScopeAndRejectsWrongState(t *testing.T) {
+	app, err := NewApp(Config{ResourceRoot: t.TempDir(), EnablePCLogin: true, QRSessionTTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	w := httptest.NewRecorder()
+	app.handleQuickLoginRoot(w, httptest.NewRequest("POST", "/quick-login", bytes.NewBufferString(`{"product":"qbbrowser","proxy_mode":"direct"}`)))
+	var payload struct {
+		Data struct {
+			SessionID string `json:"session_id"`
+			AppID     string `json:"appid"`
+			Scope     string `json:"scope"`
+			State     string `json:"state"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil || w.Code != 200 {
+		t.Fatal("QQ quick session create failed")
+	}
+	c := payload.Data
+	if c.AppID != "wx0dbc1ae97f156c38" || c.Scope != "snsapi_login,snsapi_runtime_pcsdk" || c.State == "" || c.State == "web" {
+		t.Fatal("QQ quick authorization used wrong app or permissions")
+	}
+	w = httptest.NewRecorder()
+	app.handleQuickLogin(w, httptest.NewRequest("POST", "/quick-login/"+c.SessionID+"/confirm", bytes.NewBufferString(`{"redirect_url":"https://go.browser.qq.com/wx-login.html?code=synthetic&state=wrong"}`)))
+	if w.Code != 400 {
+		t.Fatal("wrong quick state not rejected before exchange")
+	}
+	session, ok := app.takeQuickSession(c.SessionID)
+	if !ok || session.Product != "qbbrowser" || session.State != c.State {
+		t.Fatal("invalid callback consumed or changed the session")
+	}
+	if _, ok := app.takeQuickSession(c.SessionID); ok {
+		t.Fatal("QQ quick session consumed twice")
+	}
+}

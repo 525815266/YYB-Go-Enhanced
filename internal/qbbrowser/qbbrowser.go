@@ -2,7 +2,7 @@
 // WeChat sign-in (WUP WXAuth) yields an outer access token; the token is
 // exchanged for an ilink login buffer through kde.qq.com, which the shared
 // WMPF/ilink stack then consumes like any other channel. The token itself is
-// read by a companion browser extension through chrome.account inside QQ Browser.
+// issued by the native WXAuth RPC or imported by a companion extension.
 package qbbrowser
 
 import (
@@ -40,28 +40,33 @@ func (e *TokenRejectedError) Error() string {
 }
 
 // Credentials is comparable so CAS-style credential writes stay safe.
-// The access token is harvested by the companion extension; the browser
-// rotates it itself, so there is no server-side refresh — a failed buffer
-// fetch means the extension must push a fresh token.
+// Bridge imports retain their native device fields. Standalone WXAuth stores
+// the distinct social refresh token and requires no browser device fields.
 type Credentials struct {
-	QBAccessToken string `json:"qb_access_token"`
-	UserID        string `json:"user_id"`
-	OpenID        string `json:"openid,omitempty"`
-	GUID          string `json:"guid"`
-	Nickname      string `json:"nickname"`
+	QBAccessToken  string `json:"qb_access_token"`
+	WXRefreshToken string `json:"wx_refresh_token,omitempty"`
+	UserID         string `json:"user_id"`
+	OpenID         string `json:"openid,omitempty"`
+	UnionID        string `json:"unionid,omitempty"`
+	GUID           string `json:"guid"`
+	Nickname       string `json:"nickname"`
 	// QBRNCookie carries the official runtime's device headers. UserID is
 	// GAME_H5_DEVICE_MACHINE_ID, not the account's openid; QBAccessToken is ctk.
 	QBRNCookie string `json:"qbrn_cookie,omitempty"`
 }
 
 func (c Credentials) Validate() error {
-	if strings.TrimSpace(c.QBAccessToken) == "" || strings.TrimSpace(c.UserID) == "" {
+	if strings.TrimSpace(c.QBAccessToken) == "" || strings.TrimSpace(c.UserID) == "" && !c.CanRefresh() {
 		return errors.New("invalid QQBrowser credentials")
 	}
 	if len(c.QBRNCookie) > 8192 || strings.ContainsAny(c.QBRNCookie, "\r\n") {
 		return errors.New("invalid QQBrowser device header")
 	}
 	return nil
+}
+
+func (c Credentials) CanRefresh() bool {
+	return strings.TrimSpace(c.OpenID) != "" && strings.TrimSpace(c.WXRefreshToken) != ""
 }
 
 // Identity separates browser accounts on a shared machine. Older imported
@@ -83,12 +88,14 @@ func FetchBuffer(ctx context.Context, client *http.Client, creds Credentials) (s
 	if client == nil {
 		client = &http.Client{}
 	}
-	body, _ := json.Marshal(map[string]any{
+	input := map[string]any{
 		"access_token": creds.QBAccessToken,
-		"user_id":      creds.UserID,
 		"appid":        HostAppID,
-		"guid":         creds.GUID,
-	})
+	}
+	if creds.UserID != "" {
+		input["user_id"], input["guid"] = creds.UserID, creds.GUID
+	}
+	body, _ := json.Marshal(input)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, BufferURL, strings.NewReader(string(body)))
 	if err != nil {
 		return "", err

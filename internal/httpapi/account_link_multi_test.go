@@ -12,9 +12,39 @@ import (
 
 	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
+	"yyb_go/internal/qbbrowser"
 	"yyb_go/internal/qr"
 	"yyb_go/internal/store"
 )
+
+func TestQQMultiLinkUsesNativeUnionID(t *testing.T) {
+	for _, uid := range []string{"", "other-wechat", "same-wechat"} {
+		t.Run(uid, func(t *testing.T) {
+			app, err := NewApp(Config{ResourceRoot: t.TempDir(), RequestTimeout: time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.Close()
+			ctx := context.Background()
+			base, err := app.db.UpsertAccount(ctx, "root", "old-buffer", nil, nil, nil, map[string]any{"unionid": "same-wechat"}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			token, link := seedMultiLink(t, app, "update", base, nil)
+			creds := &protocol.LoginBufferCredentials{Provider: "qbbrowser", OpenID: "qbbrowser:synthetic", QBBrowser: qbbrowser.Credentials{OpenID: "synthetic", UnionID: uid, QBAccessToken: "access", WXRefreshToken: "refresh"}}
+			app.qrSessions["qq-native"] = &qrLoginSession{Session: &qr.Session{ID: "qq-native", Product: "qbbrowser", Credentials: creds, LoginBuffer: "synthetic-buffer"}, Client: app.qr, AccountLinkID: link.ID, AccountLinkHash: link.TokenHash}
+			w := multiLinkRequest(app, token, "/qr/qq-native/confirm")
+			rows, _ := app.db.ListAccounts(ctx)
+			if uid == "same-wechat" {
+				if w.Code != 200 || len(rows) != 2 {
+					t.Fatal("QQ native identity not accepted", w.Code)
+				}
+			} else if (w.Code != 409 && w.Code != 422) || len(rows) != 1 {
+				t.Fatal("unverified QQ identity changed accounts", w.Code)
+			}
+		})
+	}
+}
 
 func multiLinkRequest(app *App, token, path string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()

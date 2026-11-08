@@ -26,6 +26,7 @@ import (
 	"yyb_go/internal/ldplayer"
 	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
+	"yyb_go/internal/qbbrowser"
 )
 
 const (
@@ -67,6 +68,7 @@ type Session struct {
 	LoginBuffer   string
 	Status        string
 	Error         string
+	authError     error
 	mu            sync.Mutex
 }
 
@@ -137,14 +139,16 @@ func OAuthURL(product string) (string, error) {
 	case "pcmgr":
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{"appid": {pcmgr.HostAppID}, "redirect_uri": {"https://security.guanjia.qq.com/login"}, "response_type": {"code"}, "scope": {"snsapi_login,snsapi_runtime_pcsdk"}, "state": {"233"}, "self_redirect": {"true"}}.Encode(), nil
 	case "qbbrowser":
-		// Official browser OAuth entry only. Its native WUP WXAuth/QbAuth
-		// exchange is required before a runtime login buffer can be issued.
+		state, err := randomHex(16)
+		if err != nil {
+			return "", err
+		}
 		return "https://open.weixin.qq.com/connect/qrconnect?" + url.Values{
-			"appid":         {"wx0dbc1ae97f156c38"},
+			"appid":         {qbbrowser.HostAppID},
 			"redirect_uri":  {"https://go.browser.qq.com/wx-login.html"},
 			"response_type": {"code"},
-			"scope":         {"snsapi_login"},
-			"state":         {"qbbrowser"},
+			"scope":         {"snsapi_login,snsapi_runtime_pcsdk"},
+			"state":         {state},
 			"self_redirect": {"true"},
 		}.Encode(), nil
 	case "ldplayer":
@@ -180,9 +184,6 @@ func OAuthURL(product string) (string, error) {
 }
 
 func (c *Client) CreateSessionForProduct(ctx context.Context, product string) (*Session, error) {
-	if product == "qbbrowser" {
-		return nil, errors.New("QQ浏览器独立扫码换票尚未接通，请在官方浏览器中登录微信，再用具备原生接口的桥接环境导入")
-	}
 	oauth, err := OAuthURL(product)
 	if err != nil {
 		return nil, err
@@ -345,6 +346,36 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 		sess.Status = "confirmed"
 		return protocol.LoginBufferResult{LoginBuffer: buffer, Credentials: *sess.Credentials}, nil
 	}
+	if sess.Product == "qbbrowser" {
+		if sess.Credentials == nil {
+			if sess.authError != nil {
+				return protocol.LoginBufferResult{}, sess.authError
+			}
+			result, err := qbbrowser.ExchangeCode(ctx, sess.HTTPClient, sess.AuthorizeCode)
+			if err != nil {
+				// OAuth codes are single-use. Even a lost reply may have consumed
+				// the code; repeated UI confirms must not send it again.
+				sess.authError = err
+				return protocol.LoginBufferResult{}, err
+			}
+			expiresAt := int64(0)
+			if result.ExpiresIn > 0 {
+				expiresAt = time.Now().Unix() + result.ExpiresIn
+			}
+			sess.Credentials = &protocol.LoginBufferCredentials{
+				Provider: "qbbrowser", QBBrowser: result.Credentials, OpenID: result.Credentials.Identity(),
+				AccessToken: result.Credentials.QBAccessToken, RefreshToken: result.Credentials.WXRefreshToken,
+				ExpiresIn: result.ExpiresIn, ExpiresAt: expiresAt, ExpirySource: "upstream", LoginType: "WX",
+				RefreshTokenObservedAt: time.Now().Unix(),
+			}
+		}
+		buffer, err := c.loginBuffers.FetchLoginBuffer(ctx, *sess.Credentials)
+		if err != nil {
+			return protocol.LoginBufferResult{}, err
+		}
+		sess.LoginBuffer, sess.Status = buffer, "confirmed"
+		return protocol.LoginBufferResult{LoginBuffer: buffer, Credentials: *sess.Credentials}, nil
+	}
 	if sess.Product == "ldplayer" {
 		// 雷电渠道：OAuth code 直接换 buffer，没有中间凭据层。
 		// buffer 即 LoginBuffer——后续 ilink 栈自动消费。
@@ -421,6 +452,10 @@ func (c *Client) GetLoginBuffer(ctx context.Context, sess *Session) (protocol.Lo
 }
 
 func (c *Client) GetLoginBufferFromCode(ctx context.Context, code string) (protocol.LoginBufferResult, error) {
+	return c.GetLoginBufferFromCodeForProduct(ctx, code, "appstore")
+}
+
+func (c *Client) GetLoginBufferFromCodeForProduct(ctx context.Context, code, product string) (protocol.LoginBufferResult, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return protocol.LoginBufferResult{}, fmt.Errorf("authorize code is empty")
@@ -430,6 +465,7 @@ func (c *Client) GetLoginBufferFromCode(ctx context.Context, code string) (proto
 		return protocol.LoginBufferResult{}, err
 	}
 	sess := &Session{
+		Product:       product,
 		HTTPClient:    &http.Client{Timeout: c.timeout, Jar: jar, Transport: c.transport},
 		Jar:           jar,
 		AuthorizeCode: code,
