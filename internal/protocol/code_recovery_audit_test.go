@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +32,7 @@ func TestPCMgrCodeRecoveryAudit(t *testing.T) {
 		Buffer      string         `json:"login_buffer"`
 		Session     map[string]any `json:"session_blob"`
 	}
-	if err != nil || json.Unmarshal(raw, &saved) != nil || saved.Schema != 1 || saved.Provider != "pcmgr" || saved.Status != "alive" {
+	if err != nil || decodeAuditSessionJSON(raw, &saved) != nil || saved.Schema != 1 || saved.Provider != "pcmgr" || saved.Status != "alive" {
 		t.Fatal("requires a current alive PCMgr snapshot")
 	}
 	creds := CredentialsFromMap(saved.Credentials)

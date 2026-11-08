@@ -31,7 +31,7 @@ func TestSavedTicketRebuildAudit(t *testing.T) {
 		Buffer   string         `json:"login_buffer"`
 		Session  map[string]any `json:"session_blob"`
 	}
-	if err != nil || json.Unmarshal(raw, &saved) != nil || saved.Schema != 1 || saved.Status != "alive" || saved.Buffer == "" || (saved.Provider != "pcmgr" && saved.Provider != "appstore") {
+	if err != nil || decodeAuditSessionJSON(raw, &saved) != nil || saved.Schema != 1 || saved.Status != "alive" || saved.Buffer == "" || (saved.Provider != "pcmgr" && saved.Provider != "appstore") {
 		t.Fatal("current private profile required")
 	}
 	st, err := sessionFromBlob(saved.Session)

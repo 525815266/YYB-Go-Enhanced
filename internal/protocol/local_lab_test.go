@@ -123,3 +123,23 @@ func TestLabRejectsCrossProviderSessionsBeforeNetwork(t *testing.T) {
 		t.Fatal("expired session accepted")
 	}
 }
+
+func TestLabSavedSessionPreservesUINPrecision(t *testing.T) {
+	st := syntheticNativeSession()
+	st.Session.UIN = 1<<60 + 12345
+	st.Session.HostAppID, _ = labHost("ldplayer")
+	st.PSK.ExpiredAt = time.Now().Add(time.Hour).Unix()
+	raw, err := json.Marshal(labSavedSession{Schema: 1, Provider: "ldplayer", Session: st.toBlob()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := labReadSession("ldplayer", raw)
+	if err != nil || got.Session.UIN != st.Session.UIN {
+		t.Fatalf("lab session identity changed after save/reload: %v", err)
+	}
+	for _, suffix := range []string{"{}", "trailing"} {
+		if _, err := labReadSession("ldplayer", append(append([]byte(nil), raw...), []byte(suffix)...)); err == nil {
+			t.Fatal("lab accepted trailing session data")
+		}
+	}
+}

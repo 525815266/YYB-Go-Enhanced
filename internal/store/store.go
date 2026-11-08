@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1292,8 +1293,16 @@ func scanSession(row accountScanner) (*SessionRow, error) {
 	if uin.Valid {
 		s.UIN = &uin.Int64
 	}
-	if err := json.Unmarshal([]byte(blob), &s.SessionBlob); err != nil {
+	// Session identities are int64, often beyond float64's exact integer
+	// range. A rounded UIN makes every request after the fresh login carry a
+	// different identity. Keep the JSON number until protocol conversion.
+	decoder := json.NewDecoder(strings.NewReader(blob))
+	decoder.UseNumber()
+	if err := decoder.Decode(&s.SessionBlob); err != nil {
 		return nil, fmt.Errorf("decode session_blob: %w", err)
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return nil, fmt.Errorf("decode session_blob: trailing data")
 	}
 	s.blobJSON = blob
 	return &s, nil
