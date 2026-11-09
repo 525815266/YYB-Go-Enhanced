@@ -29,6 +29,40 @@ func TestShortlinkAuthenticatedRejectionPreservesCode(t *testing.T) {
 	}
 }
 
+func TestShortlinkResponseFailureStages(t *testing.T) {
+	psk := bytes.Repeat([]byte{7}, 32)
+	hello, serverHello := []byte("synthetic-client"), []byte("synthetic-server")
+	hash := sha256.Sum256(append(append([]byte(nil), hello...), serverHello...))
+	keys := derivePSKOneWayKeys(psk, labelHandshakeKeys, hash[:])
+	first, _ := buildRecord(ctHandshake, serverHello)
+	application, err := encryptRecordPayload(keys.Key, keys.IV, 2, ctAppData, []byte("invalid-application-ciphertext"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name            string
+		data            []byte
+		payloadCategory bool
+	}{
+		{"mmtls_records", []byte("not-mmtls-records"), false},
+		{"mmtls_decrypt", []byte("invalid-record-ciphertext"), true},
+		{"session_payload", application, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := tc.data
+			if tc.name != "mmtls_records" {
+				second, _ := buildRecord(ctAppData, tc.data)
+				wire = append(append([]byte(nil), first...), second...)
+			}
+			_, _, err := parse0RTTResponse(wire, psk, hello, nil, bytes.Repeat([]byte{3}, 32))
+			var response *ShortlinkResponseError
+			if !errors.As(err, &response) || response.Stage != tc.name || errors.Is(err, ErrShortlinkPayload) != tc.payloadCategory {
+				t.Fatalf("response stage or recovery category changed: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoginCodeRebuildPreservesFirstRejection(t *testing.T) {
 	first := &ShortlinkRejectedError{Code: -20011, Transport: true}
 	second := &ManualAuthRejectedError{Code: -10}

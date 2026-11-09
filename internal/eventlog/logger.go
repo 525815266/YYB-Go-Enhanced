@@ -73,18 +73,19 @@ const (
 )
 
 type Fields struct {
-	AccountID  int64       `json:"-"`
-	Channel    string      `json:"-"`
-	Route      string      `json:"route,omitempty"`
-	Method     string      `json:"method,omitempty"`
-	Status     int         `json:"http_status,omitempty"`
-	DurationMS int64       `json:"duration_ms,omitempty"`
-	AppID      string      `json:"app_id,omitempty"`
-	Operation  string      `json:"operation,omitempty"`
-	API        string      `json:"api,omitempty"`
-	Source     string      `json:"source,omitempty"`
-	Rejections []Rejection `json:"rejections,omitempty"`
-	Count      uint64      `json:"count,omitempty"`
+	AccountID     int64       `json:"-"`
+	Channel       string      `json:"-"`
+	Route         string      `json:"route,omitempty"`
+	Method        string      `json:"method,omitempty"`
+	Status        int         `json:"http_status,omitempty"`
+	DurationMS    int64       `json:"duration_ms,omitempty"`
+	AppID         string      `json:"app_id,omitempty"`
+	Operation     string      `json:"operation,omitempty"`
+	API           string      `json:"api,omitempty"`
+	Source        string      `json:"source,omitempty"`
+	Rejections    []Rejection `json:"rejections,omitempty"`
+	ResponseStage string      `json:"response_stage,omitempty"`
+	Count         uint64      `json:"count,omitempty"`
 	// Waited and Refused summarise a burst that pacing queued or turned away.
 	Waited  uint64 `json:"waited,omitempty"`
 	Refused uint64 `json:"refused,omitempty"`
@@ -213,6 +214,11 @@ func (l *Logger) Emit(event string, f Fields) {
 	}
 	if !safeOperation(f.Operation) {
 		f.Operation = ""
+	}
+	switch f.ResponseStage {
+	case "mmtls_records", "mmtls_decrypt", "session_payload":
+	default:
+		f.ResponseStage = ""
 	}
 	if !safeAPIName.MatchString(f.API) {
 		f.API = ""

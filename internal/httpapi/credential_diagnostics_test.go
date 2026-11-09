@@ -105,6 +105,30 @@ func TestDiagnosticsDoNotInferCodesFromTransportOrIdentifiers(t *testing.T) {
 	}
 }
 
+func TestResponseDiagnosticsAreNotBusinessRejections(t *testing.T) {
+	for _, stage := range []string{"mmtls_records", "mmtls_decrypt", "session_payload"} {
+		err := &protocol.H5AuthorizationAttemptError{Cause: &protocol.ShortlinkResponseError{Stage: stage}}
+		out := httptest.NewRecorder()
+		writeProtocolCallError(out, err)
+		var response struct {
+			Data struct {
+				Stage    string               `json:"response_stage"`
+				Rejected bool                 `json:"request_rejected"`
+				Errors   []upstreamDiagnostic `json:"upstream_errors"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(out.Body.Bytes(), &response) != nil || out.Code != 502 || response.Data.Stage != stage || response.Data.Rejected || len(response.Data.Errors) != 0 {
+			t.Fatalf("response failure misreported: %s", out.Body.String())
+		}
+		if responseFailureStage(err) != stage || len(eventRejections(err)) != 0 {
+			t.Fatal("response failure was turned into a business rejection")
+		}
+	}
+	if responseFailureStage(&protocol.ShortlinkResponseError{Stage: "private-response"}) != "" {
+		t.Fatal("unknown response stage copied into diagnostics")
+	}
+}
+
 func TestRefreshOutIncludesCurrentBusinessCodes(t *testing.T) {
 	acc := &store.WechatAccount{ID: 1}
 	err := &protocol.RefreshRejectedError{Code: 42002, Operation: "refresh_token"}

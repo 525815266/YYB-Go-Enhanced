@@ -129,6 +129,9 @@ func (a *App) oauthAutoExchange(w http.ResponseWriter, r *http.Request, acc *sto
 	if strings.TrimSpace(body.State) != "" {
 		payload["state"] = strings.TrimSpace(body.State)
 	}
+	if strings.TrimSpace(body.ComponentAppID) != "" {
+		payload["component_appid"] = strings.TrimSpace(body.ComponentAppID)
+	}
 	h5Body, err := json.Marshal(map[string]any{"ref": strconv.FormatInt(acc.ID, 10), "app_id": appID, "payload": payload})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
