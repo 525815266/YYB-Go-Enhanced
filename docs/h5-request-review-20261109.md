@@ -1,0 +1,61 @@
+# H5 请求复核与 v0.3.1 修复
+
+关联 [#141](https://github.com/525815266/YYB-Go-Enhanced/issues/141)、[#158](https://github.com/525815266/YYB-Go-Enhanced/issues/158)。
+
+## 失败证据与结论边界
+
+- #141 报告 `shortlink_application -14`；#158 报告 `AppData decrypt/parse failed`，最新另有用户反馈 v0.3.0 的 H5 正常。这些是不同阶段的反馈，不能合成一个已确认根因。
+- 本轮飞牛 v0.3.0 健康；只读检查最近保留的 10,000 条事件，没有 H5 操作或三个 H5 路由的记录。因此本轮没有重放生产账号请求，也未声称复现报告者的具体目标。
+- 用户进一步明确为拼多多。只读检查确认：仓库及青龙已部署的 `拼多多果园公众号版_code版.py` 仍将 `wx839691cce7c102bb` 送入 `/wxapp/getCode`，没有 H5 回调参数，属于确定的调用方错误；本次已改用 `/wx/h5code`。#133 先前“脚本默认停用、改走 H5 后即正常”的回复没有该脚本的验收依据，需要更正。
+- H5 使用命令 **1254**、`/cgi-bin/mmbiz-bin/oauth_authorize`；小程序登录使用命令 **1029**。二者共用 MMTLS / ShortLink 传输和 `wxaruntime_transfer` 封装。错误名包含 ShortLink 不等于发了小程序登录或短链请求，不能凭它断言公众号 AppID 用错。
+- 此前真实成功是有限场景：10-31 的同会话对照取得匹配回调/state 的 H5 code；不能推广到每个公众号、组件授权或每种代理。A8Key 5112 仍仅供审计，不作为失败后的自动兜底。
+
+## 已复现的本地缺陷
+
+| 缺陷 | v0.3.0 的可复现行为 | v0.3.1 |
+| --- | --- | --- |
+| 学习名单跨协议误用 | 公众号曾误走小程序取码后，学习名单会把改用 H5 的请求也挡成 403 | 学习名单仅用于小程序；管理员/环境/内置显式拒绝保留 |
+| H5 设备不一致 | 传入 nil 会生成随机设备字段，不是保持“原始成功请求字节” | 使用账号的 `SessDevice`；会话 UIN、HostAppID、1254 命令保持一致；随机设备模式仍遵守原配置 |
+| 多层隐式重放 | 两个目标的回环模拟中，一次调用发送 2 次；开启代理兜底后发送 4 次，并删除代理缓存会话 | 载荷发送后不换目标、重建或跨渠道重放，保留原会话；未发送载荷的连接失败仍可尝试其他目标 |
+| 组件参数丢失 | `/wx/oauth` 返回的说明 URL 可含 `component_appid`，实际请求却未携带 | 同一个参数贯穿 HTTP、协议构造及授权 URL；格式错误在发请求前拒绝 |
+
+这些缺陷已由本地回归确认，但尚不能断言它们分别导致了 #141 的 -14 或 #158 的解密失败。
+
+## 新的失败阶段
+
+H5 失败仍返回 HTTP 502。响应 `data.response_stage` 与 `protocol.failed` 事件的同名字段仅接受以下固定值，不含原始响应、密钥或账号身份：
+
+| response_stage | 意义 | 不能推断的结论 |
+| --- | --- | --- |
+| `mmtls_records` | 响应没有可识别的 ServerHello / AppData 记录 | 不能据此认定 OAuth 凭据失效 |
+| `mmtls_decrypt` | 现有 MMTLS 解密路径未能认证 AppData | 不能据此认定公众号 AppID 错误 |
+| `session_payload` | AppData 已通过 MMTLS 认证，但应用层解密/载荷解析失败 | 尚不能区分具体应用密钥、封包或压缩问题 |
+
+业务拒绝继续用 `data.upstream_errors` 的数值阶段，例如 `shortlink_application`、`h5_oauth_business`。响应解析失败不编造业务码 0，也不伪装成上游明确拒绝。其他协议原有恢复错误分类不因增加诊断而扩大。
+
+## 调用方式与后续验收
+
+直接 H5 入口：
+
+```json
+{"ref":"主账号ID","app_id":"目标公众号AppID","payload":{"redirect_uri":"https://业务域名/callback","scope":"snsapi_userinfo"}}
+```
+
+兼容入口 `POST /wx/oauth`：
+
+```json
+{"ref":"主账号ID","appid":"目标公众号AppID","redirect_uri":"https://业务域名/callback","scope":"snsapi_userinfo"}
+```
+
+组件授权可分别在 payload / 顶层加入 `component_appid`；本次只确认参数不会丢失，没有进行真实组件授权验收。`/wx/oauth` 的 `return_url_only=true` 仍只生成链接。
+
+继续定位所需的非敏感信息：实际部署版本、接口、公众号 AppID、scope、回调域名/路径、新的 `response_stage` 或业务阶段/数值。不要公开 token、code、state、回调查询、会话 JSON 或原始日志。服务端不访问业务回调，不自动改用小程序协议，也不因本次修复要求重扫全部账号。
+
+## 验证
+
+- `go test ./...`、`go vet ./...`。
+- 回环真实封包测试解密并核对 1254 命令、会话渠道、目标 AppID、设备和授权 URL；模拟错误响应核对发送次数及数据库缓存保留。
+- 合成响应覆盖明确业务拒绝、三种解析阶段、回调/state 校验；HTTP 回归覆盖学习名单隔离、显式禁用保留、组件参数传递与跨渠道不重放。
+- 以上均不连接微信上游，不代表报告者的实际失败场景、业务平台兑换或长期保活已经通过。
+
+拼多多脚本回调沿用脚本实际消费 code 的果园页面及原固定 `state=BASE`，scope 使用 `snsapi_base`；请求和消费位置共用同一常量，避免一处修改另一处遗漏。只读访问无登录态公开页面返回 HTTP 200，没有拿到可确认的当前官方 OAuth 跳转参数，因此不能称已核对所有官方登录变体。新脚本确认回调/state 后才消费 code；需更新青龙脚本文件，单独升级 YYB 容器不会修改青龙的副本。模拟测试见 `python3 -m unittest tests.test_pdd_h5_script tests.test_website_appid_scripts`，不会运行签到或浇水。

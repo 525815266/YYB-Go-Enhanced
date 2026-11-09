@@ -109,6 +109,14 @@ func writeProtocolCallError(w http.ResponseWriter, err error) {
 		return
 	}
 	diagnostics := credentialDiagnostics(err)
+	if stage := responseFailureStage(err); stage != "" {
+		writeRawJSON(w, http.StatusBadGateway, apiEnvelope{
+			Code: http.StatusBadGateway,
+			Msg:  "call failed: " + err.Error(),
+			Data: map[string]any{"response_stage": stage, "upstream_errors": diagnostics, "request_rejected": false},
+		})
+		return
+	}
 	if len(diagnostics) == 0 {
 		writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
 		return
@@ -118,4 +126,15 @@ func writeProtocolCallError(w http.ResponseWriter, err error) {
 		Msg:  "call failed: " + err.Error(),
 		Data: map[string]any{"upstream_errors": diagnostics, "request_rejected": protocol.IsApplicationRequestRejection(err) || protocol.IsBusinessResponseRejection(err)},
 	})
+}
+
+func responseFailureStage(err error) string {
+	var payload *protocol.ShortlinkResponseError
+	if errors.As(err, &payload) {
+		switch payload.Stage {
+		case "mmtls_records", "mmtls_decrypt", "session_payload":
+			return payload.Stage
+		}
+	}
+	return ""
 }

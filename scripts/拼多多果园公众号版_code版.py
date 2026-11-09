@@ -24,6 +24,7 @@ QYWX_TOKEN = __import__("os").getenv("QYWX_TOKEN", "")  # 企业微信机器人 
   7. 品赞代理，业务请求优先代理，失败直连兜底
 
 环境变量：
+  YYB_SERVER       YYB 地址@主账号ID，多行；公众号取码使用 /wx/h5code
   PLUSPLUS_TOKEN    PushPlus token，可选
   QYWX_TOKEN        企业微信机器人 Webhook key，可选（机器人地址 ?key= 后面的值）
   PROXY_API         品赞代理提取 API，可选
@@ -75,6 +76,12 @@ PDD_APP_ID = 33
 API_BASE = "https://api.pinduoduo.com"
 ORCHARD_BASE = "https://mobile.yangkeduo.com"
 MANOR_BASE = ORCHARD_BASE + "/proxy/api/api"
+H5_REDIRECT_URI = (
+    ORCHARD_BASE + "/garden_index_lz_0.html?_pdd_fs=1&_pdd_tc=676666&_pdd_sbs=1"
+    "&fun_id=wechat_app_home&__wls_rt=1&__wls_lt=1&__wls_fm=b"
+)
+H5_SCOPE = "snsapi_base"
+H5_STATE = "BASE"
 CHECKIN_TYPE = 201811
 MAX_WATER_TIMES = int(os.getenv("PDDGY_MAX_WATER", "20"))
 
@@ -426,8 +433,7 @@ class AccountSession:
         print("🔐 [登录] 使用 code 静默登录(公众号版)")
         response = request_with_proxy(
             "GET",
-            f"https://mobile.yangkeduo.com/garden_index_lz_0.html?_pdd_fs=1&_pdd_tc=676666&_pdd_sbs=1"
-            f"&fun_id=wechat_app_home&__wls_rt=1&__wls_lt=1&__wls_fm=b&code={quote(code)}&state=BASE",
+            f"{H5_REDIRECT_URI}&code={quote(code)}&state={quote(H5_STATE)}",
             headers={
                 "Content-Type": "application/json;charset=UTF-8",
                 "User-Agent": USER_AGENT,
@@ -451,7 +457,7 @@ class AccountSession:
         uin = cookie_value("pdd_user_uin")
         acid = ""
         if not uid or not access_token:
-            raise RuntimeError(f"登录未返回 uid/access_token(Set-Cookie): {set_cookie_str[:200] or '无'}")
+            raise RuntimeError("登录未返回 uid/access_token（不输出响应 Cookie）")
 
         parts = [f"PDDAccessToken={access_token}", f"pdd_user_id={uid}"]
         if uin:
@@ -466,7 +472,7 @@ class AccountSession:
         cache = load_token_cache()
         cache[self.server] = {"cookieStr": self.cookie_str, "uid": uid, "updateTime": datetime.now().isoformat()}
         save_token_cache(cache)
-        print(f"✅ [登录] 登录成功 uid={uid}")
+        print("✅ [登录] 登录成功")
 
     def manor_post(self, api_path: str, body: Dict[str, Any] | None,
                    proxies: Dict[str, str] | None) -> Dict[str, Any]:
@@ -794,11 +800,15 @@ def _yyb_find_code(value):
 
 
 def _yyb_code(server, *args, **kwargs):
-    body = _yyb_json_request(server, "/wxapp/getCode", _yyb_appid(args, kwargs))
-    code = _yyb_find_code(body)
-    if not code:
-        raise RuntimeError(str(body.get("msg") or body.get("message") or "YYB 未返回 wx.login code"))
-    return str(code)
+    body = _yyb_json_request(server, "/wx/h5code", _yyb_appid(args, kwargs), {
+        "payload": {"redirect_uri": H5_REDIRECT_URI, "scope": H5_SCOPE, "state": H5_STATE},
+    })
+    result = (body.get("data") or {}).get("result") or {}
+    code = result.get("code")
+    if (not isinstance(code, str) or code in ("", "null", "invalid")
+            or result.get("state") != H5_STATE or result.get("redirect_uri") != H5_REDIRECT_URI):
+        raise RuntimeError("YYB 未返回与果园回调匹配的 H5 OAuth code；不会改走小程序取码")
+    return code
 
 
 def _yyb_phone(server, *args, **kwargs):
@@ -817,11 +827,7 @@ def get_code(server, *args, **kwargs):
     if "@" in str(server):
         phone_code = kwargs.get("phone_code") is True or (args and args[0] is True)
         if phone_code:
-            body = _yyb_phone(server)
-            code = _yyb_find_code(body)
-            if not code:
-                raise RuntimeError("YYB 未返回手机号授权 code")
-            return str(code)
+            raise RuntimeError("公众号版使用 H5 授权，不支持小程序手机号取码")
         return _yyb_code(server, *args, **kwargs)
     return _yyb_original_get_code(server, *args, **kwargs)
 

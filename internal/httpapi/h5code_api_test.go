@@ -76,6 +76,40 @@ func TestH5CodeRouteRefusesWebsiteAppID(t *testing.T) {
 	}
 }
 
+func TestH5CodeExplicitDenyStillApplies(t *testing.T) {
+	app := newKeepAliveTestApp(t)
+	defer app.Close()
+	acc := insertKeepAliveTestAccount(t, app, "h5-explicit-deny", time.Now().Add(time.Hour))
+	if err := app.appIDs.AddDeny("wx1234567890abcdef", "operator decision"); err != nil {
+		t.Fatal(err)
+	}
+	out := httptest.NewRecorder()
+	request := withWXOperation(httptest.NewRequest(http.MethodPost, "/wx/h5code", strings.NewReader(fmt.Sprintf(`{"ref":"%d","app_id":"wx1234567890abcdef","payload":{"redirect_uri":"https://example.com/login"}}`, acc.ID))), eventlog.OpH5Code)
+	app.callWXApp(out, request, false, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		t.Fatal("explicitly denied H5 request reached the protocol")
+		return nil, nil
+	})
+	if out.Code != http.StatusForbidden {
+		t.Fatalf("explicit H5 denial = %d, want 403", out.Code)
+	}
+}
+
+func TestH5AttemptDoesNotFailOverAcrossFleet(t *testing.T) {
+	for _, cause := range []error{&protocol.ShortlinkRejectedError{Code: -14}, &protocol.ShortlinkResponseError{Stage: "session_payload"}} {
+		app, primary, _ := fleetTestSetup(t)
+		calls := 0
+		attempt := &protocol.H5AuthorizationAttemptError{Cause: cause}
+		ctx := withWXOperation(httptest.NewRequest(http.MethodPost, "/wx/h5code", nil), eventlog.OpH5Code).Context()
+		_, err := app.invokeWithFleet(ctx, primary, "wx1234567890abcdef", nil, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+			calls++
+			return nil, attempt
+		})
+		if !errors.Is(err, attempt) || calls != 1 {
+			t.Fatalf("H5 confirmation replayed across channels: calls=%d err=%v", calls, err)
+		}
+	}
+}
+
 // A code request that reached the upstream and came back without a code
 // denies that AppID once the outcome repeats on a second account: one
 // bursted account failing everything must not deny AppIDs other accounts
@@ -119,13 +153,22 @@ func TestDynamicDenyLearnsCodelessAppID(t *testing.T) {
 	if err != nil || accountStatus(stored) != "alive" {
 		t.Fatalf("learning changed account status: %v %s", err, accountStatus(stored))
 	}
-	// A learned AppID is refused on the H5 route as well.
+	// A failed mini-program login does not establish that an AppID cannot
+	// authorize a web callback. Keep the mini-program denial, but let H5 use
+	// its own command and business validation.
 	out := httptest.NewRecorder()
 	request := withWXOperation(httptest.NewRequest(http.MethodPost, "/wx/h5code",
 		strings.NewReader(fmt.Sprintf(`{"ref":"%d","app_id":"wxdanger000000001","payload":{"redirect_uri":"https://example.com/login"}}`, acc1.ID))), eventlog.OpH5Code)
-	app.callWXApp(out, request, false, app.invokeH5Code)
-	if out.Code != http.StatusForbidden {
-		t.Fatalf("H5 route for learned AppID = %d, want 403: %s", out.Code, out.Body.String())
+	h5Calls := 0
+	app.callWXApp(out, request, false, func(context.Context, *store.WechatAccount, string, map[string]any, string, bool) (map[string]any, error) {
+		h5Calls++
+		return map[string]any{"code": "synthetic-h5-code"}, nil
+	})
+	if out.Code != http.StatusOK || h5Calls != 1 {
+		t.Fatalf("H5 route for learned AppID = %d, calls=%d, want 200/1: %s", out.Code, h5Calls, out.Body.String())
+	}
+	if _, denied := app.dynamicAppIDs.check("wxdanger000000001"); !denied {
+		t.Fatal("H5 success removed the mini-program denial")
 	}
 }
 

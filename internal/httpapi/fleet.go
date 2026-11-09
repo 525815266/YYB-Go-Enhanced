@@ -61,6 +61,10 @@ func fleetFailover(err error) bool {
 	if err == nil {
 		return false
 	}
+	var h5Attempt *protocol.H5AuthorizationAttemptError
+	if errors.As(err, &h5Attempt) {
+		return false
+	}
 	if protocol.IsBusinessResponseRejection(err) {
 		// The upstream judged the request itself (appid/redirect pairing,
 		// scope...). Every member would receive the same verdict.

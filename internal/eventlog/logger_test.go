@@ -20,7 +20,7 @@ func TestSafeFieldsPersistAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.Emit("protocol.failed", Fields{AccountID: 1, Channel: "pcmgr", Route: "/account-link/private-token?secret=value", Method: "private-token", Rejections: []Rejection{{Stage: "native_autoauth_business", Code: -13}, {Stage: "private-token", Code: 42}}})
+	l.Emit("protocol.failed", Fields{AccountID: 1, Channel: "pcmgr", ResponseStage: "private-token", Route: "/account-link/private-token?secret=value", Method: "private-token", Rejections: []Rejection{{Stage: "native_autoauth_business", Code: -13}, {Stage: "private-token", Code: 42}}})
 	l.Emit("private-token", Fields{})
 	l.Close()
 	db.Close()
@@ -77,7 +77,7 @@ func TestTargetFieldsKeepOnlyPlainIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.Emit("protocol.failed", Fields{AccountID: 1, Channel: "yyb"}.WithTarget("wx91d27dbf599dff74", OpOperateWXData, "getUserInfo"))
+	l.Emit("protocol.failed", Fields{AccountID: 1, Channel: "yyb", ResponseStage: "session_payload"}.WithTarget("wx91d27dbf599dff74", OpOperateWXData, "getUserInfo"))
 	l.Emit("protocol.failed", Fields{AccountID: 2, Channel: "yyb"}.WithTarget("wx?token=secret value", "private-token", "bad name!"))
 	l.Close()
 	entries, err := db.ListSystemLogs(context.Background(), store.SystemLogFilter{Limit: 10})
@@ -88,7 +88,7 @@ func TestTargetFieldsKeepOnlyPlainIdentifiers(t *testing.T) {
 		details := string(entry.Details)
 		switch entry.AccountID {
 		case 1:
-			for _, want := range []string{`"app_id":"wx91d27dbf599dff74"`, `"operation":"operate_wx_data"`, `"api":"getUserInfo"`} {
+			for _, want := range []string{`"app_id":"wx91d27dbf599dff74"`, `"operation":"operate_wx_data"`, `"api":"getUserInfo"`, `"response_stage":"session_payload"`} {
 				if !strings.Contains(details, want) {
 					t.Fatalf("valid target dropped %s: %s", want, details)
 				}

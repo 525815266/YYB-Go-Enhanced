@@ -573,13 +573,17 @@ func (p *Pool) loginTarget(ctx context.Context, target Target, loginBuffer, tcpP
 }
 
 func (p *Pool) sendEnvelope(ctx context.Context, st WmpfSession, envelope []byte) ([]byte, []byte, error) {
+	return p.sendEnvelopeWithReplay(ctx, st, envelope, true)
+}
+
+func (p *Pool) sendEnvelopeWithReplay(ctx context.Context, st WmpfSession, envelope []byte, allowReplay bool) ([]byte, []byte, error) {
 	if err := acquire(ctx, p.shortlinkSem); err != nil {
 		return nil, nil, err
 	}
 	defer release(p.shortlinkSem)
 	reqCtx, cancel := context.WithTimeout(ctx, p.cfg.ShortlinkTimeout)
 	defer cancel()
-	return send0RTT(reqCtx, st.ShortlinkTargets, st.PSK, st.Session.RecvKey, envelope, p.cfg.ShortlinkTimeout, st.TCPProxy, st.FallbackDirect)
+	return send0RTT(reqCtx, st.ShortlinkTargets, st.PSK, st.Session.RecvKey, envelope, p.cfg.ShortlinkTimeout, st.TCPProxy, st.FallbackDirect, allowReplay)
 }
 
 func acquire(ctx context.Context, sem chan struct{}) error {
