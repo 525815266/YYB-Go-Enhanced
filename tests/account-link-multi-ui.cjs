@@ -48,7 +48,7 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
       if (action === 'cancel') return route.fulfill(reply({cancelled:true}));
       if (action === 'poll') return route.fulfill(reply({status:session.status}));
       if (action === 'confirm') {
-        if (session.product === 'qbbrowser' && !route.request().postDataJSON().confirm_same_wechat) return route.fulfill({status:422,contentType:'application/json',body:JSON.stringify({msg:'请确认同一微信，无需重新扫码',data:{identity_confirmation_required:true}})});
+        if (['qbbrowser','gameassist'].includes(session.product) && !route.request().postDataJSON().confirm_same_wechat) return route.fulfill({status:422,contentType:'application/json',body:JSON.stringify({msg:'请确认同一微信，无需重新扫码',data:{identity_confirmation_required:true}})});
         if (session.product === 'pcmgr' && rejected) return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({msg:'请使用原微信扫码：微信身份不一致，账号未修改'})});
         if (!saved.has(session.product)) saved.set(session.product,500+saved.size);
         if (session.product === 'gameassist') {confirmAttempts++;if (!lost){lost=true;return route.abort('failed');}}
@@ -70,8 +70,15 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
     [...pending.values()].filter(s => s.product === 'pcmgr').at(-1).status='authorized';
     await page.waitForSelector('[data-product=pcmgr][data-state=done]');
     // A lost success response is retried, then represented as one saved channel.
+    const beforeGameConsent=seq;
     [...pending.values()].find(s => s.product === 'gameassist').status='authorized';
+    await page.waitForSelector('[data-product=gameassist][data-state=identity-confirmation]');
+    assert.equal(await page.locator('[data-product=gameassist] .qr img').count(),0);
+    assert.match(await page.locator('[data-product=gameassist] .qr').textContent(),/无需重新扫码/);
+    assert.equal(await page.locator('[data-product=gameassist] .state').evaluate(el => el.classList.contains('error')),false);
+    await page.locator('[data-product=gameassist] button', {hasText:'确认使用同一微信'}).click();
     await page.waitForSelector('[data-product=gameassist][data-state=done]',{timeout:15000});
+    assert.equal(seq,beforeGameConsent,'missing GameAssist UnionID must not require another QR');
     assert.equal(confirmAttempts,2);
     assert.equal(saved.size,2);
     // Cross-platform identities require explicit consent using the SAME QR.
@@ -79,6 +86,7 @@ const reply = data => ({status:200,contentType:'application/json',body:JSON.stri
     qb.status='authorized';
     await page.waitForSelector('[data-product=qbbrowser][data-state=identity-confirmation]');
     assert.equal(saved.has('qbbrowser'),false);
+    assert.equal(await page.locator('[data-product=qbbrowser] .qr img').count(),0);
     if(process.env.YYB_TEST_SHOTS){fs.mkdirSync(process.env.YYB_TEST_SHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.YYB_TEST_SHOTS,'identity-consent.png'),fullPage:true});}
     await page.locator('[data-product=qbbrowser] button', {hasText:'确认使用同一微信'}).click();
     await page.waitForSelector('[data-product=qbbrowser][data-state=done]');

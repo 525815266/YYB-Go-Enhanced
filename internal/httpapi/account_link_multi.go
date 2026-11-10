@@ -11,9 +11,9 @@ import (
 	"yyb_go/internal/store"
 )
 
-// A multi-channel capability stays anchored to its original fleet. QQBrowser
-// and LDPlayer can require explicit confirmation because their identity values
-// are not always comparable with the primary channel's open-platform identity.
+// A multi-channel capability stays anchored to its original fleet. Renewal
+// first matches that fleet's existing channel identity; cross-channel UnionID
+// is only needed to establish a new binding, not to re-prove an existing one.
 func (a *App) confirmMultiAccountLinkQR(w http.ResponseWriter, r *http.Request, token string, login *qrLoginSession) {
 	var consent struct {
 		ConfirmSameWechat bool `json:"confirm_same_wechat"`
@@ -60,7 +60,7 @@ func (a *App) confirmMultiAccountLinkQR(w http.ResponseWriter, r *http.Request, 
 	}
 	info, infoErr := login.Client.LoginBuffers().FetchUserInfo(r.Context(), result.Credentials)
 	manualChannel := product == "ldplayer" || product == "qbbrowser"
-	confirmed := manualChannel && consent.ConfirmSameWechat
+	confirmed := false
 	needsConfirmation := func() {
 		writeRawJSON(w, 422, apiEnvelope{Code: 422, Msg: "此渠道身份无法与原渠道自动核对，请确认各渠道使用同一微信后继续，无需重新扫码", Data: map[string]any{"identity_confirmation_required": true}})
 	}
@@ -85,34 +85,6 @@ func (a *App) confirmMultiAccountLinkQR(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		manualChannel = manualChannel || primary.ScanProduct() == "ldplayer" || primary.ScanProduct() == "qbbrowser"
-		confirmed = manualChannel && consent.ConfirmSameWechat
-		uid := fleetUnionIDFromMap(primary.UserInfo)
-		var identityErr error
-		if uid == "" && !confirmed {
-			uid, identityErr = a.multiLinkUnionIDOf(r.Context(), primary)
-		}
-		sameChannelIdentity := primary.ScanProduct() == product && product != "ldplayer" && primary.OpenID == result.Credentials.OpenID
-		if !sameChannelIdentity && (infoErr != nil || identityErr != nil || uid == "" || uid != fleetUnionIDFromMap(info)) {
-			if !manualChannel || primary.ScanProduct() == product && product != "ldplayer" {
-				writeError(w, 409, "请使用原微信扫码：微信身份无法核对，账号未修改")
-				return
-			}
-			if !confirmed {
-				needsConfirmation()
-				return
-			}
-		}
-		if primary.ScanProduct() == product && product != "ldplayer" && primary.OpenID != result.Credentials.OpenID {
-			writeError(w, 409, "同渠道微信身份不一致，原账号未修改")
-			return
-		}
-		if link.Kind == accountLinkKindUpdate && base.ID != primary.ID && !confirmed {
-			baseUID, err := a.multiLinkUnionIDOf(r.Context(), base)
-			if (err != nil || baseUID == "" || baseUID != uid) && !confirmed {
-				writeError(w, 409, "基础账号与主账号身份无法核对，请先在控制台处理归组")
-				return
-			}
-		}
 		members, err := a.db.FleetMembers(r.Context(), primary.ID)
 		if err != nil {
 			writeError(w, 500, "读取多渠道账号失败")
@@ -122,12 +94,54 @@ func (a *App) confirmMultiAccountLinkQR(w http.ResponseWriter, r *http.Request, 
 			if member.Public().ScanProduct != product {
 				continue
 			}
-			if target != nil || member.OpenID != result.Credentials.OpenID && !(product == "ldplayer" && confirmed && accountStatus(member) == "expired") {
+			if target != nil || member.OpenID != result.Credentials.OpenID && !(product == "ldplayer" && accountStatus(member) == "expired") {
 				writeError(w, 409, "该渠道已有不同授权，请在控制台核对；原账号未修改")
 				return
 			}
 			target = member
 		}
+		knownIdentity := target != nil && target.OpenID == result.Credentials.OpenID
+		if !knownIdentity {
+			uid := fleetUnionIDFromMap(primary.UserInfo)
+			var identityErr error
+			if uid == "" && !consent.ConfirmSameWechat {
+				uid, identityErr = a.multiLinkUnionIDOf(r.Context(), primary)
+			}
+			incomingUID := fleetUnionIDFromMap(info)
+			if infoErr != nil || identityErr != nil || uid == "" || incomingUID == "" || uid != incomingUID {
+				// Missing profile data is not a different WeChat. Never let an
+				// explicit confirmation override a comparable, known mismatch.
+				if !manualChannel && infoErr == nil && identityErr == nil && uid != "" && incomingUID != "" && uid != incomingUID {
+					writeError(w, 409, "请使用原微信扫码：微信身份不一致，账号未修改")
+					return
+				}
+				if !consent.ConfirmSameWechat {
+					needsConfirmation()
+					return
+				}
+				confirmed = true
+			}
+		}
+		// The link's base is already a member of this fleet. SaveAccountLinkScan
+		// checks its original OpenID and fleet anchor in the same transaction.
+		// Requiring its cross-channel profile again would also block expired
+		// member-created links even when the scanned identity is unchanged.
+	}
+	if target != nil {
+		// User-info may be unavailable or partial while the QR credentials are
+		// valid. Keep previously captured profile/binding fields in that case.
+		merged := make(map[string]any, len(target.UserInfo)+len(info))
+		for key, value := range target.UserInfo {
+			merged[key] = value
+		}
+		if infoErr == nil {
+			for key, value := range info {
+				if value != nil && value != "" {
+					merged[key] = value
+				}
+			}
+		}
+		info = merged
 	}
 	if confirmed {
 		if info == nil {
