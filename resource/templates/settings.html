@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>个人设置 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/auth.css?v=20261109-ui">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261109-ui">
   <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
   <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
 </head>
@@ -25,7 +25,7 @@
           <button class="btn primary" id="saveCircuit" type="submit" disabled>保存熔断总控</button>
         </form>
       </section>
-      <section class="card" id="runtimeCard" hidden><h2>运行参数</h2><p class="description">取码限速、登录预算与动态黑名单，保存后 1 秒内生效并保留到重启之后。其余 env 配置见 docs/configuration.md。</p><form id="runtimeForm">
+      <section class="card" id="runtimeCard" hidden><h2>运行参数</h2><p class="description">取码限速、登录预算与动态黑名单，保存后 1 秒内生效并保留到重启之后。其余 env 配置见 docs/configuration.md。</p><form id="runtimeForm" class="runtime-form">
         <div class="field"><label for="rtMinGap">取码最小间隔（秒/账号）</label><input class="input" id="rtMinGap" type="number" min="0" step="1"></div>
         <div class="field"><label for="rtMaxWait">最大排队等待（秒）</label><input class="input" id="rtMaxWait" type="number" min="0" step="1"></div>
         <div class="field"><label for="rtBudget">登录预算（次，0 关闭重建）</label><input class="input" id="rtBudget" type="number" min="0" max="1000" step="1"></div>
@@ -34,11 +34,11 @@
         <div class="field"><label for="rtDenyThreshold">临时限制阈值（15 分钟内几个不同主账号组空码）</label><input class="input" id="rtDenyThreshold" type="number" min="1" max="50" step="1"></div>
         <div class="field"><label><input type="checkbox" id="rtDenyEnabled"> 启用空码临时限制（15 分钟后可复核）</label></div>
         <div class="notice" id="runtimeNotice" hidden></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit" id="saveRuntime">保存运行参数</button><button class="btn" type="button" id="resetRuntime">恢复 env 默认</button></div>
+        <div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit" id="saveRuntime">保存运行参数</button><button class="btn secondary" type="button" id="resetRuntime">恢复 env 默认</button></div>
       </form></section>
       <section class="card" id="appidPolicyCard" hidden><h2>取码黑白名单</h2><p class="description">拒绝的 AppID 不发往上游；白名单优先级最高。内置项与 env 配置只读，面板名单保存到数据库。</p>
-        <div class="field"><label>添加黑名单</label><div style="display:flex;gap:8px"><input class="input" id="denyAdd" placeholder="wx 开头的 AppID"><button class="btn" type="button" id="denyAddBtn">拉黑</button></div></div>
-        <div class="field"><label>添加白名单（解除拦截）</label><div style="display:flex;gap:8px"><input class="input" id="allowAdd" placeholder="wx 开头的 AppID"><button class="btn" type="button" id="allowAddBtn">放行</button></div></div>
+        <div class="field"><label>添加黑名单</label><div class="input-row"><input class="input" id="denyAdd" placeholder="wx 开头的 AppID"><button class="btn secondary" type="button" id="denyAddBtn">拉黑</button></div></div>
+        <div class="field"><label>添加白名单（解除拦截）</label><div class="input-row"><input class="input" id="allowAdd" placeholder="wx 开头的 AppID"><button class="btn secondary" type="button" id="allowAddBtn">放行</button></div></div>
         <div class="field"><label>黑名单（内置 / env / 面板）</label><div id="denyLists" style="font-size:12.5px;line-height:1.8;overflow-wrap:anywhere"></div></div>
         <div class="field"><label>白名单</label><div id="allowList" style="font-size:12.5px;line-height:1.8;overflow-wrap:anywhere"></div></div>
         <div class="field"><label>空码临时限制（<span id="learnedCount">0</span> 个）<button class="btn secondary" type="button" id="clearLearned" style="margin-left:8px">清空</button></label><p class="description">空码不能判定应用类型。限制 15 分钟后，由下一个正常调用复核一次，成功即解除；不会后台主动取码。H5 不受此名单影响。</p><div id="learnedList" style="font-size:12px;line-height:1.7;max-height:180px;overflow:auto;overflow-wrap:anywhere;color:var(--muted,#68707d)"></div></div>

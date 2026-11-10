@@ -62,7 +62,7 @@ body.platform-ready > .app { display: none !important; }
 .platform-skin:focus-visible { outline: 2px solid var(--platform-accent); outline-offset: 2px; }
 .platform-skin svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .platform-main { min-width: 0; }
-.platform-main > main { width: min(1480px, 100%) !important; margin: 0 auto !important; padding: 28px 30px 46px !important; }
+.platform-main > main { width: min(1480px, 100%) !important; max-width: none !important; margin: 0 auto !important; padding: 28px 30px 46px !important; }
 .platform-overlay { display: none; }
 
 dialog.platform-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--platform-line); border-radius: 8px; background: white; color: var(--platform-ink); box-shadow: 0 24px 70px oklch(0.15 0.03 250 / .28); }
@@ -119,8 +119,9 @@ dialog.platform-dialog::backdrop { background: oklch(0.12 0.02 252 / .54); }
 .platform-main .link-toolbar {
   background: oklch(0.995 0.003 250);
 }
+.platform-main input[type="checkbox"], .platform-main input[type="radio"], .platform-dialog input[type="checkbox"], .platform-dialog input[type="radio"] { accent-color: var(--platform-accent); }
 .platform-ready { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
-.platform-main .btn, .platform-dialog .btn { width:auto; min-height:36px; padding:8px 12px; border-radius:7px; font-size:13px; font-weight:600; line-height:1.3; transition:background 180ms ease, border-color 180ms ease; }
+.platform-main .btn, .platform-dialog .btn { width:auto; min-height:36px; padding:8px 12px; border-radius:7px; font-size:13px; font-weight:600; line-height:1.3; white-space:nowrap; transition:background 180ms ease, border-color 180ms ease; }
 .platform-main .btn.primary, .platform-dialog .btn.primary { width:auto; background:var(--platform-accent); border-color:var(--platform-accent); color:white; }
 .platform-main .btn:not(:disabled):hover { filter:brightness(.96); }
 .platform-main :is(input, select, textarea) { border-radius:7px; }

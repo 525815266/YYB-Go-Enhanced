@@ -28,7 +28,7 @@
       const severity = el("td"), badge = el("span", levels[entry.level] || entry.level, "log-badge"); badge.dataset.level = entry.level; severity.append(badge);
       const account = el("td");
       account.append(el("span", entry.account_id ? `ID ${entry.account_id}` : "全局", "log-account"));
-      if (entry.channel) account.append(el("span", entry.channel === "pcmgr" ? "PCMgr" : "YYB", "log-channel"));
+      if (entry.channel) account.append(el("span", ({yyb: "YYB", pcmgr: "PCMgr", gameassist: "GameAssist", ldplayer: "LDPlayer", qbbrowser: "QQ浏览器"})[entry.channel] || entry.channel, "log-channel"));
       const message = el("td"), details = entry.details || {};
       message.append(el("span", entry.message));
       if (details.rejections?.length) message.append(el("span", details.rejections.map(item => `${stages[item.stage] || item.stage} ${item.code}${item.wechat_code ? ` / WX ${item.wechat_code}` : ""}`).join(" · "), "log-rejections"));
