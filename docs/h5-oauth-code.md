@@ -1,6 +1,6 @@
 # 公众号网页授权 code（H5 OAuth）与动态 AppID 防护（v0.2.66）
 
-2026-11-09 更新：v0.3.1 修正稳定设备、组件参数丢失、小程序学习名单误拦 H5，以及底层隐式重放；详见 [H5 请求复核](h5-request-review-20261109.md)。以下历史验证范围不扩大为全部公众号均可用。
+2026-11-10 更新：v0.3.3 将历史永久自动禁用改为 15 分钟临时限制及正常调用单次复核，修复显式白名单优先级、失败窗口和同一微信多渠道重复计数。下文动态名单部分为历史行为；当前规则见 [自动 AppID 限制复核](appid-recovery-review-20261110.md)。v0.3.1 的 H5 稳定设备、组件参数和不重放语义不变。
 
 日期：2026-11-04。关联 issue [#75](https://github.com/525815266/YYB-Go-Enhanced/issues/75)、[#85](https://github.com/525815266/YYB-Go-Enhanced/issues/85)、[#87](https://github.com/525815266/YYB-Go-Enhanced/issues/87)、[#133](https://github.com/525815266/YYB-Go-Enhanced/issues/133)，以及[网站应用 AppID 取码与授权失效](website-appid-getcode-20261103.md)、[早期会话与近期 H5 实现的真实对照](h5-legacy-session-compare-20261031.md)。
 

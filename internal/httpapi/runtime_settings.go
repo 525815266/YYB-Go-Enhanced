@@ -83,13 +83,16 @@ func (a *App) runtimeSettingsOut() map[string]any {
 			"present": a.tuningFilePresent(),
 		},
 		"dynamic_deny": map[string]any{
-			"enabled":   a.dynamicAppIDs.enabledNow(),
-			"threshold": a.dynamicAppIDs.currentThreshold(),
-			"learned":   len(a.dynamicAppIDs.list()),
+			"enabled":               a.dynamicAppIDs.enabledNow(),
+			"threshold":             a.dynamicAppIDs.currentThreshold(),
+			"learned":               len(a.dynamicAppIDs.list()),
+			"cooldown_seconds":      int(dynamicAppIDCooldown.Seconds()),
+			"strike_window_seconds": int(dynamicAppIDStrikeWindow.Seconds()),
 		},
 		"notes": []string{
 			"取码间隔/排队等待/登录预算/新鲜会话窗口写入数据库旁的 tuning.json，1 秒内生效并保留到重启之后",
 			"动态黑名单关闭后不再学习也不再拦截，已学习的名单保留可查看/清除",
+			"自动学习仅临时限制 15 分钟；到期后允许一个正常调用复核，成功即解除；不会后台主动取码，空码不判定应用类型",
 		},
 		"healthy": healthy(s.MinGap.Milliseconds()) && s.LoginBudget >= 0,
 	}
