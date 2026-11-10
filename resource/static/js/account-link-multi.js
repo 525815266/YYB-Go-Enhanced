@@ -64,6 +64,7 @@ window.AccountLinkMulti = (() => {
       if (closed || generation !== card.generation || error.name === 'AbortError') return;
       message(card, error.message, 'error');
       if (error.data?.identity_confirmation_required) {
+        card.qr.textContent = '✓ 微信已授权，无需重新扫码'; message(card, error.message);
         card.identityButton.hidden = false; card.root.dataset.state = 'identity-confirmation';
       }
       retry = (error.status === 409 && error.message.startsWith('buffer not ready') || error.status === 502) && card.attempts < 12;
@@ -104,7 +105,7 @@ window.AccountLinkMulti = (() => {
     document.querySelector('.panel').classList.add('multi-link');
     document.querySelector('.scan-channel').classList.add('hidden'); $('qr').classList.add('hidden'); $('retry').classList.add('hidden');
     $('intro').textContent = meta.kind === 'update' ? `为${meta.target || '账号 ID '+meta.account_id}更新或补充渠道，保留原 ID。` : '首次扫码建立新账号，其余渠道须使用同一微信。';
-    $('linkHint').textContent = '各渠道请使用同一微信。无法跨渠道自动核验时，需你确认后才关联；同渠道身份冲突不会覆盖。新增渠道作为原账号的成员保存，对外仍使用原主账号 ID。';
+    $('linkHint').textContent = '各渠道请使用同一微信。已有渠道身份匹配时直接更新原授权；新渠道无法自动核验时，确认同一微信即可继续，无需重扫。同渠道身份冲突不会覆盖，对外仍使用原主账号 ID。';
     const host = $('linkMulti'); host.classList.remove('hidden');
     const toolbar = element('div', '', 'link-multi-toolbar'), label = element('label');
     const toggle = element('input'); toggle.type = 'checkbox'; toggle.id = 'linkMultiToggle'; toggle.checked = true; label.append(toggle, document.createTextNode('同时显示多渠道二维码'));

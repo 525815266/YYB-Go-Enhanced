@@ -26,7 +26,7 @@
     <div class="hint" id="linkHint">请确认微信中登录的是要授权的账号。链接只能成功使用一次，并会在有效期结束后自动失效。</div>
   </main>
   <script src="/static/js/scan-channel.js?v=094"></script>
-<script src="/static/js/account-link-multi.js?v=0300"></script>
+<script src="/static/js/account-link-multi.js?v=0302"></script>
   <script>
     const token=location.pathname.split('/').filter(Boolean).pop();
     const $=id=>document.getElementById(id);let sid='',timer=null,expiryTimer=null,pollBusy=false,linkExpiresAt=0,saveAttempts=0;
