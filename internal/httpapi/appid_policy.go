@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,9 +39,12 @@ var builtinDeniedAppIDs = map[string]string{
 // operator manages in the panel are persisted in the settings store and
 // override the env-configured lists (an allowance always wins).
 type appIDPolicy struct {
-	mu     sync.Mutex
-	denied map[string]string // lower-case AppID to the reason shown to the caller
-	db     *store.DB
+	mu         sync.Mutex
+	denied     map[string]string // lower-case AppID to the reason shown to the caller
+	allowed    map[string]bool
+	envAllowed map[string]bool
+	envDenied  map[string]bool
+	db         *store.DB
 }
 
 const (
@@ -52,12 +56,13 @@ const (
 // configured (env + panel-persisted) and then removes everything the operator
 // allows, so an allowance always wins.
 func newAppIDPolicy(deny, allow []string, db *store.DB) *appIDPolicy {
-	p := &appIDPolicy{denied: map[string]string{}, db: db}
+	p := &appIDPolicy{denied: map[string]string{}, allowed: map[string]bool{}, envAllowed: map[string]bool{}, envDenied: map[string]bool{}, db: db}
 	for id, label := range builtinDeniedAppIDs {
 		p.denied[id] = fmt.Sprintf("是网站应用而不是小程序（%s），用它取码会让账号授权失效；确需使用请在服务端设置 YYB_CODE_ALLOW_APPIDS", label)
 	}
 	for _, id := range deny {
 		if id = normalizeAppID(id); id != "" {
+			p.envDenied[id] = true
 			if _, builtin := p.denied[id]; !builtin {
 				p.denied[id] = "已在服务端 YYB_CODE_DENY_APPIDS 中禁用"
 			}
@@ -71,10 +76,15 @@ func newAppIDPolicy(deny, allow []string, db *store.DB) *appIDPolicy {
 		}
 	}
 	for _, id := range allow {
-		delete(p.denied, normalizeAppID(id))
+		id = normalizeAppID(id)
+		p.envAllowed[id] = true
+		p.allowed[id] = true
+		delete(p.denied, id)
 	}
 	for _, id := range p.loadPersisted(appIDPolicyAllowSettingKey) {
-		delete(p.denied, normalizeAppID(id))
+		id = normalizeAppID(id)
+		p.allowed[id] = true
+		delete(p.denied, id)
 	}
 	return p
 }
@@ -142,18 +152,26 @@ func (p *appIDPolicy) AddDeny(appID, reason string) error {
 	if reason == "" {
 		reason = "管理员在面板黑名单中禁用"
 	}
-	p.denied[id] = reason
 	list := p.loadPersisted(appIDPolicyDenySettingKey)
+	found := false
 	for _, existing := range list {
 		if normalizeAppID(existing) == id {
-			return nil
+			found = true
 		}
 	}
-	list = append(list, id)
-	if err := p.persistList(appIDPolicyDenySettingKey, list); err != nil {
+	if !found {
+		if err := p.persistList(appIDPolicyDenySettingKey, append(list, id)); err != nil {
+			return err
+		}
+	}
+	if err := p.removePersisted(appIDPolicyAllowSettingKey, id); err != nil {
 		return err
 	}
-	return p.removePersisted(appIDPolicyAllowSettingKey, id)
+	if !p.envAllowed[id] {
+		delete(p.allowed, id)
+		p.denied[id] = reason
+	}
+	return nil
 }
 
 // RemoveDeny lifts an operator-managed deny entry (builtin and env entries
@@ -169,7 +187,6 @@ func (p *appIDPolicy) RemoveDeny(appID string) error {
 	if !denied || strings.Contains(reason, "YYB_CODE_DENY_APPIDS") {
 		return errors.New("该 AppID 不在面板黑名单中")
 	}
-	delete(p.denied, id)
 	list := p.loadPersisted(appIDPolicyDenySettingKey)
 	kept := make([]string, 0, len(list))
 	for _, existing := range list {
@@ -177,7 +194,15 @@ func (p *appIDPolicy) RemoveDeny(appID string) error {
 			kept = append(kept, existing)
 		}
 	}
-	return p.persistList(appIDPolicyDenySettingKey, kept)
+	if err := p.persistList(appIDPolicyDenySettingKey, kept); err != nil {
+		return err
+	}
+	if p.envDenied[id] {
+		p.denied[id] = "已在服务端 YYB_CODE_DENY_APPIDS 中禁用"
+	} else {
+		delete(p.denied, id)
+	}
+	return nil
 }
 
 // AddAllow whitelists an AppID, lifting any refusal for it.
@@ -188,10 +213,11 @@ func (p *appIDPolicy) AddAllow(appID string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.denied, id)
 	list := p.loadPersisted(appIDPolicyAllowSettingKey)
 	for _, existing := range list {
 		if normalizeAppID(existing) == id {
+			p.allowed[id] = true
+			delete(p.denied, id)
 			return nil
 		}
 	}
@@ -199,6 +225,8 @@ func (p *appIDPolicy) AddAllow(appID string) error {
 	if err := p.persistList(appIDPolicyAllowSettingKey, list); err != nil {
 		return err
 	}
+	p.allowed[id] = true
+	delete(p.denied, id)
 	return p.removePersisted(appIDPolicyDenySettingKey, id)
 }
 
@@ -217,8 +245,14 @@ func (p *appIDPolicy) RemoveAllow(appID string) error {
 	if err := p.persistList(appIDPolicyAllowSettingKey, kept); err != nil {
 		return err
 	}
+	if p.envAllowed[id] {
+		return nil
+	}
+	delete(p.allowed, id)
 	if _, builtin := builtinDeniedAppIDs[id]; builtin {
 		p.denied[id] = fmt.Sprintf("是网站应用而不是小程序（%s），用它取码会让账号授权失效", builtinDeniedAppIDs[id])
+	} else if p.envDenied[id] {
+		p.denied[id] = "已在服务端 YYB_CODE_DENY_APPIDS 中禁用"
 	}
 	return nil
 }
@@ -243,6 +277,8 @@ func (p *appIDPolicy) check(appID string) *appIDDeniedError {
 	if p == nil {
 		return nil
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	why, denied := p.denied[normalizeAppID(appID)]
 	if !denied {
 		return nil
@@ -250,11 +286,21 @@ func (p *appIDPolicy) check(appID string) *appIDDeniedError {
 	return &appIDDeniedError{AppID: strings.TrimSpace(appID), Why: why}
 }
 
+func (p *appIDPolicy) isAllowed(appID string) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.allowed[normalizeAppID(appID)]
+}
+
 // appIDDeniedError is a local decision, never an upstream rejection: it carries
 // no WeChat code and must not be mapped to account expiry or fed to the breaker.
 type appIDDeniedError struct {
-	AppID string
-	Why   string
+	AppID      string
+	Why        string
+	RetryAfter time.Duration
 }
 
 func (e *appIDDeniedError) Error() string {
@@ -269,18 +315,27 @@ func writeIfAppIDDenied(w http.ResponseWriter, err error) bool {
 	if !errors.As(err, &denied) {
 		return false
 	}
+	data := map[string]any{"appid_denied": true, "app_id": denied.AppID, "request_rejected": false}
+	if denied.RetryAfter > 0 {
+		retry := max(1, int(denied.RetryAfter.Seconds()+0.999))
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		data["temporary"], data["retry_after"] = true, retry
+	}
 	writeRawJSON(w, http.StatusForbidden, apiEnvelope{
 		Code: http.StatusForbidden,
 		Msg:  "call refused: " + denied.Error(),
-		Data: map[string]any{"appid_denied": true, "app_id": denied.AppID, "request_rejected": false},
+		Data: data,
 	})
 	return true
 }
 
-// dynamicAppIDDenySettingKey stores the learned list across restarts, so a
-// script that fires a dangerous AppID once does not get a second chance after
-// the service restarts.
+// Keep the existing string-map setting readable by older releases. Deadlines
+// live separately so an upgrade does not turn transient failures into bans.
 const dynamicAppIDDenySettingKey = "code_dynamic_deny_appids"
+const dynamicAppIDRetrySettingKey = "code_dynamic_deny_retry_after"
+
+const dynamicAppIDCooldown = 15 * time.Minute
+const dynamicAppIDStrikeWindow = 15 * time.Minute
 
 // dynamicAppIDDenyTotalStrikes is the number of code-less outcomes for one
 // AppID that denies it regardless of how many accounts produced them. It caps
@@ -293,25 +348,24 @@ const dynamicAppIDDenyTotalStrikes = 4
 type appidStrikes struct {
 	accounts map[int64]bool
 	attempts int
+	first    time.Time
 }
 
-// dynamicAppIDDeny learns website-application AppIDs at run time. A wx.login
-// code request that reaches the upstream and comes back without a code denies
-// that AppID for every account once the outcome repeats: the default needs two
-// distinct accounts to fail, or dynamicAppIDDenyTotalStrikes failures in
-// total, because one account can also stop receiving codes when the upstream
-// puts it into burst refusal after a long run of successes — that night every
-// AppID failed on the bursted account while other accounts kept succeeding on
-// the same ones (docs/h5-oauth-code.md). A success on any account clears the
-// strikes for that AppID. Denials persist across restarts; an allow entry in
-// YYB_CODE_ALLOW_APPIDS removes a learned AppID again at startup.
+// An empty code does not identify an application type. Repeated failures only
+// defer this AppID temporarily. After cooldown, one caller may check it using
+// the normal account/session/pacing gates; peers wait for that result. No
+// background job creates codes. A real mini-program success removes the hold.
 type dynamicAppIDDeny struct {
-	mu        sync.Mutex
-	enabled   bool
-	denied    map[string]string
-	strikes   map[string]*appidStrikes
-	threshold int
-	db        *store.DB
+	mu          sync.Mutex
+	enabled     bool
+	denied      map[string]string
+	strikes     map[string]*appidStrikes
+	threshold   int
+	retryAt     map[string]int64
+	inFlight    map[string]uint64
+	nextAttempt uint64
+	now         func() time.Time
+	db          *store.DB
 }
 
 func newDynamicAppIDDeny(db *store.DB, threshold int, allow []string, disabled bool) *dynamicAppIDDeny {
@@ -320,18 +374,37 @@ func newDynamicAppIDDeny(db *store.DB, threshold int, allow []string, disabled b
 	}
 	// The deny struct is always constructed so the operator can toggle it at
 	// run time; disabled only stops new learning and enforcement.
-	d := &dynamicAppIDDeny{enabled: !disabled, denied: map[string]string{}, strikes: map[string]*appidStrikes{}, threshold: threshold, db: db}
+	d := &dynamicAppIDDeny{enabled: !disabled, denied: map[string]string{}, strikes: map[string]*appidStrikes{}, threshold: threshold, db: db,
+		retryAt: map[string]int64{}, inFlight: map[string]uint64{}, now: time.Now}
+	changed := false
 	if db != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if raw, err := db.GetSetting(ctx, dynamicAppIDDenySettingKey); err == nil && raw != "" {
 			_ = json.Unmarshal([]byte(raw), &d.denied)
 		}
+		if raw, err := db.GetSetting(ctx, dynamicAppIDRetrySettingKey); err == nil && raw != "" {
+			_ = json.Unmarshal([]byte(raw), &d.retryAt)
+		}
+	}
+	if d.denied == nil {
+		d.denied = map[string]string{}
+	}
+	if d.retryAt == nil {
+		d.retryAt = map[string]int64{}
+	}
+	for id := range d.denied {
+		if d.retryAt[id] == 0 {
+			// Legacy entries get a finite review time; do not release a whole
+			// historical list into upstream traffic at process startup.
+			d.retryAt[id] = d.now().Add(dynamicAppIDCooldown).Unix()
+			d.denied[id] = "历史空码临时限制：未确认应用类型；15 分钟后允许一次正常请求复核，成功即解除"
+			changed = true
+		}
 	}
 	// The allow list always wins: a learned AppID the operator allows is
 	// forgotten here, so the refusal never comes back on a restart.
 	if len(allow) > 0 {
-		removed := false
 		for _, appID := range allow {
 			key := normalizeAppID(appID)
 			if key == "" {
@@ -339,25 +412,66 @@ func newDynamicAppIDDeny(db *store.DB, threshold int, allow []string, disabled b
 			}
 			if _, was := d.denied[key]; was {
 				delete(d.denied, key)
-				removed = true
+				delete(d.retryAt, key)
+				changed = true
 			}
 		}
-		if removed {
-			d.persistLocked()
-		}
+	}
+	if changed {
+		d.persistLocked()
 	}
 	return d
 }
 
 // check reports the refusal reason for a learned AppID.
 func (d *dynamicAppIDDeny) check(appID string) (string, bool) {
-	if d == nil || !d.enabled {
+	if d == nil {
 		return "", false
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	why, denied := d.denied[normalizeAppID(appID)]
-	return why, denied
+	key := normalizeAppID(appID)
+	why, denied := d.denied[key]
+	return why, d.enabled && denied && (d.now().Unix() < d.retryAt[key] || d.inFlight[key] != 0)
+}
+
+// begin reserves the one check allowed after cooldown. The returned closure
+// must run on every exit, including pacing/circuit/account failures. An
+// attempt ID prevents an old request from altering a clear/newer reservation.
+func (d *dynamicAppIDDeny) begin(appID string) (func(bool), *appIDDeniedError) {
+	noop := func(bool) {}
+	if d == nil {
+		return noop, nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := normalizeAppID(appID)
+	why, exists := d.denied[key]
+	if !d.enabled || !exists {
+		return noop, nil
+	}
+	retry := time.Unix(d.retryAt[key], 0).Sub(d.now())
+	if retry > 0 || d.inFlight[key] != 0 {
+		if retry <= 0 {
+			retry = 10 * time.Second
+		}
+		return noop, &appIDDeniedError{AppID: appID, Why: why, RetryAfter: retry}
+	}
+	d.nextAttempt++
+	attempt := d.nextAttempt
+	d.inFlight[key] = attempt
+	return func(emptyCode bool) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.inFlight[key] != attempt {
+			return
+		}
+		delete(d.inFlight, key)
+		if _, exists := d.denied[key]; exists && emptyCode {
+			d.retryAt[key] = d.now().Add(dynamicAppIDCooldown).Unix()
+			d.persistLocked()
+		}
+	}, nil
 }
 
 // setEnabled toggles learning and enforcement at run time. The learned list
@@ -404,7 +518,7 @@ func (d *dynamicAppIDDeny) enabledNow() bool {
 // recordStrike counts a code request that reached the upstream and returned no
 // code, per account. It reports whether this strike newly denied the AppID.
 func (d *dynamicAppIDDeny) recordStrike(appID string, accountID int64) bool {
-	if d == nil || !d.enabled {
+	if d == nil {
 		return false
 	}
 	key := normalizeAppID(appID)
@@ -413,12 +527,15 @@ func (d *dynamicAppIDDeny) recordStrike(appID string, accountID int64) bool {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if !d.enabled {
+		return false
+	}
 	if _, already := d.denied[key]; already {
 		return false
 	}
 	set, exists := d.strikes[key]
-	if !exists {
-		set = &appidStrikes{accounts: map[int64]bool{}}
+	if !exists || d.now().Sub(set.first) >= dynamicAppIDStrikeWindow {
+		set = &appidStrikes{accounts: map[int64]bool{}, first: d.now()}
 		d.strikes[key] = set
 	}
 	set.accounts[accountID] = true
@@ -429,7 +546,8 @@ func (d *dynamicAppIDDeny) recordStrike(appID string, accountID int64) bool {
 	if len(set.accounts) < d.threshold && set.attempts < dynamicAppIDDenyTotalStrikes {
 		return false
 	}
-	d.denied[key] = fmt.Sprintf("自动学习：%s 取码未返回 code 已在 %d 个账号上出现（累计 %d 次，网站应用/公众号特征），为保护账号授权已自动禁用（%s）", key, len(set.accounts), set.attempts, time.Now().Format("2006-01-02 15:04"))
+	d.denied[key] = fmt.Sprintf("临时取码限制：%s 在近期 %d 个账号组上未返回 code（累计 %d 次）；15 分钟后允许一次正常请求复核，成功即解除，空码不代表应用类型", key, len(set.accounts), set.attempts)
+	d.retryAt[key] = d.now().Add(dynamicAppIDCooldown).Unix()
 	delete(d.strikes, key)
 	return d.persistLocked()
 }
@@ -442,7 +560,14 @@ func (d *dynamicAppIDDeny) recordSuccess(appID string) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.strikes, normalizeAppID(appID))
+	key := normalizeAppID(appID)
+	delete(d.strikes, key)
+	if _, exists := d.denied[key]; exists {
+		delete(d.denied, key)
+		delete(d.retryAt, key)
+		delete(d.inFlight, key)
+		d.persistLocked()
+	}
 }
 
 func (d *dynamicAppIDDeny) list() map[string]string {
@@ -469,40 +594,59 @@ func (d *dynamicAppIDDeny) clear(appID string) (map[string]string, error) {
 	if key == "" {
 		d.denied = map[string]string{}
 		d.strikes = map[string]*appidStrikes{}
+		d.retryAt = map[string]int64{}
+		d.inFlight = map[string]uint64{}
 	} else {
 		delete(d.denied, key)
 		delete(d.strikes, key)
+		delete(d.retryAt, key)
+		delete(d.inFlight, key)
 	}
 	out := make(map[string]string, len(d.denied))
 	for learned, why := range d.denied {
 		out[learned] = why
 	}
-	var err error
-	if d.db != nil {
-		var raw []byte
-		if raw, err = json.Marshal(d.denied); err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if setErr := d.db.SetSetting(ctx, dynamicAppIDDenySettingKey, string(raw)); setErr != nil {
-				err = setErr
-			}
-		}
-	}
+	err := d.persistStateLocked()
 	d.mu.Unlock()
 	return out, err
 }
 
 func (d *dynamicAppIDDeny) persistLocked() bool {
+	return d.persistStateLocked() == nil
+}
+
+func (d *dynamicAppIDDeny) persistStateLocked() error {
 	if d.db == nil {
-		return true
+		return nil
 	}
 	raw, err := json.Marshal(d.denied)
 	if err != nil {
-		return false
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return d.db.SetSetting(ctx, dynamicAppIDDenySettingKey, string(raw)) == nil
+	if err := d.db.SetSetting(ctx, dynamicAppIDDenySettingKey, string(raw)); err != nil {
+		return err
+	}
+	raw, err = json.Marshal(d.retryAt)
+	if err != nil {
+		return err
+	}
+	return d.db.SetSetting(ctx, dynamicAppIDRetrySettingKey, string(raw))
+}
+
+func (d *dynamicAppIDDeny) reviewState() map[string]map[string]any {
+	out := map[string]map[string]any{}
+	if d == nil {
+		return out
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id := range d.denied {
+		out[id] = map[string]any{"retry_at": d.retryAt[id], "checking": d.inFlight[id] != 0,
+			"ready": d.now().Unix() >= d.retryAt[id] && d.inFlight[id] == 0}
+	}
+	return out
 }
 
 // handleAppIDDeny is the console surface of the learned deny list: GET shows
@@ -559,6 +703,10 @@ func (a *App) handleAppIDDeny(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if _, err := a.dynamicAppIDs.clear(appID); err != nil {
+			writeError(w, http.StatusInternalServerError, "clear learned hold: "+err.Error())
+			return
+		}
 		message = "已加入白名单：" + appID
 	case "remove_allow":
 		if err := a.appIDs.RemoveAllow(appID); err != nil {
@@ -613,12 +761,14 @@ func (a *App) appIDPolicyView() map[string]any {
 	}
 	learned := a.dynamicAppIDs.list()
 	return map[string]any{
-		"builtin":         builtin,
-		"env_denied":      envDenied,
-		"persisted_deny":  persistedDeny,
-		"allow":           allow,
-		"learned":         learned,
-		"learned_count":   len(learned),
-		"denied_total":    len(builtin) + len(envDenied) + len(persistedDeny),
+		"builtin":          builtin,
+		"env_denied":       envDenied,
+		"persisted_deny":   persistedDeny,
+		"allow":            allow,
+		"learned":          learned,
+		"learned_count":    len(learned),
+		"learned_state":    a.dynamicAppIDs.reviewState(),
+		"cooldown_seconds": int(dynamicAppIDCooldown.Seconds()),
+		"denied_total":     len(builtin) + len(envDenied) + len(persistedDeny),
 	}
 }

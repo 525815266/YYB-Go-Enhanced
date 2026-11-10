@@ -933,20 +933,22 @@ func (a *App) handleH5CodeAlias(w http.ResponseWriter, r *http.Request) {
 	a.callWXApp(w, withWXOperation(r, eventlog.OpH5Code), false, a.invokeH5Code)
 }
 
-// learnDeniedAppID counts a code request that reached the upstream and came
-// back without a code. The AppID is denied once the outcome repeats on the
-// configured number of distinct accounts, because one bursted account can stop
-// receiving codes on every AppID at once (docs/h5-oauth-code.md). Denials
-// persist across restarts and YYB_CODE_ALLOW_APPIDS still overrides them.
+// Empty codes can be account-wide failures. Count distinct primary groups,
+// never several channel identities of one WeChat as independent evidence.
+// Learning only creates a temporary hold; an explicit allowance always wins.
 func (a *App) learnDeniedAppID(acc *store.WechatAccount, appID string, callErr error) {
-	if !errors.Is(callErr, protocol.ErrLoginCodeUnavailable) {
+	if !errors.Is(callErr, protocol.ErrLoginCodeUnavailable) || a.appIDs.isAllowed(appID) {
 		return
 	}
-	denied := a.dynamicAppIDs.recordStrike(appID, acc.ID)
+	groupID := acc.ID
+	if primary := fleetPrimaryOf(acc); primary > 0 {
+		groupID = primary
+	}
+	denied := a.dynamicAppIDs.recordStrike(appID, groupID)
 	if !denied {
 		return
 	}
-	log.Printf("protocol: app id=%s denied for every account after repeated code requests returned no code (account id=%d); set YYB_CODE_ALLOW_APPIDS to override", appID, acc.ID)
+	log.Printf("protocol: app id=%s temporarily deferred after repeated empty codes (account id=%d); next normal request may recheck after cooldown", appID, acc.ID)
 	a.events.Emit("protocol.appid_dynamic_denied", eventlog.ForAccount(acc).WithTarget(appID, eventlog.OpGetCode, ""))
 }
 
@@ -1492,11 +1494,6 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 		if denied := a.appIDs.check(appID); denied != nil {
 			return nil, denied
 		}
-		if op == eventlog.OpGetCode {
-			if why, learned := a.dynamicAppIDs.check(appID); learned {
-				return nil, &appIDDeniedError{AppID: appID, Why: why}
-			}
-		}
 	}
 	// Bound queueing, protocol login and any credential recovery together.
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout+35*time.Second)
@@ -1506,6 +1503,15 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	}
 	if accountNeedsRescan(acc) {
 		return nil, accountExpiredError{accountID: acc.ID, openid: acc.OpenID}
+	}
+	if op == eventlog.OpGetCode && !a.appIDs.isAllowed(appID) {
+		finish, denied := a.dynamicAppIDs.begin(appID)
+		if denied != nil {
+			return nil, denied
+		}
+		// Local gating, transport errors and typed business/credential errors
+		// do not extend an AppID hold. Only another empty-code outcome does.
+		defer func() { finish(errors.Is(errOut, protocol.ErrLoginCodeUnavailable)) }()
 	}
 	circuitEnabled, err := a.accountCircuitEnabled(ctx, acc.ID)
 	if err != nil {
@@ -1529,8 +1535,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	result, callErr := call(ctx, acc, appID, payload, proxyValue, fallbackDirect)
 	a.recordCircuitOutcome(ctx, acc, appID, op, callErr)
 	if callErr == nil {
-		// A code that arrived proves the AppID is not one of the dangerous
-		// website applications; forget any earlier hiccup.
+		// This mini-program request succeeded; forget earlier empty outcomes.
 		if op == eventlog.OpGetCode {
 			a.dynamicAppIDs.recordSuccess(appID)
 		}

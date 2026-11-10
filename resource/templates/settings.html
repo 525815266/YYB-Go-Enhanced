@@ -31,8 +31,8 @@
         <div class="field"><label for="rtBudget">登录预算（次，0 关闭重建）</label><input class="input" id="rtBudget" type="number" min="0" max="1000" step="1"></div>
         <div class="field"><label for="rtWindow">登录窗口（分钟）</label><input class="input" id="rtWindow" type="number" min="1" step="1"></div>
         <div class="field"><label for="rtFresh">新鲜会话保护窗口（分钟，0 关闭）</label><input class="input" id="rtFresh" type="number" min="0" step="1"></div>
-        <div class="field"><label for="rtDenyThreshold">动态黑名单阈值（几个不同账号失败才禁用）</label><input class="input" id="rtDenyThreshold" type="number" min="1" max="50" step="1"></div>
-        <div class="field"><label><input type="checkbox" id="rtDenyEnabled"> 启用动态自学习黑名单</label></div>
+        <div class="field"><label for="rtDenyThreshold">临时限制阈值（15 分钟内几个不同主账号组空码）</label><input class="input" id="rtDenyThreshold" type="number" min="1" max="50" step="1"></div>
+        <div class="field"><label><input type="checkbox" id="rtDenyEnabled"> 启用空码临时限制（15 分钟后可复核）</label></div>
         <div class="notice" id="runtimeNotice" hidden></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit" id="saveRuntime">保存运行参数</button><button class="btn" type="button" id="resetRuntime">恢复 env 默认</button></div>
       </form></section>
@@ -41,7 +41,7 @@
         <div class="field"><label>添加白名单（解除拦截）</label><div style="display:flex;gap:8px"><input class="input" id="allowAdd" placeholder="wx 开头的 AppID"><button class="btn" type="button" id="allowAddBtn">放行</button></div></div>
         <div class="field"><label>黑名单（内置 / env / 面板）</label><div id="denyLists" style="font-size:12.5px;line-height:1.8;overflow-wrap:anywhere"></div></div>
         <div class="field"><label>白名单</label><div id="allowList" style="font-size:12.5px;line-height:1.8;overflow-wrap:anywhere"></div></div>
-        <div class="field"><label>动态学习名单（<span id="learnedCount">0</span> 个）<button class="btn secondary" type="button" id="clearLearned" style="margin-left:8px">清空</button></label><div id="learnedList" style="font-size:12px;line-height:1.7;max-height:180px;overflow:auto;overflow-wrap:anywhere;color:var(--muted,#68707d)"></div></div>
+        <div class="field"><label>空码临时限制（<span id="learnedCount">0</span> 个）<button class="btn secondary" type="button" id="clearLearned" style="margin-left:8px">清空</button></label><p class="description">空码不能判定应用类型。限制 15 分钟后，由下一个正常调用复核一次，成功即解除；不会后台主动取码。H5 不受此名单影响。</p><div id="learnedList" style="font-size:12px;line-height:1.7;max-height:180px;overflow:auto;overflow-wrap:anywhere;color:var(--muted,#68707d)"></div></div>
         <div class="notice" id="policyNotice" hidden></div>
       </section>
       <section class="card"><h2>基本信息</h2><p class="description">用户名用于登录，不支持自行修改。</p><form id="profileForm"><div class="field"><label for="username">用户名</label><input class="input" id="username" disabled></div><div class="field"><label for="displayName">显示名</label><input class="input" id="displayName" maxlength="100" required></div><div class="notice" id="profileNotice" hidden></div><button class="btn primary" type="submit">保存信息</button></form></section>
@@ -79,9 +79,9 @@
       $('denyLists').innerHTML = '<b>内置：</b>' + chips(policyData.builtin, false) + '<br><b>env：</b>' + chips(policyData.env_denied, false) + '<br><b>面板：</b>' + chips(policyData.persisted_deny, true, 'remove_deny');
       $('allowList').innerHTML = (policyData.allow || []).map(id => `<span class="channel-chip" style="height:auto;padding:2px 8px;cursor:pointer" data-action="remove_allow" data-appid="${escapeHTML(id)}" title="点击移除">${escapeHTML(id)}</span>`).join(' ') || '<span style="color:var(--muted,#68707d)">（空）</span>';
       $('learnedCount').textContent = policyData.learned_count;
-      $('learnedList').innerHTML = Object.entries(policyData.learned || {}).map(([id, why]) => `<div>${escapeHTML(id)} · ${escapeHTML(String(why))}</div>`).join('') || '（空）';
+      $('learnedList').innerHTML = Object.entries(policyData.learned || {}).map(([id, why]) => {const state=(policyData.learned_state||{})[id];const status=state?(state.checking?'复核中':state.ready?'下次正常调用可复核':`可复核时间 ${new Date(state.retry_at*1000).toLocaleString('zh-CN',{hour12:false})}`):'历史记录，待复核';return `<div><b>${escapeHTML(id)}</b> · ${escapeHTML(status)} <button class="btn secondary" type="button" data-action="clear_learned" data-appid="${escapeHTML(id)}">解除本项</button><br>${escapeHTML(String(why))}</div>`;}).join('') || '（空）';
     }
-    async function policyAction(action, appid) { try { await api('/api/appid-deny', { method: 'POST', body: new URLSearchParams({ action, app_id: appid }).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); policyData = await api('/api/appid-deny'); renderPolicy(); notice('policyNotice', '已' + (action.startsWith('add') ? '加入' : '移除') + '：' + appid); } catch (error) { notice('policyNotice', error.message, false); } }
+    async function policyAction(action, appid) { try { await api('/api/appid-deny', { method: 'POST', body: new URLSearchParams({ action, app_id: appid }).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); policyData = await api('/api/appid-deny'); renderPolicy(); notice('policyNotice', (action==='clear_learned'?'已解除临时限制':action.startsWith('add')?'已加入':'已移除') + '：' + appid); } catch (error) { notice('policyNotice', error.message, false); } }
     $('denyAddBtn').onclick = async () => { const v = $('denyAdd').value.trim(); if (v) { await policyAction('add_deny', v); $('denyAdd').value = ''; } };
     $('allowAddBtn').onclick = async () => { const v = $('allowAdd').value.trim(); if (v) { await policyAction('add_allow', v); $('allowAdd').value = ''; } };
     $('clearLearned').onclick = async () => { try { await api('/api/appid-deny', { method: 'POST', body: new URLSearchParams({ action: 'clear_learned' }).toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); policyData = await api('/api/appid-deny'); renderPolicy(); notice('policyNotice', '动态学习名单已清空'); } catch (error) { notice('policyNotice', error.message, false); } };
