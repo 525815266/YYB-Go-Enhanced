@@ -253,6 +253,7 @@ curl -X POST http://yyb-go:8000/wxapp/getCode \
   -d '{"ref":"1","app_id":"wx0000000000000000"}'
 ```
 
+- 公众号 / H5 网页授权不要调用 `/wxapp/getCode`：把网站或公众号 AppID 当小程序取码拿不到 code，对照实验中还出现过账号授权失效。请改用 `POST /wx/h5code`（兼容入口 `/wxapp/getH5Code`）或自动换码 `POST /wx/oauth`，用法见 [公众号网页授权 code](docs/h5-oauth-code.md)。
 - 配置了 `YYB_PROTOCOL_TOKEN` 时，请求还需携带 `Authorization: Bearer <token>`；正确令牌可直接用于青龙等自动化调用，无需网页登录。
 - v0.2.34 起所有协议入口（包括资料查询）统一校验令牌，旧版本仅配置令牌不足以保护，需要更新服务。
 - 运行中的服务在 `/docs` 提供 OpenAPI 页面，`/openapi.json` 是机器可读定义。

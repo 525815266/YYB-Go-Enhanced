@@ -3,7 +3,7 @@
    values so the page tokens and the clean skin both apply. */
 
 /* ---------- scan page ---------- */
-.multi-field { display: grid; gap: 4px; margin-top: 18px; }
+.multi-field { display: grid; gap: 4px; }
 .multi-switch { position: relative; display: inline-flex; align-items: center; gap: 10px; width: fit-content; cursor: pointer; font-weight: 650; }
 .multi-switch input { position: absolute; width: 40px; height: 22px; margin: 0; opacity: 0; cursor: pointer; }
 .multi-track { position: relative; flex: none; width: 40px; height: 22px; border-radius: 999px; background: var(--line, #dde1e7); transition: background 160ms ease; }
@@ -17,7 +17,6 @@
 
 body.multi-on main { grid-template-columns: minmax(0, 1fr); }
 body.multi-on .single-only { display: none !important; }
-body.multi-on .multi-field { margin-bottom: 16px; }
 .multi-pane[hidden] { display: none; }
 .multi-base { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #c9d9e8; border-radius: var(--radius, 8px); background: #f1f7fc; color: #254b6d; font-size: 12px; line-height: 1.6; }
 .multi-same { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #e8cf96; border-radius: var(--radius, 8px); background: #fff8e6; color: #76520c; font-size: 12px; line-height: 1.6; }
@@ -32,10 +31,10 @@ body.multi-on .multi-field { margin-bottom: 16px; }
 .multi-card[data-health] .multi-bound .check, .multi-card[data-health] .multi-bound b { color: inherit; }
 .multi-card[data-health="expired"] .multi-bound { color: var(--danger, #b53636); }
 .multi-card[data-health="warn"] .multi-bound { color: #a56a0c; }
-.multi-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.multi-card-head img { width: 22px; height: 22px; object-fit: contain; flex: none; }
-.multi-card-head strong { font-size: 14px; }
-.multi-card-head span { color: var(--muted, #68707d); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-card-head { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; align-items: center; min-width: 0; }
+.multi-card-head img { grid-row: 1 / span 2; width: 24px; height: 24px; object-fit: contain; }
+.multi-card-head strong { grid-column: 2; font-size: 14px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-card-head span { grid-column: 2; min-height: 16px; color: var(--muted, #68707d); font-size: 12px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .multi-qr { position: relative; width: min(100%, 280px); aspect-ratio: 1; margin: 0 auto; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line, #dde1e7); border-radius: var(--radius, 8px); background: #fafafa; color: var(--muted, #68707d); font-size: 13px; text-align: center; padding: 8px; }
 .multi-qr img { width: 100%; height: 100%; object-fit: contain; transition: filter 180ms ease, opacity 180ms ease; }
 .multi-qr.waiting img { filter: blur(7px); opacity: .35; }
@@ -46,10 +45,10 @@ body.multi-on .multi-field { margin-bottom: 16px; }
 .multi-card[data-state="scanned"] .multi-line, .multi-card[data-state="saving"] .multi-line { color: #2166a5; font-weight: 600; }
 .multi-card[data-state="done"] .multi-line, .multi-card[data-state="bound"] .multi-line { color: var(--success, #287a49); font-weight: 600; }
 .multi-card[data-state="error"] .multi-line { color: var(--danger, #b53636); }
-.multi-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; min-height: 34px; }
+.multi-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; min-height: 34px; margin-top: auto; }
 .multi-actions .btn { min-height: 34px; padding: 5px 11px; font-size: 13px; }
 
-.multi-members { margin: 0 0 16px; display: grid; gap: 8px; }
+.multi-members { display: grid; gap: 8px; }
 .multi-members[hidden] { display: none; }
 .multi-members h3 { margin: 0; font-size: 14px; }
 .multi-members .multi-hint { margin: 0; }
@@ -81,9 +80,13 @@ body.multi-on .multi-field { margin-bottom: 16px; }
 .fleet-expand:hover { background: var(--surface-strong, #eef0f3); }
 .fleet-expand svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; transition: transform 160ms ease; }
 .fleet-expand[aria-expanded="true"] svg { transform: rotate(180deg); }
-.fleet-members { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 8px; }
+.account-card.fleet .account-row-actions { grid-row: 3; }
+/* An open fleet takes the whole row and lays its channels side by side, instead of
+   stretching one narrow column and leaving holes next to it. */
+.account-card.fleet:has(.fleet-members:not([hidden])) { grid-column: 1 / -1; }
+.fleet-members { grid-row: 4; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px; align-items: stretch; }
 .fleet-members[hidden] { display: none; }
-.fleet-member { position: relative; z-index: 2; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line, #dde1e7); border-radius: var(--radius, 8px); background: var(--bg, #fff); cursor: pointer; }
+.fleet-member { position: relative; z-index: 2; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 4px 10px; align-items: center; align-content: start; padding: 8px 10px; border: 1px solid var(--line, #dde1e7); border-radius: var(--radius, 8px); background: var(--bg, #fff); cursor: pointer; }
 .fleet-member.selected { border-color: var(--primary, #c53255); }
 .fleet-member img { width: 20px; height: 20px; object-fit: contain; }
 .fleet-member-main { min-width: 0; display: grid; gap: 2px; }
@@ -97,7 +100,15 @@ body.multi-on .multi-field { margin-bottom: 16px; }
 .fleet-member-actions { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
 .fleet-member-actions .btn { position: relative; z-index: 3; min-height: 30px; padding: 3px 10px; font-size: 12px; }
 .fleet-member .account-lifecycle { grid-column: 1 / -1; }
-.fleet-foot { display: flex; justify-content: flex-end; padding-top: 2px; }
+@media (min-width: 721px) {
+  /* Open on a wide row: actions sit level with the channel summary, members follow directly. */
+  .account-card.fleet:has(.fleet-members:not([hidden])) { grid-template-rows: auto auto; }
+  .account-card.fleet:has(.fleet-members:not([hidden])) .account-main,
+  .account-card.fleet:has(.fleet-members:not([hidden])) .account-row-actions { grid-row: 1; grid-column: 2; }
+  .account-card.fleet:has(.fleet-members:not([hidden])) .account-row-actions { justify-self: end; align-self: end; }
+  .account-card.fleet:has(.fleet-members:not([hidden])) .fleet-members { grid-row: 2; }
+}
+.fleet-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; padding-top: 2px; }
 .fleet-foot .btn { position: relative; z-index: 3; min-height: 32px; padding: 4px 12px; font-size: 12px; }
 
 #mergeChannelsDialog .field + .field { margin-top: 14px; }

@@ -4,31 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>代理设置 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/auth.css?v=20260921-ui">
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/auth.css?v=20261109-ui">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261109-ui">
   <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
   <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
   <style>
-    .proxy-page { max-width:1240px; }
     .proxy-page .page-title { align-items:center; }
     .page-actions,.profile-actions,.proxy-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .profile-band { margin-bottom:18px; border:1px solid var(--line); border-radius:var(--radius); background:white; overflow:hidden; }
     .profile-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:15px 18px; border-bottom:1px solid var(--line); background:#f8fafb; }
     .profile-head h2 { margin:0; font-size:15px; }
     .profile-head p { margin:3px 0 0; color:var(--muted); font-size:12px; }
-    .profile-form { display:grid; grid-template-columns:minmax(150px,1fr) minmax(130px,.8fr) minmax(150px,.9fr) minmax(180px,1.2fr) auto; gap:12px; align-items:end; padding:16px 18px; }
+    .profile-form { display:grid; grid-template-columns:minmax(150px,1fr) minmax(130px,.8fr) minmax(150px,.9fr) minmax(180px,1.2fr); gap:12px; align-items:end; padding:16px 18px; }
+    .profile-form #profileURLField { grid-column:span 3; }
+    .profile-actions { grid-column:-2 / -1; justify-content:flex-end; }
     .profile-form .field { min-width:0; margin:0; }
     .profile-form .wide { grid-column:span 2; }
     .profile-feedback { min-height:20px; padding:0 18px 14px; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
     .profile-feedback.ok,.proxy-feedback.ok { color:var(--ok); }
     .profile-feedback.error,.proxy-feedback.error { color:var(--danger); }
     .proxy-workspace { min-height:620px; display:grid; grid-template-columns:minmax(250px,300px) minmax(0,1fr); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius); background:white; }
-    .proxy-accounts { min-width:0; display:grid; grid-template-rows:auto minmax(0,1fr); border-right:1px solid var(--line); background:#f8fafb; }
+    .proxy-accounts { min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--line); background:#f8fafb; }
     .proxy-list-head { padding:16px; border-bottom:1px solid var(--line); }
     .proxy-list-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:11px; }
     .proxy-list-title strong { font-size:14px; }
     .proxy-list-title span { color:var(--muted); font-size:12px; }
-    .proxy-list { min-height:0; overflow:auto; }
+    .proxy-list { flex:1 1 0; min-height:0; overflow:auto; }
     .proxy-account { width:100%; min-height:72px; display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:center; gap:10px; padding:11px 14px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--ink); text-align:left; cursor:pointer; }
     .proxy-account:hover,.proxy-account[aria-pressed="true"] { background:white; }
     .proxy-account[aria-pressed="true"] { box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--brand) 22%,transparent); }
@@ -78,9 +79,9 @@
     .proxy-actions .btn.primary { width:auto; }
     [hidden] { display:none!important; }
     @keyframes proxy-loading { to { background-position:-220% 0; } }
-    @media (max-width:980px) { .profile-form { grid-template-columns:repeat(2,minmax(0,1fr)); } .profile-actions { justify-content:flex-end; } }
-    @media (max-width:920px) { .proxy-workspace { grid-template-columns:minmax(0,1fr); } .proxy-accounts { max-height:320px; border-right:0; border-bottom:1px solid var(--line); } .proxy-editor { padding:20px; } }
-    @media (max-width:600px) { .page-actions { width:100%; align-items:stretch; flex-direction:column; } .page-actions .btn { width:100%; } .profile-head,.proxy-account-head { align-items:flex-start; flex-direction:column; } .profile-form,.proxy-modes,.proxy-form-grid { grid-template-columns:minmax(0,1fr); } .profile-form .wide,.proxy-form-grid .wide { grid-column:auto; } .profile-actions,.proxy-actions { align-items:stretch; flex-direction:column-reverse; } .profile-actions .btn,.proxy-actions .btn { width:100%; } .proxy-safety { max-width:none; text-align:left; } }
+    @media (max-width:980px) { .profile-form { grid-template-columns:repeat(2,minmax(0,1fr)); } .profile-form #profileURLField, .profile-actions { grid-column:1 / -1; } }
+    @media (max-width:920px) { .proxy-workspace { grid-template-columns:minmax(0,1fr); } .proxy-accounts { max-height:320px; border-right:0; border-bottom:1px solid var(--line); } .proxy-list { flex:0 1 auto; } .proxy-editor { padding:20px; } }
+    @media (max-width:600px) { .page-actions { width:100%; align-items:stretch; flex-direction:column; } .page-actions .btn { width:100%; } .profile-head,.proxy-account-head { align-items:flex-start; flex-direction:column; } .profile-form,.proxy-modes,.proxy-form-grid { grid-template-columns:minmax(0,1fr); } .profile-form .wide,.proxy-form-grid .wide,.profile-form #profileURLField,.profile-actions { grid-column:auto; } .profile-actions,.proxy-actions { align-items:stretch; flex-direction:column-reverse; } .profile-actions .btn,.proxy-actions .btn { width:100%; } .proxy-safety { max-width:none; text-align:left; } }
     @media (prefers-reduced-motion:reduce) { .proxy-skeleton { animation:none; } }
   </style>
 </head>

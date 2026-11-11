@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>工作台 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261109-ui">
   <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
   <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
   <style>
@@ -277,6 +277,7 @@
     .account-search { flex:1 1 240px; }
     .account-maintenance .inline-actions { flex-direction:column; }
     .account-filters .input { min-height:40px; }
+    .account-maintenance summary { padding:0; line-height:40px; }
     #accountWorkspace, #callWorkspace { scroll-margin-top:80px; }
     .mobile-account-actions { display:none; }
     .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
@@ -326,7 +327,7 @@
       grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
       gap: 12px;
       align-content: start;
-      align-items: start;
+      align-items: stretch;
       min-height: 112px;
     }
 
@@ -344,6 +345,8 @@
       text-align: left;
       display: grid;
       grid-template-columns: 32px minmax(0, 1fr);
+      /* identity / lifecycle (takes the slack) / actions, so actions line up across a row */
+      grid-template-rows: auto minmax(0, 1fr) auto;
       gap: 10px;
       align-items: start;
       transition: background 180ms cubic-bezier(0.25, 1, 0.5, 1), border-color 180ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 180ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -592,7 +595,7 @@
       display: grid;
       grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.15fr) minmax(260px, 0.65fr);
       gap: 18px;
-      align-items: start;
+      align-items: stretch;
     }
 
     .panel-body {
@@ -682,29 +685,34 @@
     .test-command .field-note { display: block; margin-top: 8px; line-height: 1.6; }
 
     .account-tools {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 8px;
-      margin: 10px 0 14px;
     }
 
-    .account-tools .input { min-width: 180px; flex: 1 1 220px; }
-    .account-tools .btn { flex: 0 0 auto; }
+    .account-tools .input { grid-column: span 4; min-width: 0; }
+    .account-tools .btn { grid-column: span 3; }
+    .account-tools #saveRemarkBtn { grid-column: span 2; }
 
     .proxy-summary {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin: 0 0 14px;
-      padding: 12px 0;
+      padding-top: 14px;
       border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
     }
+
+    .proxy-summary + .form-grid { padding-top: 14px; border-top: 1px solid var(--line); }
 
     .proxy-summary-copy { min-width: 0; }
     .proxy-summary-copy span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 12px; }
     .proxy-summary-copy strong { display: block; overflow-wrap: anywhere; font-size: 13px; }
+    .proxy-summary-copy label { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 13px; font-weight: 650; }
+    .proxy-summary-copy label input { margin: 0; accent-color: var(--platform-accent); }
+    .proxy-summary-copy .field-note { display: block; margin: 4px 0 0; line-height: 1.55; }
+    .proxy-summary-copy a { display: inline-block; margin-top: 4px; color: var(--platform-accent); font-size: 12px; font-weight: 600; text-decoration: none; }
+    .proxy-summary-copy a:hover { text-decoration: underline; }
     .proxy-summary .btn { flex: 0 0 auto; }
 
     .integration {
@@ -734,13 +742,19 @@
     .lifecycle-note { color:var(--muted); font-size:11px; }
     .lifecycle-inactive { color:var(--muted); font-size:12px; min-height:72px; padding-right:88px; align-content:center; }
 
+    .result-panel { display: flex; flex-direction: column; }
+
     .result-panel .panel-body {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
       gap: 10px;
+      min-height: 0;
     }
 
     .result-box {
+      flex: 1 1 0;
       min-height: 360px;
-      max-height: 560px;
       margin: 0;
       overflow: auto;
       border-radius: var(--radius);
@@ -756,6 +770,17 @@
 
     .result-box.error {
       color: oklch(0.86 0.075 25);
+    }
+
+    .result-box.is-empty {
+      display: grid;
+      place-items: center;
+      min-height: 120px;
+      border: 1px solid var(--line);
+      background: var(--platform-bg);
+      color: var(--muted);
+      font-family: inherit;
+      text-align: center;
     }
 
     .quick-list {
@@ -837,9 +862,19 @@
         grid-template-columns: minmax(0, 1fr);
       }
 
+      .result-box { flex: 0 0 auto; max-height: 560px; }
+
       .quick-actions {
         min-width: 0;
       }
+    }
+
+    /* Laptop widths: configuration beside its output, entries as one row underneath. */
+    @media (min-width: 1080px) and (max-width: 1360px) {
+      .work-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .work-grid > aside { grid-column: 1 / -1; }
+      .work-grid > aside .quick-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .result-box { flex: 1 1 0; max-height: none; }
     }
 
     @media (max-width: 760px) {
@@ -891,8 +926,6 @@
         flex: 1;
       }
 
-      .account-tools > * { width: 100%; }
-      .account-tools .input, .account-tools .btn { flex-basis: 100%; }
       .proxy-summary { align-items: stretch; flex-direction: column; }
       .proxy-summary .btn { width: 100%; }
 
@@ -955,9 +988,9 @@
     }
   </style>
   <link rel="stylesheet" href="/static/css/scan-channel.css?v=049">
-  <link rel="stylesheet" href="/static/css/multi-channel.css?v=051">
+  <link rel="stylesheet" href="/static/css/multi-channel.css?v=20261109">
   <script src="/static/js/scan-channel.js?v=094"></script>
-  <script src="/static/js/fleet-ui.js?v=095"></script>
+  <script src="/static/js/fleet-ui.js?v=20261109"></script>
 </head>
 <body>
   <div class="app">
@@ -1138,7 +1171,7 @@
             <button class="btn secondary" id="copyResultBtn" type="button">复制</button>
           </div>
           <div class="panel-body">
-            <pre class="result-box" id="resultBox">选择账号并执行调用后，返回内容会显示在这里。</pre>
+            <pre class="result-box is-empty" id="resultBox">选择账号并执行调用后，返回内容会显示在这里。</pre>
           </div>
         </section>
 
@@ -1506,6 +1539,7 @@
       state.lastResult = text;
       $("resultBox").textContent = text;
       $("resultBox").classList.toggle("error", Boolean(isError));
+      $("resultBox").classList.remove("is-empty");
       $("resultMeta").textContent = meta || "已更新";
     }
 
@@ -1665,7 +1699,7 @@
             <span class="account-openid" title="OpenID: ${escapeHTML(account.openid)}">OpenID: ${escapeHTML(account.openid)}</span>
           </span>
           ${lifecycleMarkup(account)}
-          <span class="account-row-actions"><button type="button" class="btn secondary" data-update-account aria-label="更新 ${escapeHTML(name)} 的扫码">更新</button><a class="btn secondary" href="${FleetUI.scanHref(account)}" aria-label="给 ${escapeHTML(name)} 扫更多渠道">多渠道扫码</a><a class="btn" href="/proxies?ref=${encodeURIComponent(account.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
+          <span class="account-row-actions"><button type="button" class="btn secondary" data-update-account aria-label="更新 ${escapeHTML(name)} 的扫码">更新</button><a class="btn secondary" href="${FleetUI.scanHref(account)}" aria-label="给 ${escapeHTML(name)} 扫更多渠道">多渠道扫码</a><a class="btn secondary" href="/proxies?ref=${encodeURIComponent(account.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
           ${pendingConfirmation ? `<div class="account-confirm-actions" id="confirm-account-${account.id}" hidden><span>确认账号状态</span><button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button></div>` : ""}
         `;
         button.querySelector("img").addEventListener("error", event => {
@@ -2479,7 +2513,10 @@
     });
     window.addEventListener("pagehide", () => { $("protocolTokenInput").value = ""; });
     $("callBtn").addEventListener("click", callFeature);
-    $("clearResultBtn").addEventListener("click", () => setResult("结果已清空。", "等待调用", false));
+    $("clearResultBtn").addEventListener("click", () => {
+      setResult("结果已清空。", "等待调用", false);
+      $("resultBox").classList.add("is-empty");
+    });
     $("copyResultBtn").addEventListener("click", async () => {
       try {
         await copyText(state.lastResult || $("resultBox").textContent);

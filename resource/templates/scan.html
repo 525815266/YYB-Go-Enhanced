@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>添加账号 - YYB Go</title>
-  <link rel="stylesheet" href="/static/css/platform.css?v=20261103-skin">
+  <link rel="stylesheet" href="/static/css/platform.css?v=20261109-ui">
   <link rel="stylesheet" href="/static/css/skin-clean.css?v=20261103-skin">
-  <link rel="stylesheet" href="/static/css/multi-channel.css?v=051">
+  <link rel="stylesheet" href="/static/css/multi-channel.css?v=20261109">
   <script>try{if(localStorage.getItem("yyb-skin")==="clean")document.documentElement.dataset.skin="clean"}catch(e){}</script>
   <style>
     :root { color-scheme: light; --bg:#f5f6f8; --surface:#fff; --ink:#20242b; --muted:#68707d; --line:#dde1e7; --primary:#c53255; --primary-hover:#a82445; --success:#287a49; --success-soft:#edf8f1; --danger:#b53636; --radius:8px; }
@@ -24,7 +24,11 @@
     .head { padding:18px 20px; border-bottom:1px solid var(--line); }
     .head h2 { margin:0; font-size:17px; letter-spacing:0; }
     .head p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-    .body { padding:20px; }
+    .body { padding:20px; display:grid; gap:16px; align-content:start; }
+    .body > * { min-width:0; }
+    .body > .field, .body > .proxy-options, .body > .mode-switch, .body > .actions { margin:0; }
+    .mode-pane .actions { justify-content:center; margin-top:12px; }
+    .panel-foot { padding-top:14px; border-top:1px solid var(--line); }
     .mode-switch { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:18px; padding:4px; background:#eef0f3; border-radius:var(--radius); }
     .mode-button { min-height:36px; border:0; border-radius:6px; background:transparent; color:var(--muted); font-weight:650; }
     .mode-button[aria-selected="true"] { background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(25,31,40,.12); }
@@ -40,7 +44,7 @@
     .quick-state strong { font-size:16px; }
     .quick-state span { max-width:260px; color:var(--muted); font-size:13px; }
     .check { font-size:54px; color:var(--success); }
-    .status { min-height:24px; margin:16px 0 0; text-align:center; font-weight:600; }
+    .status { min-height:24px; margin:12px 0 0; text-align:center; font-weight:600; }
     .status.pending { color:var(--muted); } .status.scanned { color:#2166a5; } .status.ok { color:var(--success); } .status.error { color:var(--danger); }
     .countdown { min-height:18px; margin-top:2px; text-align:center; color:var(--muted); font-size:12px; }
     .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
@@ -70,8 +74,19 @@
     .location-suggestion strong { display:block; font-size:13px; }
     .location-suggestion span { display:block; margin-top:2px; font-size:12px; }
     .location-actions { display:flex; gap:6px; flex:0 0 auto; }
-    .auth-note { margin:0 0 12px; padding:10px 12px; border:1px solid #c9d9e8; border-radius:var(--radius); background:#f1f7fc; color:#254b6d; font-size:12px; line-height:1.55; }
+    .auth-note { margin:12px 0 0; padding:10px 12px; border:1px solid #c9d9e8; border-radius:var(--radius); background:#f1f7fc; color:#254b6d; font-size:12px; line-height:1.55; }
     @media (max-width:720px) { .topbar { padding:10px 16px; } .brand p { display:none; } main { margin:16px auto; grid-template-columns:1fr; } .actions .btn { flex:1 1 140px; } .proxy-grid { grid-template-columns:1fr; } .proxy-wide { grid-column:auto; } }
+    @media (min-width:1280px) {
+      main { grid-template-columns:minmax(0,1fr) minmax(320px,360px); align-items:stretch; }
+      body:not(.multi-on) .auth-panel > .body { grid-template-columns:minmax(0,1fr) 280px; grid-template-rows:auto auto auto minmax(0,1fr) auto; column-gap:32px; }
+      body:not(.multi-on) .auth-panel > .body > .multi-field { grid-column:1; grid-row:1; }
+      body:not(.multi-on) .auth-panel > .body > #scanProductField { grid-column:1; grid-row:2; }
+      body:not(.multi-on) .auth-panel > .body > #scanProxyOptions { grid-column:1; grid-row:3; }
+      body:not(.multi-on) .auth-panel > .body > #modeSwitch { grid-column:2; grid-row:1; }
+      body:not(.multi-on) .auth-panel > .body > .mode-pane { grid-column:2; grid-row:1 / 5; }
+      body:not(.multi-on) .auth-panel > .body > #modeSwitch:not([hidden]) ~ .mode-pane { grid-row:2 / 5; }
+      body:not(.multi-on) .auth-panel > .body > .panel-foot { grid-column:1 / -1; grid-row:5; }
+    }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; } }
   </style>
 </head>
@@ -81,7 +96,7 @@
     <a class="link" href="/">返回控制台</a>
   </header>
   <main>
-    <section class="panel">
+    <section class="panel auth-panel">
       <div class="head"><h2>微信授权</h2><p id="authMethodDescription">正在读取授权方式…</p></div>
       <div class="body">
         <div class="multi-field">
@@ -159,19 +174,19 @@
           </div>
         </div>
         <div class="mode-pane single-only" id="qrPane" role="tabpanel" aria-labelledby="qrModeBtn">
-          <div class="auth-note" id="qrModeNote" hidden>当前仅支持手机扫码授权。本机微信登录已关闭，可通过服务端变量 <code>YYB_ENABLE_PC_LOGIN=true</code> 显式开启。</div>
           <div class="qr" id="qrWrap">准备生成二维码</div>
           <div class="status pending" id="status">等待生成二维码</div>
           <div class="countdown" id="countdown"></div>
           <div class="actions">
             <button class="btn" id="refreshBtn" type="button">重新生成</button>
           </div>
+          <div class="auth-note" id="qrModeNote" hidden>当前仅支持手机扫码授权。本机微信登录已关闭，可通过服务端变量 <code>YYB_ENABLE_PC_LOGIN=true</code> 显式开启。</div>
         </div>
         <div class="multi-pane" id="multiPane" hidden>
           <div class="multi-base" id="multiBase" hidden></div>
           <div class="multi-grid" id="multiGrid"></div>
         </div>
-        <div class="actions"><button class="btn" id="backBtn" type="button">账号列表</button></div>
+        <div class="actions panel-foot"><button class="btn" id="backBtn" type="button">账号列表</button></div>
       </div>
     </section>
     <section class="panel">

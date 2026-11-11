@@ -77,7 +77,7 @@
       <span class="fleet-member-actions">
         ${pending ? '<button type="button" class="btn small" data-confirm-status="alive">仍有效</button><button type="button" class="btn small danger" data-confirm-status="expired">已失效</button>' : ''}
         <button type="button" class="btn secondary" data-update-account aria-label="更新 ID ${member.id} 的扫码">更新</button>
-        <a class="btn" href="/proxies?ref=${encodeURIComponent(member.id)}" aria-label="管理 ID ${member.id} 的代理">代理</a>
+        <a class="btn secondary" href="/proxies?ref=${encodeURIComponent(member.id)}" aria-label="管理 ID ${member.id} 的代理">代理</a>
         ${isPrimary ? '' : `<button type="button" class="btn secondary" data-leave-fleet aria-label="把 ID ${member.id} 移出多渠道账号">移出</button>`}
       </span>
       ${lifecycleMarkup(member)}
@@ -148,7 +148,7 @@
         ${attention(group)}
         <button type="button" class="fleet-expand" aria-expanded="${expanded}" aria-controls="${panelId}">渠道详情<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
       </span>
-      <span class="account-row-actions"><a class="btn secondary" href="/scan?ref=${encodeURIComponent(primary.id)}" aria-label="给 ${escapeHTML(name)} 补扫或重扫渠道">多渠道扫码</a><a class="btn" href="/proxies?ref=${encodeURIComponent(primary.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
+      <span class="account-row-actions"><a class="btn secondary" href="/scan?ref=${encodeURIComponent(primary.id)}" aria-label="给 ${escapeHTML(name)} 补扫或重扫渠道">多渠道扫码</a><a class="btn secondary" href="/proxies?ref=${encodeURIComponent(primary.id)}" aria-label="管理 ${escapeHTML(name)} 的代理">代理</a></span>
       <div class="fleet-members" id="${panelId}"${expanded ? '' : ' hidden'}>
         ${members.map(member => memberMarkup(group, member)).join('')}
         <div class="fleet-foot"><button type="button" class="btn secondary" data-dissolve-fleet>拆分多渠道账号</button></div>
