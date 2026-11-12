@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"yyb_go/internal/store"
 )
@@ -76,15 +77,31 @@ func (a *App) handleAccountCompact(w http.ResponseWriter, r *http.Request) {
 	}
 	// Ownership is stored separately. Move it first; if the YYB database fails,
 	// restore ownership with the inverse map so the two stores stay aligned.
+	liveIDs := make([]int64, 0, len(accounts))
+	remappedIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		liveIDs = append(liveIDs, account.ID)
+		newID := account.ID
+		if movedID, ok := mapping[account.ID]; ok {
+			newID = movedID
+		}
+		remappedIDs = append(remappedIDs, newID)
+	}
 	if a.auth != nil {
-		if err = a.auth.RemapAccountIDs(r.Context(), mapping); err != nil {
+		if err = a.auth.RemapAccountIDs(r.Context(), mapping, liveIDs); err != nil {
 			writeError(w, http.StatusInternalServerError, "迁移用户归属失败："+err.Error())
 			return
 		}
 	}
 	if _, err = a.db.CompactAccountIDs(r.Context()); err != nil {
 		if a.auth != nil {
-			_ = a.auth.RemapAccountIDs(r.Context(), invertAccountIDMap(mapping))
+			rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			rollbackErr := a.auth.RemapAccountIDs(rollbackCtx, invertAccountIDMap(mapping), remappedIDs)
+			cancel()
+			if rollbackErr != nil {
+				writeError(w, http.StatusInternalServerError, "迁移账号 ID 失败且用户归属回滚失败，请停止账号整理并从备份恢复")
+				return
+			}
 		}
 		writeError(w, http.StatusInternalServerError, "迁移账号 ID 失败："+err.Error())
 		return

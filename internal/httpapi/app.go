@@ -812,7 +812,7 @@ func (a *App) handleAccountsRoot(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "青龙关联数据清理失败，本地账号未删除："+err.Error())
 			return
 		}
-		if err := a.db.DeleteAccount(r.Context(), acc.ID); err != nil {
+		if err := a.deleteAccountWithOwner(r.Context(), acc.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

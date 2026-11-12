@@ -3,10 +3,9 @@
 # name: lz飞天
 
 # ==========================================================
-# 功能说明：code 换 token（含缓存与自动刷新）
-# 机制：本地 code 服务获取微信 code → getOpenId 绑定 → 抓包 xcxData decode 换 token → 缓存；
-#       下次运行先读取缓存 token，并调用用户信息接口验证是否仍有效；
-#       有效则直接复用；失效或过期则重新获取 code 自动刷新。
+# 功能说明：验证会员 token 后签到；YYB code 不能替代会员登录态。
+# 机制：按账号配置自己的 xcxData → decode → 用户信息核验 → 缓存；
+#       缓存仅在明确失效后清理，网络异常保留；没有有效登录态即停止。
 # ==========================================================
 
 
@@ -14,9 +13,9 @@
 lz飞天 登录/签到小程序动态 code 版
 
 功能：
-  1. 通过 YYB 获取微信 code
-  2. https://gszy.baijqr.cn/api/cloud2.member.api/wx/getOpenId 使用 code 绑定 openid
-  3. https://gszy.baijqr.cn/api/cloud2.member.api/member/userInfo/decode 使用抓包 xcxData 换 token
+  1. 从本人小程序当前登录跳转中获取 xcxData，按账号配置 LZ_XCX_DATA
+  2. decode 后调用用户信息接口核验 token；不能仅靠 YYB code 自动续期
+  3. 验证成功后才通过 YYB 获取本次签到 code
   4. 每日签到
   5. PushPlus 推送
   6. 品赞代理，业务请求优先代理，失败直连兜底
@@ -27,7 +26,8 @@ lz飞天 登录/签到小程序动态 code 版
   PROXY_TYPE        http / socks5，默认 http
   YYB_SERVER        YYB 地址@账号 ID/OpenID，每行一个账号
   YYB_API_KEY       YYB API Key，可选
-  LZ_CODE_FALLBACK  仅联调时使用抓包 code 兜底，默认 0
+  LZ_XCX_DATA       JSON 对象：{"YYB地址@账号ID":"本人当前xcxData"}
+                   仅一个账号时也可直接填写 xcxData；不要公开到日志/issue
 
 依赖：
   pip install requests
@@ -64,12 +64,17 @@ SERVERS = [item.strip() for item in _SERVER_ENV.replace(",", "\n").splitlines() 
 SERVERS = filter_accounts(SERVERS, app_id=APPID, log=print)
 YYB_API_KEY = os.getenv("YYB_API_KEY", "").strip()
 
-# 8088 当前没有小程序会话时返回 code=null；抓包中的 code 仍可用于联调。
-HAR_FALLBACK_CODE = os.getenv("LZ_FALLBACK_CODE", "0b1F2H0w3zUEE732Et1w36FgPz1F2H0R")
-CODE_FALLBACK_ENABLED = os.getenv("LZ_CODE_FALLBACK", "0") != "0"
-
-# H5 页面从微信小程序带过来的 xcxData，decode 后可解出 userToken。
-XCX_DATA = "OTd6SVFIT0JteHErdHhaMzVNcUJOQzZwVEJzTGJ1d1pRVCs1dlYvR0VmUlZVa3diSDRYR0hwdE9neHhaejVGYkVtTFhqa0xGaHBJekpFd29UOHhNK3VNOE9yNEVwWUlITzZiZUtLdHYvaE5nQjRJR0dOUkZoTnF2QXRUMk1iSzFuRGRmdFUvelVCa3kwQk84Qnl4eDk1OVZtanBid3Z1Sk1YUlRoekQ3akdNQk1yYXYzUStIcU5rM21jWkhWRTJIdnFBUnNyV3FhRG5rdVhUSkpJTEh0L24rMkdvd1VMUHd1cGVyNlpYdytqMkZBUjh5ZjNnaFIyUjg3bGpwUE4zd0wxTUhlWXdjc21pelJOYzJ6Wng5ZmZuMnJtai8wTnREd3Iwb0Yzenc4dkpXYTk1UWNRMC80Zk9UejE0MEs4VzlHNmxFaGFiWHpuRjFCcHhlZ0VPMEpsRmtmN0V0NGZFVXpNMmtRRzBqSWU3eXRPQ3c5aVdLY2JveDA4dEJ6TnFUSTAwMmRkby95YXdETmZsZUQrN3k4UEVwT0l2L0FqVmVsZkFvUlBnMDNTST0="
+def account_context(server: str) -> str:
+    raw = os.getenv("LZ_XCX_DATA", "").strip()
+    if not raw:
+        return ""
+    try:
+        values = json.loads(raw)
+    except ValueError:
+        # A single captured context must never be shared across multiple accounts.
+        return raw if len(SERVERS) == 1 and not raw.startswith(("{", "[")) else ""
+    value = values.get(server, "") if isinstance(values, dict) else ""
+    return value.strip() if isinstance(value, str) else ""
 
 PLUSPLUS_TOKEN = os.getenv("PLUSPLUS_TOKEN", "")
 PROXY_API = os.getenv("PROXY_API", "")
@@ -296,9 +301,6 @@ def get_code(server: str) -> str | None:
     except Exception as exc:
         print(f"❌ [授权] code 获取异常: {exc}")
 
-    if CODE_FALLBACK_ENABLED and HAR_FALLBACK_CODE:
-        print("🔁 [授权] 8088 暂无新 code，使用抓包 code 兜底继续测试")
-        return HAR_FALLBACK_CODE
     return None
 
 
@@ -339,6 +341,9 @@ def get_cached_token(server: str) -> str | None:
     cache = load_token_cache()
     data = cache.get(server)
     if data and isinstance(data, dict) and data.get("token"):
+        if data.get("source") != "account_context_v2":
+            print("⚠️ [缓存] 旧版缓存无法证明来自本账号，需按账号配置 LZ_XCX_DATA 后重新验证")
+            return None
         print(f"✅ [缓存] 使用 {server} token")
         return data["token"]
     return None
@@ -346,7 +351,7 @@ def get_cached_token(server: str) -> str | None:
 
 def set_cached_token(server: str, token: str) -> None:
     cache = load_token_cache()
-    cache[server] = {"token": token, "updateTime": datetime.now().isoformat()}
+    cache[server] = {"token": token, "source": "account_context_v2", "updateTime": datetime.now().isoformat()}
     save_token_cache(cache)
 
 
@@ -395,7 +400,6 @@ if os.getenv("LZ_ACTIVITIES"):
     ACTIVITIES = [a for a in ACTIVITIES if a["id"] in _ids]
 LNG = 108.37379996134864
 LAT = 22.81894986486499
-OPENID_URL = f'{BASE_URL}/api/cloud2.member.api/wx/getOpenId'
 DECODE_URL = f'{BASE_URL}/api/cloud2.member.api/member/userInfo/decode'
 CHECK_URL = f'{BASE_URL}/api/cloud2.member.api/member/userInfo/getCurLoginUser'
 SIGN_URL = f'{BASE_URL}/api/cloud2.member.api/userSignInPointMall/signIn'
@@ -444,8 +448,8 @@ def extract_token(data: Any) -> str | None:
             return None
         for key in ("userToken", "token", "accessToken", "access_token", "sessionId", "session_id"):
             value = obj.get(key)
-            if value and str(value).lower() not in ("null", "none"):
-                return str(value)
+            if isinstance(value, str) and value.strip() and value.lower() not in ("null", "none"):
+                return value.strip()
         nested = obj.get("data")
         if nested is not None:
             return search(nested)
@@ -475,69 +479,67 @@ def api_request(
         else:
             kwargs["json"] = body or {}
             response = request_with_proxy(method.upper(), url, proxies=proxies, server=server, **kwargs)
-        return response.json()
-    except Exception as exc:
-        return {"code": -1, "msg": f"请求异常: {exc}"}
+        if response.status_code != 200:
+            return {"code": response.status_code, "msg": f"业务请求 HTTP {response.status_code}"}
+        data = response.json()
+        return data if isinstance(data, dict) else {"code": -1, "msg": "业务响应格式错误"}
+    except Exception:
+        return {"code": -1, "msg": "业务请求异常，未确认登录状态"}
 
 
-def bind_openid(server: str, code: str, auth_token: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
-    params = {"code": code, "t": int(time.time() * 1000)}
-    data = api_request("GET", OPENID_URL, token=auth_token, params=params, proxies=proxies, server=server)
-    if is_success(data):
-        openid = ((data.get("data") or {}).get("openid") or "")
-        print(f"✅ [登录] code 绑定 openid 成功: {mask(openid)}")
-    else:
-        print(f"⚠️ [登录] getOpenId 未成功: {pick_msg(data)}")
-    return data
-
-
-def decode_user_token(server: str, code: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
+def decode_user_token(server: str, context: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
     headers = common_headers()
     headers["Content-Type"] = "application/x-www-form-urlencoded"
     headers["User-Agent"] = USER_AGENT + " miniProgram/wxda7924fb8811699c"
     headers["Origin"] = BASE_URL
     headers["X-Requested-With"] = "XMLHttpRequest"
-    headers["Referer"] = f"{BASE_URL}/gansu/gansu-shop/sign.html?&isUser=true&xcxData={XCX_DATA}&c={code}"
+    headers["Referer"] = f"{BASE_URL}/gansu/gansu-shop/sign.html"
     try:
         response = request_with_proxy(
             "POST",
             DECODE_URL,
             headers=headers,
-            data={"context": XCX_DATA},
+            data={"context": context},
             proxies=proxies,
             server=server,
         )
-        return response.json()
-    except Exception as exc:
-        return {"code": -1, "msg": f"请求异常: {exc}"}
+        if response.status_code != 200:
+            return {"code": response.status_code, "msg": f"登录请求 HTTP {response.status_code}"}
+        data = response.json()
+        return data if isinstance(data, dict) else {"code": -1, "msg": "登录响应格式错误"}
+    except Exception:
+        return {"code": -1, "msg": "登录请求失败，未确认登录状态"}
 
 
-def login_by_code(server: str, code: str, proxies: Dict[str, str] | None, auth_token: str = "") -> Tuple[str | None, Dict[str, Any] | None]:
-    try:
-        print("🔐 [登录] 使用 code 绑定 openid")
-        bind_openid(server, code, auth_token, proxies)
-        print("🔐 [登录] 使用抓包 xcxData 换取 userToken")
-        data = decode_user_token(server, code, proxies)
-        token = extract_token(data)
-        if token:
-            print(f"✅ [登录] token 获取成功: {mask(token)}")
-            return token, data
-        print(f"❌ [登录] 未识别 token 字段: {json_preview(data)}")
-        return None, data
-    except Exception as exc:
-        print(f"❌ [登录] 请求异常: {exc}")
-        return None, None
+def check_token(server: str, token: str, proxies: Dict[str, str] | None) -> Dict[str, Any]:
+    return api_request(
+        "GET", CHECK_URL, token=token,
+        params={"userToken": token, "t": int(time.time() * 1000)},
+        proxies=proxies, server=server,
+    )
+
+
+def valid_member(data: Any) -> bool:
+    if not is_success(data) or not isinstance(data.get("data"), dict):
+        return False
+    identity = data["data"].get("userId") or data["data"].get("id") or data["data"].get("uid")
+    return isinstance(identity, (str, int)) and not isinstance(identity, bool) and str(identity).strip().lower() not in ("", "0", "null", "none")
 
 
 def is_success(data: Any) -> bool:
     if not isinstance(data, dict):
         return False
+    if any(data.get(key) is False for key in ("success", "Success", "ok", "status")):
+        return False
+    for key in ("code", "ret", "errcode", "error"):
+        if key in data and (isinstance(data[key], bool) or data[key] not in (0, 200, "0", "200", "0000", 1, "1", 10000, 100, "100")):
+            return False
     for key in ("success", "Success", "ok", "status"):
         if data.get(key) is True:
             return True
     for key in ("code", "status", "ret", "errcode", "error"):
         value = data.get(key)
-        if value in (0, 200, "0", "200", "0000", 1, "1", 10000, 100, "100"):
+        if not isinstance(value, bool) and value in (0, 200, "0", "200", "0000", 1, "1", 10000, 100, "100"):
             return True
     return False
 
@@ -559,11 +561,13 @@ def is_already_done(data: Any) -> bool:
 
 
 def is_auth_error(data: Any) -> bool:
-    text = pick_msg(data)
-    return any(k in text for k in ("token", "登录", "未授权", "未登录", "失效", "过期", "401", "403"))
+    if isinstance(data, dict) and str(data.get("code")) in ("601", "401", "403"):
+        return True
+    text = pick_msg(data).lower()
+    return any(k in text for k in ("登录超时", "请重新登录", "未授权", "未登录", "登录失效", "登录过期", "token已失效", "token过期", "token expired", "unauthorized"))
 
 
-def do_sign(token: str, code: str, server: str, proxies: Dict[str, str] | None) -> str:
+def do_sign(token: str, code: str, server: str, proxies: Dict[str, str] | None) -> Tuple[str, bool, bool]:
     data = api_request(
         "GET",
         SIGN_URL,
@@ -575,12 +579,13 @@ def do_sign(token: str, code: str, server: str, proxies: Dict[str, str] | None) 
     if is_success(data):
         msg = "签到成功"
         print(f"✅ [签到] {msg}")
-    elif is_already_done(data):
+    elif not is_auth_error(data) and is_already_done(data):
         msg = pick_msg(data) or "今日已签到"
         print(f"✅ [签到] {msg}")
     else:
         msg = f"签到失败: {pick_msg(data)}"
         print(f"⚠️ [签到] {msg}")
+        return msg, False, is_auth_error(data)
 
     record = api_request(
         "GET",
@@ -596,45 +601,39 @@ def do_sign(token: str, code: str, server: str, proxies: Dict[str, str] | None) 
         if days is not None:
             msg = f"{msg}，连续签到 {days} 天"
             print(f"📅 [签到] 连续签到 {days} 天")
-    return msg
+    return msg, True, False
 
 
 def login_with_cache(server: str, proxies: Dict[str, str] | None) -> Tuple[str | None, Dict[str, Any] | None, str]:
     cached_token = get_cached_token(server)
     if cached_token:
-        check = api_request(
-            "GET",
-            CHECK_URL,
-            token=cached_token,
-            params={"userToken": cached_token, "t": int(time.time() * 1000)},
-            proxies=proxies,
-            server=server,
-        )
-        if is_success(check):
+        check = check_token(server, cached_token, proxies)
+        if valid_member(check):
             print("✅ [缓存] token 有效")
             code = get_code(server)
-            if code:
-                bind_openid(server, code, cached_token, proxies)
-            return cached_token, None, code or ""
-        print("⚠️ [缓存] token 已失效，重新登录")
+            return (cached_token, None, code) if code else (None, {"msg": "YYB 未取得本次签到 code"}, "")
+        if not is_auth_error(check):
+            print("⚠️ [缓存] 验证未成功，保留缓存并停止；请求异常不代表 token 失效")
+            return None, {"msg": "会员验证未成功，缓存已保留"}, ""
+        print("⚠️ [缓存] token 已明确失效；YYB code 不能替代新的会员登录态")
         remove_cached_token(server)
 
+    context = account_context(server)
+    if not context:
+        error = {"msg": "缺少本账号 LZ_XCX_DATA；需本人小程序当前登录数据，YYB code 无法单独换取会员 token"}
+        print(f"❌ [登录] {error['msg']}")
+        return None, error, ""
+    raw_login = decode_user_token(server, context, proxies)
+    token = extract_token(raw_login) if is_success(raw_login) else None
+    if not token:
+        return None, {"msg": "decode 未成功或未取得 token，请更新本人 LZ_XCX_DATA"}, ""
+    if not valid_member(check_token(server, token, proxies)):
+        print("❌ [登录] decode 返回的 token 未通过会员验证，未缓存、未执行签到或活动")
+        return None, {"msg": "会员登录验证失败，请更新本人 LZ_XCX_DATA"}, ""
+    set_cached_token(server, token)
+    print("✅ [登录] 会员 token 验证成功")
     code = get_code(server)
-    if not code:
-        print("⚠️ [授权] code 无效，等待后重试")
-        sleep(2)
-        code = get_code(server)
-    if not code:
-        return None, None, ""
-
-    token, raw_login = login_by_code(server, code, proxies, auth_token=cached_token or "")
-    if not token and code != HAR_FALLBACK_CODE and CODE_FALLBACK_ENABLED and HAR_FALLBACK_CODE:
-        print("🔁 [登录] 当前 code 换 token 失败，尝试抓包 fallback code")
-        code = HAR_FALLBACK_CODE
-        token, raw_login = login_by_code(server, code, proxies, auth_token=cached_token or "")
-    if token:
-        set_cached_token(server, token)
-    return token, raw_login, code
+    return (token, None, code) if code else (None, {"msg": "YYB 未取得本次签到 code"}, "")
 
 def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
@@ -662,22 +661,18 @@ def run_account(index: int, total: int, server: str) -> Dict[str, Any]:
 
     token, raw_login, used_code = login_with_cache(server, proxies)
     if not token:
-        result["error"] = f"登录失败: {json_preview(raw_login)}"
+        result["error"] = f"登录失败: {pick_msg(raw_login)}"
         return result
 
-    result["token"] = mask(token)
+    result["token"] = "已验证（不显示）"
 
     try:
-        result["signMsg"] = do_sign(token, used_code, server, proxies)
-        if any(k in result["signMsg"] for k in ("token", "登录", "未授权", "未登录", "失效", "过期", "401", "403")):
-            print("🔁 [刷新] token 失效，重新获取 code 后重试")
-            remove_cached_token(server)
-            token, raw_login, used_code = login_with_cache(server, proxies)
-            if not token:
-                result["error"] = f"登录失败: {json_preview(raw_login)}"
-                return result
-            result["token"] = mask(token)
-            result["signMsg"] = do_sign(token, used_code, server, proxies)
+        result["signMsg"], signed, auth_failed = do_sign(token, used_code, server, proxies)
+        if not signed:
+            if auth_failed:
+                remove_cached_token(server)
+            result["error"] = "签到未成功，本账号停止；不重放签到或继续活动"
+            return result
         result["activityMsg"] = run_activities(server, token, proxies)
         result["success"] = True
         return result
