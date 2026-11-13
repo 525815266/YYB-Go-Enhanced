@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"yyb_go/internal/eventlog"
@@ -37,13 +38,19 @@ func fleetMarkUsed(id int64) {
 	fleetLRU.last[id] = fleetLRU.sequence
 }
 
-// fleetOrder puts the least recently used member first (ties by id) so that
-// concurrent callers naturally rotate through the fleet.
+// fleetOrder puts usable members first, then applies least-recently-used
+// fairness within the same availability class. A saved session or an
+// expired credential is a recovery fallback, not a preferred target when a
+// peer is already known alive.
 func fleetOrder(members []*store.WechatAccount) []*store.WechatAccount {
 	ordered := append([]*store.WechatAccount(nil), members...)
 	fleetLRU.mu.Lock()
 	defer fleetLRU.mu.Unlock()
 	sort.SliceStable(ordered, func(i, j int) bool {
+		ri, rj := fleetDispatchAvailabilityRank(ordered[i]), fleetDispatchAvailabilityRank(ordered[j])
+		if ri != rj {
+			return ri < rj
+		}
 		li, lj := fleetLRU.last[ordered[i].ID], fleetLRU.last[ordered[j].ID]
 		if li != lj {
 			return li < lj
@@ -51,6 +58,25 @@ func fleetOrder(members []*store.WechatAccount) []*store.WechatAccount {
 		return ordered[i].ID < ordered[j].ID
 	})
 	return ordered
+}
+
+func fleetDispatchAvailabilityRank(account *store.WechatAccount) int {
+	status := "unknown"
+	if account != nil && account.Status != nil {
+		status = strings.ToLower(strings.TrimSpace(*account.Status))
+	}
+	switch status {
+	case "alive":
+		return 0
+	case "", "unknown":
+		return 1
+	case store.StatusSessionOnly:
+		return 2
+	case "expired":
+		return 3
+	default:
+		return 3
+	}
 }
 
 // fleetFailover reports whether another channel identity could plausibly

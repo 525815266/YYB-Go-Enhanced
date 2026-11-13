@@ -145,6 +145,67 @@ func TestFleetDispatchRotatesLRU(t *testing.T) {
 	}
 }
 
+func TestFleetDispatchPrefersKnownAliveMember(t *testing.T) {
+	app, a, b := fleetTestSetup(t)
+	ctx := context.Background()
+	if err := app.db.SetAccountStatus(ctx, a.ID, store.StatusSessionOnly); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.db.SetAccountStatus(ctx, b.ID, "alive"); err != nil {
+		t.Fatal(err)
+	}
+	a, _ = app.db.GetAccount(ctx, a.ID)
+	b, _ = app.db.GetAccount(ctx, b.ID)
+	// Make the limited member the older LRU entry. Availability must still win.
+	fleetLRU.mu.Lock()
+	fleetLRU.last[a.ID] = 1
+	fleetLRU.last[b.ID] = 2
+	fleetLRU.mu.Unlock()
+	served := make([]int64, 0, 1)
+	call := func(_ context.Context, acc *store.WechatAccount, _ string, _ map[string]any, _ string, _ bool) (map[string]any, error) {
+		served = append(served, acc.ID)
+		return map[string]any{"code": "ok"}, nil
+	}
+	if _, err := app.invokeWithFleet(ctx, a, "wx1234567890abcdef", nil, call); err != nil {
+		t.Fatalf("dispatch failed: %v", err)
+	}
+	if len(served) != 1 || served[0] != b.ID {
+		t.Fatalf("known alive member must be preferred, served=%v", served)
+	}
+}
+
+func TestFleetOrderAvailabilityClasses(t *testing.T) {
+	root, unknown, limited, expired := int64(1), int64(2), int64(3), int64(4)
+	accounts := []*store.WechatAccount{
+		{ID: expired, FleetPrimaryID: &root, Status: stringPtrForFleetTest("expired")},
+		{ID: limited, FleetPrimaryID: &root, Status: stringPtrForFleetTest(store.StatusSessionOnly)},
+		{ID: unknown, FleetPrimaryID: &root, Status: stringPtrForFleetTest("unknown")},
+		{ID: root, FleetPrimaryID: &root, Status: stringPtrForFleetTest("alive")},
+	}
+	fleetLRU.mu.Lock()
+	for i, account := range accounts {
+		fleetLRU.last[account.ID] = int64(i + 1)
+	}
+	fleetLRU.mu.Unlock()
+	ordered := fleetOrder(accounts)
+	want := []int64{root, unknown, limited, expired}
+	for i, account := range ordered {
+		if account.ID != want[i] {
+			t.Fatalf("availability order=%v, want=%v", fleetIDs(ordered), want)
+		}
+	}
+}
+
+func stringPtrForFleetTest(value string) *string { return &value }
+
+func fleetIDs(accounts []*store.WechatAccount) []int64 {
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	return ids
+}
+
 func TestFleetAPIBindUnbindStatus(t *testing.T) {
 	app, a, b := fleetTestSetup(t)
 	// unbind b first: the setup bound it
