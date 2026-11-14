@@ -4,7 +4,7 @@
 
 v0.2.26 起，仓库 `compose.yaml` 的默认镜像为 `ghcr.io/525815266/yyb-go-enhanced:latest`，自动匹配 Linux amd64 / arm64。使用 `docker compose pull yyb-go` 后执行 `docker compose up -d --no-build`，无需在低性能盒子上下载 Go 依赖、编译或运行构建测试。首次安装的目录初始化见 [README](../README.md#docker-compose-快速开始)。
 
-`.env` 可设置 `YYB_IMAGE=ghcr.io/525815266/yyb-go-enhanced:0.2.26` 固定版本。旧 Compose 如果仍写着 `local/yyb-go:58492557cc66`，请先更新镜像行，保留自己的挂载路径、端口与配置；仅执行 pull 不会自动把旧文件改成官方镜像。
+`.env` 可设置 `YYB_IMAGE=ghcr.io/525815266/yyb-go-enhanced:0.2.26` 固定版本。主分支构建会同步发布 `VERSION` 对应的镜像标签；正式 Release 仍以 `vX.Y.Z` 标签为准。旧 Compose 如果仍写着 `local/yyb-go:58492557cc66`，请先更新镜像行，保留自己的挂载路径、端口与配置；仅执行 pull 不会自动把旧文件改成官方镜像。
 
 这是应用镜像选择，不能修复 Docker daemon 本身访问 GHCR 的网络问题。32 位 ARM 系统不在 Docker 镜像矩阵内，可使用 Release 中的 Linux ARMv7 原生程序；查看 `uname -m` 与 `getconf LONG_BIT` 确认实际系统。
 

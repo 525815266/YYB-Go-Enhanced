@@ -81,7 +81,14 @@ jobs:
             [[ "$version" == *-* ]] || tags+=("$image:latest")
           else
             branch_tag="${GITHUB_REF_NAME//\//-}"
-            tags+=("$image:$branch_tag" "$image:latest")
+            version="$(tr -d '[:space:]' < VERSION)"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+              echo "Invalid VERSION for Docker tag: $version" >&2
+              exit 2
+            }
+            # Main pushes publish the VERSION tag as well as moving aliases.
+            # Tag pushes retain the immutable release path below.
+            tags+=("$image:$branch_tag" "$image:$version" "$image:latest")
           fi
 
           tags+=("$image:sha-${GITHUB_SHA::7}")
