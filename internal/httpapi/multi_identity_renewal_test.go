@@ -175,3 +175,41 @@ func TestMultiLinkExpiredLDPlayerChangedTicketOffersConfirmation(t *testing.T) {
 		t.Fatal("confirmed LDPlayer ticket lost its original member ID or fleet")
 	}
 }
+
+func TestMultiLinkChangedLDPlayerTicketReplacesNonExpiredMemberAfterConfirmation(t *testing.T) {
+	for _, status := range []string{"alive", store.StatusSessionOnly, "unknown"} {
+		t.Run(status, func(t *testing.T) {
+			app := newKeepAliveTestApp(t)
+			defer app.Close()
+			ctx := context.Background()
+			base, _ := app.db.UpsertAccount(ctx, "synthetic-root", "root-ticket", nil, nil, nil, map[string]any{"unionid": "root-union"}, nil, nil)
+			member, _ := app.db.UpsertAccount(ctx, "ldplayer:old-ticket", "old-buffer", nil, nil, nil, nil, map[string]any{"provider": "ldplayer"}, &status)
+			_ = app.db.SetAccountFleet(ctx, base.ID, base.ID)
+			_ = app.db.SetAccountFleet(ctx, member.ID, base.ID)
+			token, link := seedMultiLink(t, app, "update", base, nil)
+			creds := &protocol.LoginBufferCredentials{Provider: "ldplayer", OpenID: "ldplayer:new-ticket"}
+			app.qrSessions["ld-renew-active"] = &qrLoginSession{Session: &qr.Session{ID: "ld-renew-active", Product: "ldplayer", Credentials: creds, LoginBuffer: "fresh-buffer"}, Client: app.qr, AccountLinkID: link.ID, AccountLinkHash: link.TokenHash}
+			app.prepareScanSession = func(context.Context, *store.WechatAccount, string, bool) error { return nil }
+
+			w := multiLinkRequest(app, token, "/qr/ld-renew-active/confirm")
+			if w.Code != 422 || !strings.Contains(w.Body.String(), `"identity_confirmation_required":true`) {
+				t.Fatalf("changed non-expired ticket did not offer confirmation: %d %s", w.Code, w.Body.String())
+			}
+			unchanged, _ := app.db.GetAccount(ctx, member.ID)
+			if unchanged.OpenID != "ldplayer:old-ticket" || unchanged.LoginBuffer != "old-buffer" {
+				t.Fatal("unconfirmed scan changed the existing member")
+			}
+
+			w = httptest.NewRecorder()
+			app.handleAccountLink(w, httptest.NewRequest("POST", "/account-link/"+token+"/qr/ld-renew-active/confirm", strings.NewReader(`{"confirm_same_wechat":true}`)))
+			if w.Code != 200 {
+				t.Fatalf("confirmed replacement failed: %d %s", w.Code, w.Body.String())
+			}
+			updated, _ := app.db.GetAccount(ctx, member.ID)
+			rows, _ := app.db.ListAccounts(ctx)
+			if len(rows) != 2 || updated.ID != member.ID || updated.OpenID != "ldplayer:new-ticket" || updated.LoginBuffer != "fresh-buffer" || updated.FleetPrimaryID == nil || *updated.FleetPrimaryID != base.ID {
+				t.Fatal("confirmed LDPlayer rescan did not replace the original member in place")
+			}
+		})
+	}
+}

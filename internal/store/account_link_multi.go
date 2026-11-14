@@ -114,7 +114,7 @@ AND allow_multi_channel=1 AND used_at IS NULL AND revoked_at IS NULL AND expires
 			return nil, err
 		}
 		replaceTicket := len(confirmSameWechat) > 0 && confirmSameWechat[0] && product == "ldplayer" && current.ScanProduct() == "ldplayer" &&
-			current.Status != nil && *current.Status == "expired" && strings.HasPrefix(current.OpenID, "ldplayer:") && strings.HasPrefix(openID, "ldplayer:")
+			strings.HasPrefix(current.OpenID, "ldplayer:") && strings.HasPrefix(openID, "ldplayer:")
 		if !current.SameAuthorization(target) || current.OpenID != openID && !replaceTicket || primary == nil ||
 			(current.ID != primary.ID && (current.FleetPrimaryID == nil || *current.FleetPrimaryID != primary.ID)) {
 			return nil, ErrAccountIdentityConflict

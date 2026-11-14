@@ -94,7 +94,25 @@ func (a *App) confirmMultiAccountLinkQR(w http.ResponseWriter, r *http.Request, 
 			if member.Public().ScanProduct != product {
 				continue
 			}
-			if target != nil || member.OpenID != result.Credentials.OpenID && !(product == "ldplayer" && accountStatus(member) == "expired") {
+			if member.OpenID != result.Credentials.OpenID && product == "ldplayer" {
+				// LDPlayer derives the stored identity from the one-shot login
+				// ticket, so every rescan has a new OpenID even when the operator
+				// used the same WeChat account. Ask for explicit confirmation and
+				// replace this member in place after confirmation, regardless of
+				// whether the old member has been marked expired yet.
+				if target != nil {
+					writeError(w, 409, "该渠道已有多个授权，请在控制台核对；原账号未修改")
+					return
+				}
+				target = member
+				if !consent.ConfirmSameWechat {
+					needsConfirmation()
+					return
+				}
+				confirmed = true
+				continue
+			}
+			if target != nil || member.OpenID != result.Credentials.OpenID {
 				writeError(w, 409, "该渠道已有不同授权，请在控制台核对；原账号未修改")
 				return
 			}
