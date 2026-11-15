@@ -1356,6 +1356,9 @@
       // Ids that were already expired at the last render. It stays null until the
       // first render, so opening the page never replays failures that are old.
       expiredSeen: null,
+      // The first multi-channel fleet is opened once so the workbench immediately
+      // exposes its channel members. Later renders keep the operator's choice.
+      defaultFleetExpanded: false,
       syncingAccount: false
     };
 
@@ -1674,6 +1677,17 @@
       const shown = FleetUI.groups(state.accounts).filter(group => group.members.some(member => matched.has(member.id)));
       const fleetCount = shown.filter(FleetUI.isFleet).length;
       $("accountFilterCount").textContent = `显示 ${shown.reduce((sum, group) => sum + group.members.length, 0)} / ${state.accounts.length} 个账号${fleetCount ? ` · ${fleetCount} 个多渠道账号` : ""}`;
+      // Match the compact workbench layout: expose the first multi-channel
+      // account on the initial render, while leaving all later expand/collapse
+      // actions under the operator's control.
+      if (!state.defaultFleetExpanded) {
+        const firstFleet = shown.find(FleetUI.isFleet);
+        if (firstFleet) {
+          state.expandedFleets ??= new Set();
+          state.expandedFleets.add(firstFleet.key);
+          state.defaultFleetExpanded = true;
+        }
+      }
       if (!state.accounts.length) {
         strip.innerHTML = `<div class="empty-state">暂无账号，点击“新增账号”开始扫码。</div>`;
         state.selectedOpenID = "";
