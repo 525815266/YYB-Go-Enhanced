@@ -12,8 +12,6 @@
   };
   const view = new URLSearchParams(location.search).get("view");
   const focus = new URLSearchParams(location.search).get("focus");
-  const accountWorkbench = location.pathname === "/" && focus === "accounts";
-  if (accountWorkbench) document.body.classList.add("account-workbench");
   const contextual = location.pathname === "/runs" ? {push:["独立推送", "账号通知设置"], logs:["调用记录", "请求与运行日志"]}[view] : location.pathname === "/" ? {accounts:["我的微信账号", "账号与有效期"], test:["接口测试", "协议能力调用"]}[focus] : null;
   const current = contextual || pages[location.pathname] || ["YYB Go", "管理控制台"];
   const main = document.querySelector("main");
