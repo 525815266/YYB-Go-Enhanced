@@ -331,6 +331,32 @@
       min-height: 112px;
     }
 
+    /* The account-focused view is a workbench, not a navigation screen. Keep
+       the account queue at the center of attention and let the card grid use
+       the full viewport, matching the compact operator layout. */
+    body.account-workbench .platform-shell { display: block; min-height: 100vh; }
+    body.account-workbench .platform-sidebar,
+    body.account-workbench .platform-topbar { display: none; }
+    body.account-workbench .platform-main > main {
+      width: min(1430px, calc(100% - 48px)) !important;
+      max-width: none !important;
+      padding: 0 0 40px !important;
+    }
+    body.account-workbench .overview { display: none; }
+    body.account-workbench .account-band {
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      background: transparent;
+    }
+    body.account-workbench .account-band > .section-head,
+    body.account-workbench .account-band > .account-filters {
+      background: var(--bg);
+    }
+    body.account-workbench .account-band > .section-head { padding-inline: 0; }
+    body.account-workbench .account-band > .account-filters { padding-inline: 0; }
+    body.account-workbench .account-strip { padding-inline: 0; }
+
     .account-card {
       position: relative;
       isolation: isolate;
@@ -2548,6 +2574,6 @@
     loadQingLongConfig();
     setInterval(loadHealth, 15000);
   </script>
-  <script src="/static/js/platform.js?v=20261103-skin"></script>
+  <script src="/static/js/platform.js?v=20261115-accounts"></script>
 </body>
 </html>
