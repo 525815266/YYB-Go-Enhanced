@@ -129,6 +129,14 @@ func TestResponseDiagnosticsAreNotBusinessRejections(t *testing.T) {
 	}
 }
 
+func TestTransferBusinessDiagnosticPreservesStage(t *testing.T) {
+	err := &protocol.LoginCodeRejectedError{Stage: "wx_login_transfer", Code: -12028}
+	want := []upstreamDiagnostic{{Stage: "wx_login_transfer", UpstreamCode: -12028}}
+	if got := credentialDiagnostics(err); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected transfer diagnostic: %+v", got)
+	}
+}
+
 func TestRefreshOutIncludesCurrentBusinessCodes(t *testing.T) {
 	acc := &store.WechatAccount{ID: 1}
 	err := &protocol.RefreshRejectedError{Code: 42002, Operation: "refresh_token"}

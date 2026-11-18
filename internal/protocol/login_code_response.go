@@ -73,6 +73,15 @@ func parseLoginCodeResponse(raw []byte) ([]byte, error) {
 	}
 	body, ok := outer[2]
 	if !ok {
+		// The transfer endpoint can reject the request before it creates a
+		// JSLoginResponse. In that case the decrypted payload contains only a
+		// transfer-level BaseResponse (field 1) and no field 2. Preserve its
+		// numeric Ret instead of collapsing the response into an empty code.
+		if transfer, present := outer[1]; present {
+			if rejection, handled := parseTransferRejection(transfer); handled {
+				return nil, rejection
+			}
+		}
 		return nil, ErrLoginCodeUnavailable
 	}
 	if body.wire != protowire.BytesType {
@@ -116,4 +125,27 @@ func parseLoginCodeResponse(raw []byte) ([]byte, error) {
 		return nil, ErrLoginCodeMalformed
 	}
 	return code.b, nil
+}
+func parseTransferRejection(field loginResponseField) (error, bool) {
+	ret := field
+	if field.wire == protowire.BytesType {
+		base, err := loginResponseFields(field.b)
+		if err != nil {
+			return err, true
+		}
+		var ok bool
+		ret, ok = base[1]
+		if !ok {
+			return nil, false
+		}
+	} else if field.wire != protowire.VarintType {
+		return ErrLoginCodeMalformed, true
+	}
+	if ret.wire != protowire.VarintType {
+		return ErrLoginCodeMalformed, true
+	}
+	if code := int32(ret.n); code != 0 {
+		return &LoginCodeRejectedError{Stage: "wx_login_transfer", Code: code}, true
+	}
+	return nil, false
 }

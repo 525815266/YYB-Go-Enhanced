@@ -55,3 +55,17 @@ func TestLoginCodeResponseSuccessAndMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginCodeTransferRejectionPreservesRet(t *testing.T) {
+	for _, code := range []int32{-12028, -14, 42} {
+		raw := pbLen(1, pbVar(1, uint64(int64(code))))
+		got, err := parseLoginCodeResponse(raw)
+		var rejected *LoginCodeRejectedError
+		if len(got) != 0 || !errors.As(err, &rejected) || rejected.Stage != "wx_login_transfer" || rejected.Code != code {
+			t.Fatalf("transfer rejection lost: code=%d result=%q err=%v", code, got, err)
+		}
+		if errors.Is(err, ErrLoginCodeUnavailable) || IsApplicationRequestRejection(err) {
+			t.Fatalf("transfer rejection misclassified: %v", err)
+		}
+	}
+}

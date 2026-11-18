@@ -162,7 +162,7 @@ func safeOperation(op string) bool {
 
 func safeStage(stage string) bool {
 	switch stage {
-	case "refresh_token", "check_login", "login_buffer", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "shortlink_transport", "shortlink_application", "jslogin_business", "jslogin_result", "h5_oauth_business", "pcmgr_login_buffer", "pcmgr_key_renewal", "circuit_target", "circuit_session":
+	case "refresh_token", "check_login", "login_buffer", "manual_auth", "native_autoauth_transport", "native_autoauth_application", "native_autoauth_business", "shortlink_transport", "shortlink_application", "wx_login_transfer", "jslogin_business", "jslogin_result", "h5_oauth_business", "pcmgr_login_buffer", "pcmgr_key_renewal", "circuit_target", "circuit_session":
 		return true
 	}
 	return false

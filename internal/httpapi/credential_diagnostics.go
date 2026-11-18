@@ -52,7 +52,7 @@ func credentialDiagnostics(err error) []upstreamDiagnostic {
 		case *protocol.ManualAuthRejectedError:
 			item.Stage, item.UpstreamCode = "manual_auth", e.Code
 		case *protocol.LoginCodeRejectedError:
-			if e.Stage == "jslogin_business" || e.Stage == "jslogin_result" {
+			if e.Stage == "wx_login_transfer" || e.Stage == "jslogin_business" || e.Stage == "jslogin_result" {
 				item.Stage, item.UpstreamCode = e.Stage, int64(e.Code)
 			}
 		case *protocol.ErrH5OAuthBusinessRejected:

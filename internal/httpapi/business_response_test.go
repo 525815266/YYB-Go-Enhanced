@@ -14,7 +14,7 @@ import (
 )
 
 func TestBusinessResponseDoesNotRefreshOrDenyAppID(t *testing.T) {
-	for _, rejection := range []error{&protocol.LoginCodeRejectedError{Stage: "jslogin_business", Code: -12028}, &protocol.LoginCodeRejectedError{Stage: "jslogin_result", Code: -7}, &protocol.ErrH5OAuthBusinessRejected{Ret: -5}, protocol.ErrLoginCodeMalformed} {
+	for _, rejection := range []error{&protocol.LoginCodeRejectedError{Stage: "wx_login_transfer", Code: -12028}, &protocol.LoginCodeRejectedError{Stage: "jslogin_business", Code: -12028}, &protocol.LoginCodeRejectedError{Stage: "jslogin_result", Code: -7}, &protocol.ErrH5OAuthBusinessRejected{Ret: -5}, protocol.ErrLoginCodeMalformed} {
 		app := newKeepAliveTestApp(t)
 		acc := insertKeepAliveTestAccount(t, app, "synthetic-account", time.Now().Add(time.Hour))
 		before, _ := json.Marshal(acc.Credentials)
