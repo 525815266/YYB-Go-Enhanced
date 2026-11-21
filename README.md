@@ -19,10 +19,13 @@
 [![下载量](https://img.shields.io/github/downloads/525815266/YYB-Go-Enhanced/total?style=flat-square&logo=github)](https://github.com/525815266/YYB-Go-Enhanced/releases)
 [![Docker 镜像](https://img.shields.io/badge/ghcr.io-yyb--go--enhanced-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/525815266/YYB-Go-Enhanced/pkgs/container/yyb-go-enhanced)
 [![平台](https://img.shields.io/badge/platform-linux%20%7C%20windows%20%7C%20macos%20%7C%20android-lightgrey?style=flat-square)](https://github.com/525815266/YYB-Go-Enhanced/releases)
+[![加入 YYB Telegram 交流群](https://img.shields.io/badge/Telegram-%E5%8A%A0%E5%85%A5%E4%BA%A4%E6%B5%81%E7%BE%A4-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/+yDbdmAyJsxNjY2Y1)
 
 [**在线演示**](https://525815266.github.io/YYB-Go-Enhanced/) · [快速开始](#docker-compose-快速开始) · [配置速查](#配置速查) · [文档](docs/README.md) · [更新日志](CHANGELOG.md) · [问题反馈](https://github.com/525815266/YYB-Go-Enhanced/issues)
 
 </div>
+
+> **YYB 项目交流群** · 欢迎加入 [Telegram 群](https://t.me/+yDbdmAyJsxNjY2Y1)，交流部署、接口接入、脚本适配和问题排查。
 
 > 在线演示使用虚构账号和数据，可体验账号切换、扫码、代理、运行日志与接口调试，不连接真实 YYB 服务，也不会保存输入。打不开时可用[备用演示](https://raw.githack.com/525815266/YYB-Go-Enhanced/main/docs/demo/index.html)。
 
