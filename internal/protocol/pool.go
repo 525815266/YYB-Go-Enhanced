@@ -23,6 +23,27 @@ var ErrLoginCodeUnavailable = errors.New("wx.login returned no code; check the a
 
 var ErrCachedSessionUnavailable = errors.New("authorization rejected and no reusable protocol session; re-scan required")
 
+// TimeoutStageError records which protocol phase hit a deadline without
+// exposing network endpoints, proxy credentials or account identifiers.
+type TimeoutStageError struct {
+	Stage string
+	Err   error
+}
+
+func (e *TimeoutStageError) Error() string { return e.Err.Error() }
+func (e *TimeoutStageError) Unwrap() error { return e.Err }
+
+func wrapTimeoutStage(stage string, err error) error {
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var existing *TimeoutStageError
+	if errors.As(err, &existing) {
+		return err
+	}
+	return &TimeoutStageError{Stage: stage, Err: err}
+}
+
 type Config struct {
 	ShortlinkTimeout        time.Duration
 	LoginTimeout            time.Duration
@@ -45,6 +66,10 @@ type Config struct {
 	// that does not set it behaves as before; a negative value switches the guard
 	// off.
 	FreshSessionWindow time.Duration
+	// RecoveryCooldown is how long a failed -14 session repair holds off before
+	// trying again for the same target; zero keeps DefaultRecoveryCooldown and a
+	// negative value switches the cooldown off.
+	RecoveryCooldown time.Duration
 }
 
 func DefaultConfig() Config {
@@ -85,15 +110,17 @@ type Pool struct {
 	// codeLocks serialize wx.login requests for one account. Different
 	// accounts keep running concurrently, while a single account cannot have
 	// two one-time login codes consumed at the same time.
-	codeLocks   map[int64]chan struct{}
-	codeRepairs map[string]codeRepairAttempt
+	codeLocks         map[int64]chan struct{}
+	codeRepairs       map[string]codeRepairAttempt
+	staleSavedTickets map[string]*store.WechatAccount
 	// verified remembers the last successful request per account and route,
 	// so a -14 right after it is not mistaken for an expired session.
 	verified map[string]verifiedSession
 	// budget limits how often traffic may reach the OAuth layer per account.
 	budget *loginBudget
 	// freshWindow is the guard window in force, in nanoseconds; zero is off.
-	freshWindow atomic.Int64
+	freshWindow      atomic.Int64
+	recoveryCooldown atomic.Int64
 
 	loginSem     chan struct{}
 	shortlinkSem chan struct{}
@@ -129,17 +156,19 @@ func NewPool(cfg Config, db *store.DB) *Pool {
 		cfg.DeviceIdentity = def.DeviceIdentity
 	}
 	p := &Pool{
-		cfg:          cfg,
-		db:           db,
-		locks:        map[string]chan struct{}{},
-		codeLocks:    map[int64]chan struct{}{},
-		codeRepairs:  map[string]codeRepairAttempt{},
-		verified:     map[string]verifiedSession{},
-		budget:       newLoginBudget(cfg.LoginBudget, cfg.LoginWindow),
-		loginSem:     make(chan struct{}, cfg.MaxLoginConcurrency),
-		shortlinkSem: make(chan struct{}, cfg.MaxShortlinkConcurrency),
+		cfg:               cfg,
+		db:                db,
+		locks:             map[string]chan struct{}{},
+		codeLocks:         map[int64]chan struct{}{},
+		codeRepairs:       map[string]codeRepairAttempt{},
+		staleSavedTickets: map[string]*store.WechatAccount{},
+		verified:          map[string]verifiedSession{},
+		budget:            newLoginBudget(cfg.LoginBudget, cfg.LoginWindow),
+		loginSem:          make(chan struct{}, cfg.MaxLoginConcurrency),
+		shortlinkSem:      make(chan struct{}, cfg.MaxShortlinkConcurrency),
 	}
 	p.freshWindow.Store(int64(EffectiveFreshWindow(cfg.FreshSessionWindow)))
+	p.recoveryCooldown.Store(int64(EffectiveRecoveryCooldown(cfg.RecoveryCooldown)))
 	return p
 }
 
@@ -155,7 +184,7 @@ func ProviderOf(acc *store.WechatAccount) string {
 func (p *Pool) GetCode(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	codeLock := p.codeLockFor(accountID)
 	if err := acquire(ctx, codeLock); err != nil {
-		return nil, err
+		return nil, wrapTimeoutStage("account_lock", err)
 	}
 	defer release(codeLock)
 
@@ -220,18 +249,22 @@ func retryLoginCode(ctx context.Context, call func() (map[string]any, error), in
 	return result, nil
 }
 
+func (p *Pool) requestPhoneNumber(ctx context.Context, st WmpfSession, appID string) (map[string]any, error) {
+	plain := buildPhoneRequest(st.Session.UIN, appID, st.Session.HostAppID, st.Device.SessDevice)
+	envelope, err := buildTransferPacket(st.Session, plain)
+	if err != nil {
+		return nil, err
+	}
+	code, resp, err := p.sendEnvelope(ctx, st, envelope)
+	if err != nil {
+		return nil, wrapTimeoutStage("shortlink_exchange", err)
+	}
+	return parseRawResponse(code, resp), nil
+}
+
 func (p *Pool) GetPhoneNumber(ctx context.Context, loginBuffer, appID string, accountID int64, tcpProxy string, fallbackDirect bool, expected ...*store.WechatAccount) (map[string]any, error) {
 	return p.run(ctx, loginBuffer, accountID, tcpProxy, fallbackDirect, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
-		plain := buildPhoneRequest(st.Session.UIN, appID, st.Session.HostAppID, st.Device.SessDevice)
-		envelope, err := buildTransferPacket(st.Session, plain)
-		if err != nil {
-			return nil, err
-		}
-		code, resp, err := p.sendEnvelope(ctx, st, envelope)
-		if err != nil {
-			return nil, err
-		}
-		return parseRawResponse(code, resp), nil
+		return p.requestPhoneNumber(ctx, st, appID)
 	}, expected...)
 }
 
@@ -342,7 +375,7 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	}
 	lock := p.lockFor(fmt.Sprintf("%d\x00%s", accountID, tcpProxy))
 	if err := acquire(ctx, lock); err != nil {
-		return WmpfSession{}, err
+		return WmpfSession{}, wrapTimeoutStage("account_lock", err)
 	}
 	defer release(lock)
 	acc, err = p.db.GetAccount(ctx, accountID)
@@ -381,12 +414,12 @@ func (p *Pool) state(ctx context.Context, loginBuffer string, accountID int64, t
 	// Valid account credentials use saved-ticket login first, as in v0.2.49.
 	// Do not let an optional native recovery failure mask that usable path.
 	if err = acquire(ctx, p.loginSem); err != nil {
-		return WmpfSession{}, err
+		return WmpfSession{}, wrapTimeoutStage("login_queue", err)
 	}
 	defer release(p.loginSem)
 	st, err := p.loginAndSession(ctx, loginBuffer, tcpProxy, fallbackDirect, device)
 	if err != nil {
-		return WmpfSession{}, err
+		return WmpfSession{}, wrapTimeoutStage("longlink_login", err)
 	}
 	uin := st.Session.UIN
 	expiresAt := sessionExpiresAt(st, p.cfg.SessionTTL)

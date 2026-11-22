@@ -99,6 +99,7 @@ type Config struct {
 	// set it behaves as before; a negative value switches the guard off.
 	// tuning.json overrides it at run time.
 	FreshSessionWindow time.Duration
+	RecoveryCooldown   time.Duration
 
 	// CodeDenyAppIDs adds AppIDs that code requests refuse on top of the
 	// built-in website-application AppIDs; CodeAllowAppIDs lifts a refusal and
@@ -145,6 +146,7 @@ type App struct {
 	mu                sync.Mutex
 	qrSessions        map[string]*qrLoginSession
 	quickSessions     map[string]quickLoginSession
+	fleetDemoted      map[int64]time.Time
 	refreshLocksMu    sync.Mutex
 	refreshLocks      map[int64]chan struct{}
 	loginMu           sync.Mutex
@@ -271,10 +273,18 @@ func NewApp(cfg Config) (*App, error) {
 	poolCfg.LoginBudget = cfg.LoginBudget
 	poolCfg.LoginWindow = cfg.LoginWindow
 	poolCfg.FreshSessionWindow = cfg.FreshSessionWindow
+	poolCfg.RecoveryCooldown = cfg.RecoveryCooldown
 	pool := protocol.NewPool(poolCfg, db)
 	qrClient := qr.NewClient(cfg.RequestTimeout)
 	// The traffic limiter's configured values; tuning.json may override them at run time.
-	trafficSettings := pacingSettings{MinGap: cfg.CodeMinGap, MaxWait: cfg.CodeMaxWait, LoginBudget: cfg.LoginBudget, LoginWindow: cfg.LoginWindow, FreshWindow: protocol.EffectiveFreshWindow(cfg.FreshSessionWindow)}
+	trafficSettings := pacingSettings{
+		MinGap:           cfg.CodeMinGap,
+		MaxWait:          cfg.CodeMaxWait,
+		LoginBudget:      cfg.LoginBudget,
+		LoginWindow:      cfg.LoginWindow,
+		FreshWindow:      protocol.EffectiveFreshWindow(cfg.FreshSessionWindow),
+		RecoveryCooldown: protocol.EffectiveRecoveryCooldown(cfg.RecoveryCooldown),
+	}
 	app := &App{
 		updates:            newUpdateChecker(cfg.UpdateProxy, cfg.UpdateVersionURL),
 		cfg:                cfg,
@@ -295,6 +305,7 @@ func NewApp(cfg Config) (*App, error) {
 		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), trafficSettings),
 		qrSessions:         map[string]*qrLoginSession{},
 		quickSessions:      map[string]quickLoginSession{},
+		fleetDemoted:       map[int64]time.Time{},
 		loginAttempts:      map[string]loginAttempt{},
 		refreshLocks:       map[int64]chan struct{}{},
 		proxyLeases:        map[int64]accountProxyLease{},
@@ -306,6 +317,7 @@ func NewApp(cfg Config) (*App, error) {
 	app.pacer.onChange = func(s pacingSettings) {
 		pool.SetLoginBudget(s.LoginBudget, s.LoginWindow)
 		pool.SetFreshSessionWindow(s.FreshWindow)
+		pool.SetRecoveryCooldown(s.RecoveryCooldown)
 	}
 	authDriver, authDSN, err := cfg.AuthDatabase()
 	if err != nil {
@@ -1432,6 +1444,7 @@ func (a *App) storeFromScan(ctx context.Context, loginBuffer string, creds proto
 	if err == nil {
 		// A new authorization starts with a clean breaker.
 		a.circuit.forget(acc.ID)
+		a.clearFleetMemberPenalty(acc.ID)
 		a.events.Emit("account.scanned", eventlog.ForAccount(acc))
 	}
 	return acc, err
@@ -1530,9 +1543,15 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	}
 	proxyValue, fallbackDirect, err := a.resolveWXAppProxy(ctx, acc.ID)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && timeoutFailureStage(err) == "" {
+			err = &protocol.TimeoutStageError{Stage: "proxy_resolve", Err: err}
+		}
 		return nil, fmt.Errorf("resolve account proxy: %w", err)
 	}
 	result, callErr := call(ctx, acc, appID, payload, proxyValue, fallbackDirect)
+	if errors.Is(callErr, context.DeadlineExceeded) && timeoutFailureStage(callErr) == "" {
+		callErr = &protocol.TimeoutStageError{Stage: "request_budget", Err: callErr}
+	}
 	a.recordCircuitOutcome(ctx, acc, appID, op, callErr)
 	if callErr == nil {
 		// This mini-program request succeeded; forget earlier empty outcomes.
@@ -1675,6 +1694,7 @@ func (a *App) recordCircuitOutcome(ctx context.Context, acc *store.WechatAccount
 		return
 	}
 	outcome := circuitOther
+	var loginRejected *protocol.LoginCodeRejectedError
 	switch {
 	case callErr == nil:
 		outcome = circuitOK
@@ -1682,6 +1702,8 @@ func (a *App) recordCircuitOutcome(ctx context.Context, acc *store.WechatAccount
 		outcome = circuitAppReject
 	case errors.Is(callErr, protocol.ErrLoginCodeUnavailable):
 		outcome = circuitEmptyCode
+	case errors.As(callErr, &loginRejected) && loginRejected.Stage == "jslogin_business" && (loginRejected.Code == -12030 || loginRejected.Code == -13000):
+		outcome = circuitRiskReject
 	}
 	if scope := a.circuit.record(acc.ID, appID, op, outcome); scope != "" {
 		fields := eventlog.ForAccount(acc).WithTarget(appID, op, "")
@@ -1765,7 +1787,13 @@ func h5CodeParams(payload map[string]any) oauth.Request {
 }
 
 func (a *App) invokeGetPhoneNumber(ctx context.Context, acc *store.WechatAccount, appID string, _ map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {
-	return a.pool.GetPhoneNumber(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
+	result, err := a.pool.GetPhoneNumber(ctx, acc.LoginBuffer, appID, acc.ID, proxyValue, fallbackDirect, acc)
+	if err == nil || !protocol.IsApplicationRequestRejection(err) {
+		return result, err
+	}
+	return a.pool.RecoverPhoneSession(ctx, acc, appID, proxyValue, fallbackDirect, err, func(ctx context.Context) (string, error) {
+		return a.fetchAccountLoginBuffer(ctx, acc)
+	})
 }
 
 func (a *App) invokeOperateWXData(ctx context.Context, acc *store.WechatAccount, appID string, payload map[string]any, proxyValue string, fallbackDirect bool) (map[string]any, error) {

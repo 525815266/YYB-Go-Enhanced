@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	qingLongTypeSetting     = "qinglong_type"
-	qingLongURLSetting      = "qinglong_url"
-	qingLongClientIDSetting = "qinglong_client_id"
-	qingLongSecretSetting   = "qinglong_client_secret"
+	qingLongTypeSetting       = "qinglong_type"
+	qingLongURLSetting        = "qinglong_url"
+	qingLongClientIDSetting   = "qinglong_client_id"
+	qingLongSecretSetting     = "qinglong_client_secret"
+	qingLongServerAddrSetting = "qinglong_server_addr"
 )
 
 type accountRemarkIn struct {
@@ -27,11 +28,12 @@ type accountRemarkIn struct {
 }
 
 type qingLongConfigIn struct {
-	Type         string `json:"type"`
-	URL          string `json:"url"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	Clear        bool   `json:"clear"`
+	Type         string  `json:"type"`
+	URL          string  `json:"url"`
+	ClientID     string  `json:"client_id"`
+	ClientSecret string  `json:"client_secret"`
+	ServerAddr   *string `json:"server_addr"`
+	Clear        bool    `json:"clear"`
 }
 
 // Panel credentials are kept separately for each driver. The legacy keys are
@@ -132,6 +134,7 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 				"configured":        strings.TrimSpace(urlValue) != "" && strings.TrimSpace(secretValue) != "",
 			}
 		}
+		serverAddr, serverCustom := a.qingLongServerSetting(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{
 			"type":              pType,
 			"active_type":       activeType,
@@ -139,6 +142,9 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 			"client_id":         clientID,
 			"secret_configured": strings.TrimSpace(secret) != "",
 			"configured":        profileConfigured,
+			"server_addr":       serverAddr,
+			"server_default":    a.cfg.QingLongServer,
+			"server_customized": serverCustom,
 			"profiles":          profiles,
 		})
 	case http.MethodPut:
@@ -197,14 +203,27 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, panelName+"连接测试失败："+err.Error())
 			return
 		}
+		if body.ServerAddr != nil {
+			customAddr := strings.TrimSpace(*body.ServerAddr)
+			if strings.ContainsAny(customAddr, "\r\n\t@ ") {
+				writeError(w, http.StatusBadRequest, "对外服务地址不能包含空白字符或 @")
+				return
+			}
+			if err := a.db.SetSetting(r.Context(), qingLongServerAddrSetting, customAddr); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 		if err := a.persistQingLongConfig(r.Context(), pType, baseURL, clientID, secret); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		a.qinglong.reconfigure(pType, baseURL, clientID, secret)
+		serverAddr, serverCustom := a.qingLongServerSetting(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{
 			"type": pType, "url": baseURL, "client_id": clientID, "secret_configured": true,
 			"configured": true, "connected": true,
+			"server_addr": serverAddr, "server_customized": serverCustom,
 		})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -394,6 +413,7 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 		currentValue, remarks = env.Value, env.Remarks
 	}
 	remarks = managedYYBServerRemarks(remarks, accounts)
+	serverAddr, _ := a.qingLongServerSetting(r.Context())
 	value := currentValue
 	added := 0
 	pending := map[int64]string{}
@@ -404,12 +424,15 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "读取待同步引用失败")
 			return
 		}
+	}
+	value = reconcileYYBServerEntries(value, accounts, a.cfg.QingLongRefMode, true)
+	for _, acc := range accounts {
 		if fleetPrimaryOf(acc) > 0 && fleetPrimaryOf(acc) != acc.ID {
 			// A member is listed through its primary, which is in this loop too.
 			continue
 		}
 		var changed bool
-		value, changed = mergeYYBServerValue(value, a.cfg.QingLongServer, acc, a.cfg.QingLongRefMode)
+		value, changed = mergeYYBServerValue(value, serverAddr, acc, a.cfg.QingLongRefMode)
 		if changed {
 			added++
 		}
@@ -467,12 +490,122 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 	if err != nil {
 		return "", false, err
 	}
-	value, added := mergeYYBServerValue(currentValue, a.cfg.QingLongServer, a.panelRepresentative(ctx, acc), a.cfg.QingLongRefMode)
+	currentValue = reconcileYYBServerEntries(currentValue, accounts, a.cfg.QingLongRefMode, false)
+	serverAddr, _ := a.qingLongServerSetting(ctx)
+	value, added := mergeYYBServerValue(currentValue, serverAddr, a.panelRepresentative(ctx, acc), a.cfg.QingLongRefMode)
 	if err := a.saveYYBServerEnv(ctx, env, value, remarks); err != nil {
 		return "", false, err
 	}
 	_ = a.db.CompleteAccountReferences(ctx, acc.ID, pending)
 	return value, added, nil
+}
+
+func (a *App) qingLongServerSetting(ctx context.Context) (string, bool) {
+	if saved, err := a.db.GetSetting(ctx, qingLongServerAddrSetting); err == nil && strings.TrimSpace(saved) != "" {
+		return strings.TrimSpace(saved), true
+	}
+	return strings.TrimSpace(a.cfg.QingLongServer), false
+}
+
+// reconcileYYBServerEntries strips fleet sub-member references and duplicate
+// entries that resolve to the same local account, while keeping non-managed or
+// external lines intact.
+func reconcileYYBServerEntries(existing string, accounts []*store.WechatAccount, refMode string, dedupeCrossForm bool) string {
+	normalized := strings.ReplaceAll(existing, "\r\n", "\n")
+	normalized = strings.TrimRight(normalized, "\n")
+	if normalized == "" || len(accounts) == 0 {
+		return normalized
+	}
+	byID := make(map[int64]*store.WechatAccount, len(accounts))
+	byRef := make(map[string]*store.WechatAccount, len(accounts)*2)
+	for _, acc := range accounts {
+		if acc == nil {
+			continue
+		}
+		byID[acc.ID] = acc
+		byRef[strconv.FormatInt(acc.ID, 10)] = acc
+		if openID := strings.TrimSpace(acc.OpenID); openID != "" {
+			byRef[openID] = acc
+		}
+	}
+	canonicalRef := func(acc *store.WechatAccount) string {
+		if strings.EqualFold(strings.TrimSpace(refMode), "openid") && strings.TrimSpace(acc.OpenID) != "" {
+			return strings.TrimSpace(acc.OpenID)
+		}
+		return strconv.FormatInt(acc.ID, 10)
+	}
+	seenAccount := make(map[int64]bool, len(accounts))
+	seenExactLine := make(map[string]bool)
+	lines := strings.Split(normalized, "\n")
+	preferredLine := make(map[int64]int, len(accounts))
+	for idx, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		sep := strings.LastIndex(trimmed, "@")
+		if sep < 0 {
+			continue
+		}
+		ref := strings.TrimSpace(trimmed[sep+1:])
+		acc := byRef[ref]
+		if acc == nil {
+			continue
+		}
+		if p := fleetPrimaryOf(acc); p > 0 && p != acc.ID {
+			continue
+		}
+		prevIdx, exists := preferredLine[acc.ID]
+		if !exists {
+			preferredLine[acc.ID] = idx
+			continue
+		}
+		if ref == canonicalRef(acc) && strings.TrimSpace(lines[prevIdx][strings.LastIndex(strings.TrimSpace(lines[prevIdx]), "@")+1:]) != canonicalRef(acc) {
+			preferredLine[acc.ID] = idx
+		}
+	}
+
+	kept := make([]string, 0, len(lines))
+	for idx, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		sep := strings.LastIndex(trimmed, "@")
+		if sep < 0 {
+			kept = append(kept, line)
+			continue
+		}
+		ref := strings.TrimSpace(trimmed[sep+1:])
+		acc := byRef[ref]
+		if acc == nil {
+			kept = append(kept, line)
+			continue
+		}
+		if primaryID := fleetPrimaryOf(acc); primaryID > 0 && primaryID != acc.ID {
+			primary := byID[primaryID]
+			if primary == nil {
+				kept = append(kept, line)
+				continue
+			}
+			if _, hasDirect := preferredLine[primaryID]; hasDirect || seenAccount[primaryID] {
+				continue
+			}
+			seenAccount[primaryID] = true
+			rewritten := trimmed[:sep+1] + canonicalRef(primary)
+			seenExactLine[rewritten] = true
+			kept = append(kept, rewritten)
+			continue
+		}
+		if dedupeCrossForm {
+			if winIdx, ok := preferredLine[acc.ID]; ok && winIdx != idx {
+				continue
+			}
+			if seenAccount[acc.ID] {
+				continue
+			}
+		} else if seenExactLine[trimmed] {
+			continue
+		}
+		seenAccount[acc.ID] = true
+		seenExactLine[trimmed] = true
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 func (a *App) migratePendingAccountReferences(ctx context.Context, value string, acc *store.WechatAccount) (string, string, error) {

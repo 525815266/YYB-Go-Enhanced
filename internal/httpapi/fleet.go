@@ -7,12 +7,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"yyb_go/internal/eventlog"
 	"yyb_go/internal/pcmgr"
 	"yyb_go/internal/protocol"
 	"yyb_go/internal/store"
 )
+
+const fleetFailoverCooldown = 15 * time.Minute
 
 // Fleet dispatch: accounts bound to the same WeChat across channels
 // (store.FleetPrimaryID) share request traffic so that no single client
@@ -43,11 +46,16 @@ func fleetMarkUsed(id int64) {
 // expired credential is a recovery fallback, not a preferred target when a
 // peer is already known alive.
 func fleetOrder(members []*store.WechatAccount) []*store.WechatAccount {
+	return fleetOrderWithDemotions(members, nil)
+}
+
+func fleetOrderWithDemotions(members []*store.WechatAccount, demoted map[int64]bool) []*store.WechatAccount {
 	ordered := append([]*store.WechatAccount(nil), members...)
 	fleetLRU.mu.Lock()
 	defer fleetLRU.mu.Unlock()
 	sort.SliceStable(ordered, func(i, j int) bool {
-		ri, rj := fleetDispatchAvailabilityRank(ordered[i]), fleetDispatchAvailabilityRank(ordered[j])
+		ri := fleetDispatchRank(ordered[i], demoted[ordered[i].ID])
+		rj := fleetDispatchRank(ordered[j], demoted[ordered[j].ID])
 		if ri != rj {
 			return ri < rj
 		}
@@ -58,6 +66,19 @@ func fleetOrder(members []*store.WechatAccount) []*store.WechatAccount {
 		return ordered[i].ID < ordered[j].ID
 	})
 	return ordered
+}
+
+func fleetDispatchRank(account *store.WechatAccount, penalized bool) int {
+	base := fleetDispatchAvailabilityRank(account)
+	if base == 0 && penalized {
+		// Keep a recently failed alive channel behind healthy alive peers,
+		// while still preferring it over session-only or expired records.
+		return 1
+	}
+	if base >= 1 {
+		return base + 1
+	}
+	return base
 }
 
 func fleetDispatchAvailabilityRank(account *store.WechatAccount) int {
@@ -79,12 +100,55 @@ func fleetDispatchAvailabilityRank(account *store.WechatAccount) int {
 	}
 }
 
+func (a *App) activeFleetDemotions(members []*store.WechatAccount) map[int64]bool {
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.fleetDemoted) == 0 {
+		return nil
+	}
+	var out map[int64]bool
+	for _, m := range members {
+		until, ok := a.fleetDemoted[m.ID]
+		if !ok {
+			continue
+		}
+		if !now.Before(until) {
+			delete(a.fleetDemoted, m.ID)
+			continue
+		}
+		if out == nil {
+			out = make(map[int64]bool, len(members))
+		}
+		out[m.ID] = true
+	}
+	return out
+}
+
+func (a *App) markFleetMemberFailed(accountID int64) {
+	a.mu.Lock()
+	if a.fleetDemoted == nil {
+		a.fleetDemoted = map[int64]time.Time{}
+	}
+	a.fleetDemoted[accountID] = time.Now().Add(fleetFailoverCooldown)
+	a.mu.Unlock()
+}
+
+func (a *App) clearFleetMemberPenalty(accountID int64) {
+	a.mu.Lock()
+	delete(a.fleetDemoted, accountID)
+	a.mu.Unlock()
+}
+
 // fleetFailover reports whether another channel identity could plausibly
 // answer after this error. Business-shaped answers (the upstream judged the
 // request itself) and globally blocked AppIDs are not retried across
 // members: every member would hit the same wall.
 func fleetFailover(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 	var h5Attempt *protocol.H5AuthorizationAttemptError
@@ -113,6 +177,12 @@ func fleetFailover(err error) bool {
 		return true
 	}
 	if errors.Is(err, protocol.ErrCachedSessionUnavailable) {
+		return true
+	}
+	var manualRejected *protocol.ManualAuthRejectedError
+	if errors.As(err, &manualRejected) {
+		// Saved ticket rejected on this channel (e.g. session-only or
+		// channel credential failure); sibling channels hold independent sessions.
 		return true
 	}
 	var bufferRejected *protocol.LoginBufferRejectedError
@@ -155,11 +225,12 @@ func (a *App) invokeWithFleet(ctx context.Context, acc *store.WechatAccount, app
 		return a.invokeWXApp(ctx, acc, appID, payload, call)
 	}
 	var lastErr error
-	for _, member := range fleetOrder(members) {
+	for _, member := range fleetOrderWithDemotions(members, a.activeFleetDemotions(members)) {
 
 		fleetMarkUsed(member.ID)
 		result, callErr := a.invokeWXApp(ctx, member, appID, payload, call)
 		if callErr == nil {
+			a.clearFleetMemberPenalty(member.ID)
 			if member.ID != acc.ID {
 				result["fleet_member"] = member.ID
 			}
@@ -168,6 +239,7 @@ func (a *App) invokeWithFleet(ctx context.Context, acc *store.WechatAccount, app
 		if !fleetFailover(callErr) {
 			return nil, callErr
 		}
+		a.markFleetMemberFailed(member.ID)
 		lastErr = callErr
 		a.events.Emit("fleet.failover", eventlog.Fields{
 			AccountID: member.ID,

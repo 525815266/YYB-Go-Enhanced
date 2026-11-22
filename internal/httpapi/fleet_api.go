@@ -124,6 +124,7 @@ func (a *App) handleFleetBind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.autoSyncAfterScan(primary)
 	writeJSON(w, http.StatusOK, map[string]any{"bound": member.ID, "primary": primary.ID, "members": fleetMembersOut(fresh)})
 }
 
@@ -191,6 +192,7 @@ func (a *App) handleFleetBindMany(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.autoSyncAfterScan(primary)
 	writeJSON(w, http.StatusOK, map[string]any{"primary": primary.ID, "results": results, "members": fleetMembersOut(fresh)})
 }
 

@@ -24,6 +24,7 @@ type runtimeSettingsIn struct {
 	LoginBudget          *int64 `json:"login_budget"`
 	LoginWindowMS        *int64 `json:"login_window_ms"`
 	FreshWindowMS        *int64 `json:"fresh_session_window_ms"`
+	RecoveryCooldownMS   *int64 `json:"recovery_cooldown_ms"`
 	DynamicDenyEnabled   *bool  `json:"dynamic_deny_enabled"`
 	DynamicDenyThreshold *int64 `json:"dynamic_deny_threshold"`
 	// Reset removes the tuning file so every pacing knob returns to the env
@@ -70,6 +71,7 @@ func (a *App) runtimeSettingsOut() map[string]any {
 			"login_budget":            s.LoginBudget,
 			"login_window_ms":         s.LoginWindow.Milliseconds(),
 			"fresh_session_window_ms": s.FreshWindow.Milliseconds(),
+			"recovery_cooldown_ms":    s.RecoveryCooldown.Milliseconds(),
 		},
 		"defaults": map[string]any{
 			"code_min_gap_ms":         cfg.CodeMinGap.Milliseconds(),
@@ -77,6 +79,7 @@ func (a *App) runtimeSettingsOut() map[string]any {
 			"login_budget":            cfg.LoginBudget,
 			"login_window_ms":         cfg.LoginWindow.Milliseconds(),
 			"fresh_session_window_ms": protocol.EffectiveFreshWindow(cfg.FreshSessionWindow).Milliseconds(),
+			"recovery_cooldown_ms":    protocol.EffectiveRecoveryCooldown(cfg.RecoveryCooldown).Milliseconds(),
 		},
 		"tuning_file": map[string]any{
 			"path":    a.pacer.filePath(),
@@ -110,7 +113,7 @@ func (a *App) applyRuntimeSettings(r *http.Request, body runtimeSettingsIn) erro
 		}
 	}
 	pacingChanged := body.MinGapMS != nil || body.MaxWaitMS != nil || body.LoginBudget != nil ||
-		body.LoginWindowMS != nil || body.FreshWindowMS != nil
+		body.LoginWindowMS != nil || body.FreshWindowMS != nil || body.RecoveryCooldownMS != nil
 	if pacingChanged {
 		if err := a.writeTuningFile(body); err != nil {
 			return err
@@ -159,6 +162,12 @@ func (a *App) writeTuningFile(body runtimeSettingsIn) error {
 			return fmt.Errorf("新鲜会话窗口需在 0-3600000 毫秒之间（0 关闭保护）")
 		}
 		overlay["fresh_session_window_ms"] = *body.FreshWindowMS
+	}
+	if body.RecoveryCooldownMS != nil {
+		if *body.RecoveryCooldownMS < 0 || *body.RecoveryCooldownMS > int64((time.Hour).Milliseconds()) {
+			return fmt.Errorf("恢复退避窗口需在 0-3600000 毫秒之间（0 关闭退避）")
+		}
+		overlay["recovery_cooldown_ms"] = *body.RecoveryCooldownMS
 	}
 	for key, value := range overlay {
 		current[key] = value

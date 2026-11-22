@@ -51,10 +51,11 @@ func writeIfCircuitOpen(w http.ResponseWriter, err error) bool {
 type circuitOutcome int
 
 const (
-	circuitOK        circuitOutcome = iota // a usable response
-	circuitAppReject                       // application layer -14 for this AppID
-	circuitEmptyCode                       // authenticated but no wx.login code
-	circuitOther                           // network, -10, OAuth, cancellation: not ours
+	circuitOK         circuitOutcome = iota // a usable response
+	circuitAppReject                        // application layer -14 for this AppID
+	circuitEmptyCode                        // authenticated but no wx.login code
+	circuitRiskReject                       // account-wide jslogin_business lockout (-12030 / -13000)
+	circuitOther                            // network, -10, OAuth, cancellation: not ours
 )
 
 type circuitConfig struct {
@@ -129,8 +130,10 @@ type targetKey struct {
 const maxBreakerTargets = 4096
 
 type sessionBreaker struct {
-	recent    map[string]time.Time // AppID -> last -14 within the window
-	openUntil time.Time
+	recent      map[string]time.Time // AppID -> last -14 within the window
+	riskStrikes int
+	riskLast    time.Time
+	openUntil   time.Time
 }
 
 type circuitBreaker struct {
@@ -191,6 +194,25 @@ func (c *circuitBreaker) record(accountID int64, appID, op string, outcome circu
 	}
 	if outcome == circuitOther {
 		return ""
+	}
+	if outcome == circuitRiskReject {
+		s := c.sessions[accountID]
+		if s == nil {
+			s = &sessionBreaker{recent: map[string]time.Time{}}
+			c.sessions[accountID] = s
+		}
+		if !s.riskLast.IsZero() && now.Sub(s.riskLast) > c.cfg.SessionWindow {
+			s.riskStrikes = 0
+		}
+		s.riskLast = now
+		s.riskStrikes++
+		threshold := min(2, max(1, c.cfg.SessionDistinctTargets))
+		if !now.Before(s.openUntil) && s.riskStrikes >= threshold {
+			s.openUntil = now.Add(c.cfg.SessionCooldown)
+			s.riskStrikes = 0
+			openedScope = "session"
+		}
+		return openedScope
 	}
 
 	if t := c.targetLocked(key, now); t != nil {

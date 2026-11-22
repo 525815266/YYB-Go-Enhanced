@@ -77,7 +77,7 @@ jobs:
             fi
           elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
-            tags+=("$image:$version")
+            tags+=("$image:$version" "$image:${GITHUB_REF_NAME}")
             [[ "$version" == *-* ]] || tags+=("$image:latest")
           else
             branch_tag="${GITHUB_REF_NAME//\//-}"
@@ -86,9 +86,12 @@ jobs:
               echo "Invalid VERSION for Docker tag: $version" >&2
               exit 2
             }
-            # Main pushes publish the VERSION tag as well as moving aliases.
-            # Tag pushes retain the immutable release path below.
-            tags+=("$image:$branch_tag" "$image:$version" "$image:latest")
+            # Main pushes publish the VERSION tag only when no matching v$version
+            # release tag exists yet, keeping released version tags immutable.
+            tags+=("$image:$branch_tag" "$image:latest")
+            if ! git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
+              tags+=("$image:$version" "$image:v$version")
+            fi
           fi
 
           tags+=("$image:sha-${GITHUB_SHA::7}")

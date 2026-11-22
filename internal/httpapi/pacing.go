@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"yyb_go/internal/eventlog"
+	"yyb_go/internal/protocol"
 	"yyb_go/internal/store"
 )
 
@@ -45,32 +46,31 @@ const (
 // covers the whole traffic limiter; it is handed to the protocol pool through
 // accountPacer.onChange.
 type pacingSettings struct {
-	MinGap      time.Duration
-	MaxWait     time.Duration
-	LoginBudget int
-	LoginWindow time.Duration
-	// FreshWindow is the protocol pool's fresh-session guard (see
-	// protocol/code_recovery.go); zero switches the guard off. It rides along
-	// for the same reason as the login budget.
-	FreshWindow time.Duration
+	MinGap           time.Duration
+	MaxWait          time.Duration
+	LoginBudget      int
+	LoginWindow      time.Duration
+	FreshWindow      time.Duration
+	RecoveryCooldown time.Duration
 }
 
 // pacingFile is the optional runtime override (tuning.json beside the
 // database). A missing key keeps the configured default, so the file can change
 // one knob without restating the others.
 type pacingFile struct {
-	MinGapMS      *int64 `json:"code_min_gap_ms"`
-	MaxWaitMS     *int64 `json:"code_max_wait_ms"`
-	LoginBudget   *int64 `json:"login_budget"`
-	LoginWindowMS *int64 `json:"login_window_ms"`
-	// FreshWindowMS is the fresh-session guard; 0 switches it off.
-	FreshWindowMS *int64 `json:"fresh_session_window_ms"`
+	MinGapMS           *int64 `json:"code_min_gap_ms"`
+	MaxWaitMS          *int64 `json:"code_max_wait_ms"`
+	LoginBudget        *int64 `json:"login_budget"`
+	LoginWindowMS      *int64 `json:"login_window_ms"`
+	FreshWindowMS      *int64 `json:"fresh_session_window_ms"`
+	RecoveryCooldownMS *int64 `json:"recovery_cooldown_ms"`
 }
 
 const (
 	maxLoginBudgetSetting = 1000
 	maxLoginWindow        = 24 * time.Hour
 	maxFreshWindow        = time.Hour
+	maxRecoveryCooldown   = time.Hour
 )
 
 type fileStamp struct {
@@ -181,6 +181,9 @@ func (p *accountPacer) settingsLocked(now time.Time) pacingSettings {
 	if parsed.FreshWindowMS != nil {
 		settings.FreshWindow = clampMS(*parsed.FreshWindowMS, maxFreshWindow)
 	}
+	if parsed.RecoveryCooldownMS != nil {
+		settings.RecoveryCooldown = clampMS(*parsed.RecoveryCooldownMS, maxRecoveryCooldown)
+	}
 	p.settings = settings
 	p.notifyLocked()
 	log.Printf("pacing: %s applied (gap %s, wait %s, login budget %d per %s, fresh-session window %s)", p.file, settings.MinGap, settings.MaxWait, settings.LoginBudget, settings.LoginWindow, settings.FreshWindow)
@@ -208,15 +211,20 @@ func (p *accountPacer) notifyLocked() {
 // must wait before starting, or a local refusal when the queue is full. The
 // summary is non-nil when a burst has just been long enough to report.
 func (p *accountPacer) reserve(accountID int64) (time.Duration, *pacingSummary, error) {
+	wait, _, summary, err := p.reserveWithRelease(accountID)
+	return wait, summary, err
+}
+
+func (p *accountPacer) reserveWithRelease(accountID int64) (time.Duration, func(), *pacingSummary, error) {
 	if p == nil {
-		return 0, nil, nil
+		return 0, nil, nil, nil
 	}
 	now := p.now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	cfg := p.settingsLocked(now)
 	if cfg.MinGap <= 0 {
-		return 0, nil, nil
+		return 0, nil, nil, nil
 	}
 	st := p.accounts[accountID]
 	if st == nil {
@@ -230,6 +238,7 @@ func (p *accountPacer) reserve(accountID int64) (time.Duration, *pacingSummary, 
 	}
 	wait := slot.Sub(now)
 	var refusal error
+	var cancelSlot func()
 	if wait > cfg.MaxWait {
 		retry := wait - cfg.MaxWait
 		if retry < cfg.MinGap {
@@ -239,9 +248,29 @@ func (p *accountPacer) reserve(accountID int64) (time.Duration, *pacingSummary, 
 		refusal = &circuitOpenError{Scope: "pacing", RetryAfter: retry}
 		wait = 0
 	} else {
-		st.next = slot.Add(cfg.MinGap)
+		reservedNext := slot.Add(cfg.MinGap)
+		st.next = reservedNext
+		gap := cfg.MinGap
 		if wait > 0 {
 			st.waited++
+			cancelSlot = func() {
+				p.mu.Lock()
+				defer p.mu.Unlock()
+				cur := p.accounts[accountID]
+				if cur == nil {
+					return
+				}
+				curNow := p.now()
+				if cur.next.Equal(reservedNext) {
+					if slot.Before(curNow) {
+						cur.next = curNow
+					} else {
+						cur.next = slot
+					}
+				} else if cur.next.After(curNow.Add(gap)) {
+					cur.next = cur.next.Add(-gap)
+				}
+			}
 		}
 	}
 	var summary *pacingSummary
@@ -253,7 +282,7 @@ func (p *accountPacer) reserve(accountID int64) (time.Duration, *pacingSummary, 
 			st.waited, st.refused, st.since = 0, 0, time.Time{}
 		}
 	}
-	return wait, summary, refusal
+	return wait, cancelSlot, summary, refusal
 }
 
 // pruneLocked bounds memory when the account table is large: accounts whose
@@ -278,7 +307,7 @@ var errLoginBudget = errors.New("账号短时间内重新登录次数已达上�
 // is full. A refusal is a *circuitOpenError, so every entry point maps it to the
 // same local 429 it already uses for the breaker.
 func (a *App) paceWXApp(ctx context.Context, acc *store.WechatAccount) error {
-	wait, summary, err := a.pacer.reserve(acc.ID)
+	wait, cancelSlot, summary, err := a.pacer.reserveWithRelease(acc.ID)
 	if summary != nil {
 		fields := eventlog.ForAccount(acc)
 		fields.Waited, fields.Refused = summary.Waited, summary.Refused
@@ -297,6 +326,12 @@ func (a *App) paceWXApp(ctx context.Context, acc *store.WechatAccount) error {
 	case <-timer.C:
 		return nil
 	case <-ctx.Done():
+		if cancelSlot != nil {
+			cancelSlot()
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return &protocol.TimeoutStageError{Stage: "pacing_queue", Err: ctx.Err()}
+		}
 		return ctx.Err()
 	}
 }

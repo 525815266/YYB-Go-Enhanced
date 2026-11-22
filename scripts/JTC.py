@@ -171,38 +171,75 @@ async def get_code_via_yyb(server_entry: str, appid: str) -> Optional[str]:
         return None
 
 # ===================== 品赞代理系统 =====================
-def parse_proxy_response(text: str) -> Optional[Dict[str, Any]]:
+_PROXY_API_DISABLED_REASON = ""
+
+
+def parse_proxy_response(text: Any) -> Dict[str, Any] | None:
+    global _PROXY_API_DISABLED_REASON
+    if not isinstance(text, str):
+        text = json.dumps(text, ensure_ascii=False)
+
     text = text.strip()
     if not text:
         return None
 
-    try:
-        data = json.loads(text)
-        proxy_obj = None
-        if data.get("data") and isinstance(data["data"], list) and len(data["data"]) > 0:
-            proxy_obj = data["data"][0]
-        elif data.get("ip") and data.get("port"):
-            proxy_obj = data
-        elif data.get("result") and data.get("result").get("ip") and data.get("result").get("port"):
-            proxy_obj = data["result"]
+    if text.startswith(("{", "[")):
+        try:
+            data = json.loads(text)
+            proxy_obj = None
+            if isinstance(data, dict):
+                raw_data = data.get("data")
+                if isinstance(raw_data, list) and raw_data:
+                    proxy_obj = raw_data[0]
+                elif isinstance(raw_data, dict):
+                    if isinstance(raw_data.get("list"), list) and raw_data["list"]:
+                        proxy_obj = raw_data["list"][0]
+                    elif isinstance(raw_data.get("proxy_list"), list) and raw_data["proxy_list"]:
+                        proxy_obj = raw_data["proxy_list"][0]
+                    else:
+                        proxy_obj = raw_data
+                elif data.get("ip") and data.get("port"):
+                    proxy_obj = data
+                elif isinstance(data.get("result"), dict):
+                    proxy_obj = data["result"]
 
-        if proxy_obj:
-            return {
-                "host": proxy_obj["ip"],
-                "port": int(proxy_obj["port"]),
-                "username": proxy_obj.get("user") or proxy_obj.get("username") or "",
-                "password": proxy_obj.get("pass") or proxy_obj.get("password") or ""
-            }
-    except json.JSONDecodeError:
-        if ":" in text:
-            parts = text.split(":")
-            if len(parts) >= 2:
+                if isinstance(proxy_obj, str) and ":" in proxy_obj:
+                    text = proxy_obj.strip()
+                    proxy_obj = None
+
+                if isinstance(proxy_obj, dict):
+                    host = proxy_obj.get("ip") or proxy_obj.get("host")
+                    port = proxy_obj.get("port")
+                    if host and port and str(port).isdigit() and 1 <= int(port) <= 65535:
+                        return {
+                            "host": str(host).strip(),
+                            "port": int(port),
+                            "username": str(proxy_obj.get("user") or proxy_obj.get("username") or proxy_obj.get("account") or ""),
+                            "password": str(proxy_obj.get("pass") or proxy_obj.get("password") or ""),
+                        }
+                msg = str(data.get("message") or data.get("msg") or "").strip()
+                if msg and any(k in msg for k in ("白名单", "业务已关闭", "余额", "套餐", "过期", "禁用", "不存在")):
+                    _PROXY_API_DISABLED_REASON = msg
+            return None
+        except Exception:
+            return None
+
+    if text.startswith("<"):
+        return None
+
+    first_line = text.splitlines()[0].strip()
+    if ":" in first_line:
+        parts = first_line.split(":")
+        if len(parts) >= 2 and parts[0].strip() and parts[1].strip().isdigit():
+            port_num = int(parts[1].strip())
+            if 1 <= port_num <= 65535:
                 return {
-                    "host": parts[0],
-                    "port": int(parts[1]),
-                    "username": parts[2] if len(parts) >= 3 else "",
-                    "password": parts[3] if len(parts) >= 4 else ""
+                    "host": parts[0].strip(),
+                    "port": port_num,
+                    "username": parts[2].strip() if len(parts) > 2 else "",
+                    "password": parts[3].strip() if len(parts) > 3 else "",
                 }
+
     return None
 
 async def validate_proxy(proxy_info: Dict[str, Any]) -> bool:
@@ -245,6 +282,10 @@ async def get_valid_proxy(account_name: str) -> Optional[Dict[str, Any]]:
     if not PROXY_API:
         print(f"ℹ️ [{account_name}] 未配置代理 | 使用直连模式")
         return None
+
+    if _PROXY_API_DISABLED_REASON:
+        print(f"⚠️ [代理] 代理接口暂不可用({_PROXY_API_DISABLED_REASON})，本轮直接直连")
+        return None, ""
 
     print(f"🔌 [{account_name}] 正在获取专属代理...")
 

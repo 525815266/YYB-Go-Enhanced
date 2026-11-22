@@ -118,6 +118,14 @@ func writeProtocolCallError(w http.ResponseWriter, err error) {
 		return
 	}
 	if len(diagnostics) == 0 {
+		if timeoutStage := timeoutFailureStage(err); timeoutStage != "" {
+			writeRawJSON(w, http.StatusBadGateway, apiEnvelope{
+				Code: http.StatusBadGateway,
+				Msg:  "call failed: " + err.Error(),
+				Data: map[string]any{"timeout_stage": timeoutStage, "request_rejected": false},
+			})
+			return
+		}
 		writeError(w, http.StatusBadGateway, "call failed: "+err.Error())
 		return
 	}
@@ -126,6 +134,14 @@ func writeProtocolCallError(w http.ResponseWriter, err error) {
 		Msg:  "call failed: " + err.Error(),
 		Data: map[string]any{"upstream_errors": diagnostics, "request_rejected": protocol.IsApplicationRequestRejection(err) || protocol.IsBusinessResponseRejection(err)},
 	})
+}
+
+func timeoutFailureStage(err error) string {
+	var stageErr *protocol.TimeoutStageError
+	if errors.As(err, &stageErr) && stageErr.Stage != "" {
+		return stageErr.Stage
+	}
+	return ""
 }
 
 func responseFailureStage(err error) string {

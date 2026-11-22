@@ -42,7 +42,10 @@ type codeRepairAttempt struct {
 // while reloading that session can also cause -14; a new login may mask it.
 // First-success/next-failure alone does not prove a session is single-use
 // (see docs/session-uin-precision-20261108.md).
-const DefaultFreshSessionWindow = 2 * time.Minute
+const (
+	DefaultFreshSessionWindow = 2 * time.Minute
+	DefaultRecoveryCooldown   = 5 * time.Minute
+)
 
 // EffectiveFreshWindow turns Config.FreshSessionWindow into the window the pool
 // applies: zero keeps the default, a negative value switches the guard off (0).
@@ -50,6 +53,20 @@ func EffectiveFreshWindow(configured time.Duration) time.Duration {
 	switch {
 	case configured == 0:
 		return DefaultFreshSessionWindow
+	case configured < 0:
+		return 0
+	default:
+		return configured
+	}
+}
+
+// EffectiveRecoveryCooldown turns Config.RecoveryCooldown into the backoff
+// applied after a failed session repair: zero keeps DefaultRecoveryCooldown, a
+// negative value switches the backoff off (0).
+func EffectiveRecoveryCooldown(configured time.Duration) time.Duration {
+	switch {
+	case configured == 0:
+		return DefaultRecoveryCooldown
 	case configured < 0:
 		return 0
 	default:
@@ -69,6 +86,20 @@ func (p *Pool) SetFreshSessionWindow(window time.Duration) {
 		window = 0
 	}
 	p.freshWindow.Store(int64(window))
+}
+
+// RecoveryCooldown reports the repair cooldown in force; zero means off.
+func (p *Pool) RecoveryCooldown() time.Duration {
+	return time.Duration(p.recoveryCooldown.Load())
+}
+
+// SetRecoveryCooldown changes the repair cooldown at run time; zero or less
+// switches it off.
+func (p *Pool) SetRecoveryCooldown(cooldown time.Duration) {
+	if cooldown < 0 {
+		cooldown = 0
+	}
+	p.recoveryCooldown.Store(int64(cooldown))
 }
 
 // repairRegistrationHook runs just before a repair attempt is registered. Tests
@@ -118,6 +149,7 @@ func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, st
 	now := time.Now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	delete(p.staleSavedTickets, sessionKey(accountID, st.TCPProxy))
 	for k, v := range p.verified {
 		if now.Sub(v.At) >= window {
 			delete(p.verified, k)
@@ -127,6 +159,32 @@ func (p *Pool) markSessionVerified(acc *store.WechatAccount, accountID int64, st
 		return
 	}
 	p.verified[sessionKey(accountID, st.TCPProxy)] = verifiedSession{Account: acc, At: now, Fingerprint: sessionFingerprint(st)}
+}
+
+func (p *Pool) hasStaleSavedTicket(acc *store.WechatAccount, proxy string) bool {
+	if acc == nil || acc.LoginBuffer == "" {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	prev := p.staleSavedTickets[sessionKey(acc.ID, proxy)]
+	return prev != nil && prev.SameAuthorization(acc) && prev.LoginBuffer == acc.LoginBuffer
+}
+
+func (p *Pool) markStaleSavedTicket(acc *store.WechatAccount, proxy string) {
+	if acc == nil || acc.LoginBuffer == "" {
+		return
+	}
+	snapshot := *acc
+	p.mu.Lock()
+	p.staleSavedTickets[sessionKey(acc.ID, proxy)] = &snapshot
+	p.mu.Unlock()
+}
+
+func (p *Pool) clearStaleSavedTicket(accountID int64, proxy string) {
+	p.mu.Lock()
+	delete(p.staleSavedTickets, sessionKey(accountID, proxy))
+	p.mu.Unlock()
 }
 
 // sessionRecentlyVerified reports whether a wx.login succeeded within
@@ -163,7 +221,7 @@ func (p *Pool) requestLoginCode(ctx context.Context, st WmpfSession, appID strin
 	}
 	_, response, err := p.sendEnvelope(ctx, st, envelope)
 	if err != nil {
-		return nil, err
+		return nil, wrapTimeoutStage("shortlink_exchange", err)
 	}
 	code, err := parseLoginCodeResponse(response)
 	if err != nil {
@@ -177,7 +235,9 @@ func (p *Pool) requestLoginCode(ctx context.Context, st WmpfSession, appID strin
 // replaces the shared cache only after a nonempty code from the same target.
 func (p *Pool) RecoverCodeSession(ctx context.Context, acc *store.WechatAccount, appID, proxy string, fallback bool, original error, fetch func(context.Context) (string, error)) (map[string]any, error) {
 	device := p.deviceFor(ctx, acc)
-	return p.recoverCodeSession(ctx, acc, appID, proxy, original, func(ctx context.Context) (WmpfSession, map[string]any, error) {
+	var freshTicket string
+	var savedAppRejected bool
+	res, err := p.recoverCodeSession(ctx, acc, appID, proxy, original, func(ctx context.Context) (WmpfSession, map[string]any, error) {
 		if acc.SessionOnly() {
 			saved, err := p.nativeRecoveryState(ctx, acc.ID, proxy)
 			if err != nil {
@@ -191,9 +251,10 @@ func (p *Pool) RecoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 			result, err := p.requestLoginCode(ctx, st, appID)
 			return st, result, err
 		}
-		return recoverCodeWithTickets(ctx, acc.LoginBuffer, func(ctx context.Context, buffer string) (WmpfSession, error) {
+		escalate := p.hasStaleSavedTicket(acc, proxy)
+		st, usedFresh, result, err := recoverSessionWithTickets(ctx, acc.LoginBuffer, escalate, func(ctx context.Context, buffer string) (WmpfSession, error) {
 			if err := acquire(ctx, p.loginSem); err != nil {
-				return WmpfSession{}, err
+				return WmpfSession{}, wrapTimeoutStage("login_queue", err)
 			}
 			defer release(p.loginSem)
 			return p.loginAndSession(ctx, buffer, proxy, fallback, device)
@@ -203,43 +264,143 @@ func (p *Pool) RecoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		}, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
 			return p.requestLoginCode(ctx, st, appID)
 		})
+		freshTicket = usedFresh
+		if !escalate && err != nil && IsApplicationRequestRejection(err) {
+			savedAppRejected = true
+		}
+		return st, result, err
 	})
+	if err != nil {
+		if savedAppRejected {
+			p.markStaleSavedTicket(acc, proxy)
+		}
+		return nil, err
+	}
+	p.clearStaleSavedTicket(acc.ID, proxy)
+	if freshTicket != "" && freshTicket != acc.LoginBuffer && p.db != nil {
+		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		if latest, getErr := p.db.GetAccount(saveCtx, acc.ID); getErr == nil && latest.SameAuthorization(acc) {
+			_, _ = p.db.ApplyCredentialRefresh(saveCtx, latest, freshTicket, latest.Credentials, "alive")
+		}
+		cancel()
+	}
+	return res, nil
+}
+
+// RecoverPhoneSession repairs a cached session when /wxapp/getPhoneNumber hits
+// an application-level -14 (#142), bounded by the account's login budget and
+// repair cooldown.
+func (p *Pool) RecoverPhoneSession(ctx context.Context, acc *store.WechatAccount, appID, proxy string, fallback bool, original error, fetch func(context.Context) (string, error)) (map[string]any, error) {
+	device := p.deviceFor(ctx, acc)
+	var freshTicket string
+	res, err := p.recoverSessionCommon(ctx, acc, appID, proxy, "phone", eventlog.OpGetPhoneNumber, false, false, original, func(ctx context.Context) (WmpfSession, map[string]any, error) {
+		if acc.SessionOnly() {
+			saved, err := p.nativeRecoveryState(ctx, acc.ID, proxy)
+			if err != nil {
+				return WmpfSession{}, nil, ErrCachedSessionUnavailable
+			}
+			st, err := p.restoreNativeSession(ctx, acc, saved)
+			if err != nil {
+				return WmpfSession{}, nil, err
+			}
+			st.Device = device
+			result, err := p.requestPhoneNumber(ctx, st, appID)
+			return st, result, err
+		}
+		escalate := p.hasStaleSavedTicket(acc, proxy)
+		st, usedFresh, result, err := recoverSessionWithTickets(ctx, acc.LoginBuffer, escalate, func(ctx context.Context, buffer string) (WmpfSession, error) {
+			if err := acquire(ctx, p.loginSem); err != nil {
+				return WmpfSession{}, wrapTimeoutStage("login_queue", err)
+			}
+			defer release(p.loginSem)
+			return p.loginAndSession(ctx, buffer, proxy, fallback, device)
+		}, func(ctx context.Context) (string, error) {
+			p.events.Emit("protocol.ticket_requested", eventlog.ForAccount(acc).WithTarget(appID, eventlog.OpGetPhoneNumber, ""))
+			return fetch(ctx)
+		}, func(ctx context.Context, st WmpfSession) (map[string]any, error) {
+			return p.requestPhoneNumber(ctx, st, appID)
+		})
+		freshTicket = usedFresh
+		if !escalate && err != nil && IsApplicationRequestRejection(err) {
+			p.markStaleSavedTicket(acc, proxy)
+		}
+		return st, result, err
+	}, func(result map[string]any) error {
+		if len(result) == 0 {
+			return errors.New("phone number response is empty")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	p.clearStaleSavedTicket(acc.ID, proxy)
+	if freshTicket != "" && freshTicket != acc.LoginBuffer && p.db != nil {
+		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		if latest, getErr := p.db.GetAccount(saveCtx, acc.ID); getErr == nil && latest.SameAuthorization(acc) {
+			_, _ = p.db.ApplyCredentialRefresh(saveCtx, latest, freshTicket, latest.Credentials, "alive")
+		}
+		cancel()
+	}
+	return res, nil
 }
 
 func recoverCodeWithTickets(ctx context.Context, saved string, login func(context.Context, string) (WmpfSession, error), fetch func(context.Context) (string, error), request func(context.Context, WmpfSession) (map[string]any, error)) (WmpfSession, map[string]any, error) {
+	st, _, result, err := recoverSessionWithTickets(ctx, saved, false, login, fetch, request)
+	return st, result, err
+}
+
+func recoverSessionWithTickets(ctx context.Context, saved string, escalateAppReject bool, login func(context.Context, string) (WmpfSession, error), fetch func(context.Context) (string, error), request func(context.Context, WmpfSession) (map[string]any, error)) (WmpfSession, string, map[string]any, error) {
+	var savedErr error
 	st, err := login(ctx, saved)
 	if err == nil {
-		result, err := request(ctx, st)
-		return st, result, err
+		result, reqErr := request(ctx, st)
+		if reqErr == nil {
+			return st, "", result, nil
+		}
+		if !escalateAppReject || !IsApplicationRequestRejection(reqErr) || ctx.Err() != nil {
+			return st, "", result, reqErr
+		}
+		savedErr = reqErr
+	} else {
+		var rejected *ManualAuthRejectedError
+		if ctx.Err() != nil || !errors.As(err, &rejected) || rejected.Code != -10 {
+			return WmpfSession{}, "", nil, err
+		}
+		savedErr = err
 	}
-	var rejected *ManualAuthRejectedError
-	if ctx.Err() != nil || !errors.As(err, &rejected) || rejected.Code != -10 {
-		return WmpfSession{}, nil, err
-	}
-	savedErr := err
 	buffer, err := fetch(ctx)
 	if err != nil {
 		var access *LoginBufferRejectedError
 		if errors.As(err, &access) && (access.Code == -101 || access.Code == 40014 || access.Code == 42001) {
 			err = &CodeCredentialRecoveryError{Cause: err}
 		}
-		return WmpfSession{}, nil, errors.Join(savedErr, fmt.Errorf("fetch fresh code ticket: %w", err))
+		return WmpfSession{}, "", nil, errors.Join(savedErr, fmt.Errorf("fetch fresh code ticket: %w", err))
 	}
 	if buffer == saved {
-		return WmpfSession{}, nil, savedErr
+		return WmpfSession{}, "", nil, savedErr
 	}
 	st, err = login(ctx, buffer)
 	if err != nil {
-		return WmpfSession{}, nil, errors.Join(savedErr, fmt.Errorf("fresh ticket login: %w", err))
+		return WmpfSession{}, "", nil, errors.Join(savedErr, fmt.Errorf("fresh ticket login: %w", err))
 	}
 	result, err := request(ctx, st)
 	if err != nil {
-		return st, nil, errors.Join(savedErr, fmt.Errorf("fresh ticket code: %w", err))
+		return st, "", nil, errors.Join(savedErr, fmt.Errorf("fresh ticket code: %w", err))
 	}
-	return st, result, nil
+	return st, buffer, result, nil
 }
 
 func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount, appID, proxy string, original error, probe func(context.Context) (WmpfSession, map[string]any, error)) (map[string]any, error) {
+	return p.recoverSessionCommon(ctx, acc, appID, proxy, "", eventlog.OpGetCode, true, true, original, probe, func(result map[string]any) error {
+		if code, ok := result["code"].(string); !ok || code == "" {
+			return ErrLoginCodeUnavailable
+		}
+		return nil
+	})
+}
+
+func (p *Pool) recoverSessionCommon(ctx context.Context, acc *store.WechatAccount, appID, proxy, scopePrefix, op string, checkVerified, markVerified bool, original error, probe func(context.Context) (WmpfSession, map[string]any, error), validate func(map[string]any) error) (map[string]any, error) {
 	fail := func(err error) (map[string]any, error) {
 		return nil, &CodeSessionRecoveryError{Cause: errors.Join(original, err)}
 	}
@@ -248,12 +409,12 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	}
 	lock := p.codeLockFor(acc.ID)
 	if err := acquire(ctx, lock); err != nil {
-		return fail(err)
+		return fail(wrapTimeoutStage("account_lock", err))
 	}
 	defer release(lock)
 	stateLock := p.lockFor(fmt.Sprintf("%d\x00%s", acc.ID, proxy))
 	if err := acquire(ctx, stateLock); err != nil {
-		return fail(err)
+		return fail(wrapTimeoutStage("account_lock", err))
 	}
 	defer release(stateLock)
 	current, err := p.db.GetAccount(ctx, acc.ID)
@@ -266,7 +427,7 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 	if current.SessionOnly() && !p.hasNativeRecovery(ctx, current.ID, proxy) || current.Status != nil && *current.Status == "expired" {
 		return nil, original
 	}
-	verified := p.sessionRecentlyVerified(ctx, current, proxy)
+	verified := checkVerified && p.sessionRecentlyVerified(ctx, current, proxy)
 	if err := ctx.Err(); err != nil {
 		// A cancelled request must not register a repair attempt, and its
 		// backoff, that it can never run. This also covers a cancellation that
@@ -277,18 +438,26 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		// A wx.login just returned a code on this very session, so this -14 is
 		// more likely the AppID's own refusal than an expired session. Another
 		// ManualAuth and ticket would only add logins.
-		p.events.Emit("protocol.recovery_skipped", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
+		p.events.Emit("protocol.recovery_skipped", eventlog.ForAccount(current).WithTarget(appID, op, ""))
 		return nil, original
 	}
 	key := fmt.Sprintf("%d\x00%s\x00%s", acc.ID, proxy, appID)
+	if scopePrefix != "" {
+		key = scopePrefix + "\x00" + key
+	}
 	if hook := repairRegistrationHook; hook != nil {
 		hook()
 	}
+	cooldown := p.RecoveryCooldown()
 	p.mu.Lock()
-	for k, attempt := range p.codeRepairs {
-		if time.Since(attempt.At) >= 5*time.Minute {
-			delete(p.codeRepairs, k)
+	if cooldown > 0 {
+		for k, attempt := range p.codeRepairs {
+			if time.Since(attempt.At) >= cooldown {
+				delete(p.codeRepairs, k)
+			}
 		}
+	} else if len(p.codeRepairs) > 0 {
+		clear(p.codeRepairs)
 	}
 	if err := ctx.Err(); err != nil {
 		// Re-check inside the critical section: a request cancelled while it
@@ -297,7 +466,7 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		return fail(err)
 	}
 	previous, found := p.codeRepairs[key]
-	allowed := !found || !previous.Account.SameAuthorization(current) || time.Since(previous.At) >= 5*time.Minute
+	allowed := cooldown <= 0 || !found || !previous.Account.SameAuthorization(current) || time.Since(previous.At) >= cooldown
 	if allowed && !p.AllowLogin(current.ID, ProviderOf(current)) {
 		// The account has used its login budget. Keep the original error and
 		// start no backoff for this AppID: once the window has moved on, a later
@@ -306,21 +475,23 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 		p.mu.Unlock()
 		return nil, original
 	}
-	if allowed {
+	if allowed && cooldown > 0 {
 		p.codeRepairs[key] = codeRepairAttempt{Account: current, At: time.Now()}
 	}
 	p.mu.Unlock()
 	if !allowed {
-		p.events.Emit("protocol.recovery_deferred", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
+		p.events.Emit("protocol.recovery_deferred", eventlog.ForAccount(current).WithTarget(appID, op, ""))
 		return nil, original
 	}
-	p.events.Emit("protocol.recovery_started", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
+	p.events.Emit("protocol.recovery_started", eventlog.ForAccount(current).WithTarget(appID, op, ""))
 	st, result, err := probe(ctx)
 	if err != nil {
 		return fail(fmt.Errorf("code session recovery failed: %w", err))
 	}
-	if code, ok := result["code"].(string); !ok || code == "" {
-		return fail(ErrLoginCodeUnavailable)
+	if validate != nil {
+		if valErr := validate(result); valErr != nil {
+			return fail(valErr)
+		}
 	}
 	if st.TCPProxy != proxy {
 		return fail(errors.New("fresh code session route mismatch"))
@@ -340,8 +511,10 @@ func (p *Pool) recoverCodeSession(ctx context.Context, acc *store.WechatAccount,
 			return fail(store.ErrAccountAuthorizationChanged)
 		}
 	}
-	p.events.Emit("protocol.recovered", eventlog.ForAccount(current).WithTarget(appID, eventlog.OpGetCode, ""))
-	p.markSessionVerified(current, current.ID, st)
+	p.events.Emit("protocol.recovered", eventlog.ForAccount(current).WithTarget(appID, op, ""))
+	if markVerified {
+		p.markSessionVerified(current, current.ID, st)
+	}
 	p.mu.Lock()
 	delete(p.codeRepairs, key)
 	p.mu.Unlock()
