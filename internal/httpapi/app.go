@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,11 +143,12 @@ type App struct {
 	appIDs             *appIDPolicy
 	dynamicAppIDs      *dynamicAppIDDeny
 	pacer              *accountPacer
+	codeBurst          *codeBurstLimiter
 
 	mu                sync.Mutex
 	qrSessions        map[string]*qrLoginSession
 	quickSessions     map[string]quickLoginSession
-	fleetDemoted      map[int64]time.Time
+	fleetDemoted      map[int64]fleetPenalty
 	refreshLocksMu    sync.Mutex
 	refreshLocks      map[int64]chan struct{}
 	loginMu           sync.Mutex
@@ -285,6 +287,21 @@ func NewApp(cfg Config) (*App, error) {
 		FreshWindow:      protocol.EffectiveFreshWindow(cfg.FreshSessionWindow),
 		RecoveryCooldown: protocol.EffectiveRecoveryCooldown(cfg.RecoveryCooldown),
 	}
+	burstLimit := defaultCodeBurstLimit
+	if raw := strings.TrimSpace(loadSetting(codeBurstLimitSettingKey, "")); raw != "" {
+		if parsed, convErr := strconv.Atoi(raw); convErr == nil && parsed >= 0 && parsed <= codeBurstMaxLimit {
+			burstLimit = parsed
+		}
+	}
+	burstWindow := defaultCodeBurstWindow
+	if raw := strings.TrimSpace(loadSetting(codeBurstWindowMSSettingKey, "")); raw != "" {
+		if parsed, convErr := strconv.ParseInt(raw, 10, 64); convErr == nil {
+			dur := time.Duration(parsed) * time.Millisecond
+			if dur >= codeBurstMinWindow && dur <= codeBurstMaxWindow {
+				burstWindow = dur
+			}
+		}
+	}
 	app := &App{
 		updates:            newUpdateChecker(cfg.UpdateProxy, cfg.UpdateVersionURL),
 		cfg:                cfg,
@@ -303,9 +320,10 @@ func NewApp(cfg Config) (*App, error) {
 		appIDs:             newAppIDPolicy(cfg.CodeDenyAppIDs, cfg.CodeAllowAppIDs, db),
 		dynamicAppIDs:      newDynamicAppIDDeny(db, cfg.CodeDynamicDenyThreshold, cfg.CodeAllowAppIDs, cfg.DisableDynamicAppIDDeny),
 		pacer:              newAccountPacer(filepath.Join(res.DB, "tuning.json"), trafficSettings),
+		codeBurst:          newCodeBurstLimiter(burstLimit, burstWindow),
 		qrSessions:         map[string]*qrLoginSession{},
 		quickSessions:      map[string]quickLoginSession{},
-		fleetDemoted:       map[int64]time.Time{},
+		fleetDemoted:       map[int64]fleetPenalty{},
 		loginAttempts:      map[string]loginAttempt{},
 		refreshLocks:       map[int64]chan struct{}{},
 		proxyLeases:        map[int64]accountProxyLease{},
@@ -1215,6 +1233,9 @@ func (a *App) callWXApp(w http.ResponseWriter, r *http.Request, requirePayload b
 	}
 	acc, ok := a.resolveAccountRef(w, r, body.Ref)
 	if !ok {
+		return
+	}
+	if wxOperation(r.Context()) == eventlog.OpGetCode && !a.allowCodeBurst(w, acc, body.AppID) {
 		return
 	}
 	result, err := a.invokeWithFleet(r.Context(), acc, body.AppID, body.Payload, call)

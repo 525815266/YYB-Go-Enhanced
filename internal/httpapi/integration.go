@@ -174,7 +174,11 @@ func (a *App) handleIntegrationGetCode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := a.invokeWithFleet(withWXOperationContext(r.Context(), eventlog.OpGetCode), account, strings.TrimSpace(body.AppID), nil, a.invokeGetCode)
+	appID := strings.TrimSpace(body.AppID)
+	if !a.allowCodeBurst(w, account, appID) {
+		return
+	}
+	result, err := a.invokeWithFleet(withWXOperationContext(r.Context(), eventlog.OpGetCode), account, appID, nil, a.invokeGetCode)
 	if err != nil {
 		if writeIfCircuitOpen(w, err) || writeIfAppIDDenied(w, err) {
 			return

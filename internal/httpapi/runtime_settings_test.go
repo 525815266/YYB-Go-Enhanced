@@ -27,6 +27,10 @@ func TestRuntimeSettingsRoundTrip(t *testing.T) {
 			DynamicDeny struct {
 				Enabled bool `json:"enabled"`
 			} `json:"dynamic_deny"`
+			CodeBurst struct {
+				Limit    int64 `json:"limit"`
+				WindowMS int64 `json:"window_ms"`
+			} `json:"code_burst"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(get.Body.Bytes(), &state); err != nil {
@@ -34,6 +38,9 @@ func TestRuntimeSettingsRoundTrip(t *testing.T) {
 	}
 	if state.Data.Effective == nil {
 		t.Fatalf("GET failed: %s", get.Body.String())
+	}
+	if state.Data.CodeBurst.Limit != defaultCodeBurstLimit || state.Data.CodeBurst.WindowMS != defaultCodeBurstWindow.Milliseconds() {
+		t.Fatalf("unexpected default code_burst: %+v", state.Data.CodeBurst)
 	}
 	if state.Data.Effective["login_budget"].(float64) != float64(app.cfg.LoginBudget) {
 		t.Fatalf("unexpected default budget: %s", get.Body.String())

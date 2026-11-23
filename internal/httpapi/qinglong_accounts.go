@@ -537,7 +537,10 @@ func reconcileYYBServerEntries(existing string, accounts []*store.WechatAccount,
 	seenAccount := make(map[int64]bool, len(accounts))
 	seenExactLine := make(map[string]bool)
 	lines := strings.Split(normalized, "\n")
-	preferredLine := make(map[int64]int, len(accounts))
+	// Preserve the first position where each account appears so scripts that
+	// address accounts by 1-based line index do not silently shift to a
+	// different account when duplicate openid/id forms are collapsed.
+	firstLine := make(map[int64]int, len(accounts))
 	for idx, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		sep := strings.LastIndex(trimmed, "@")
@@ -552,13 +555,8 @@ func reconcileYYBServerEntries(existing string, accounts []*store.WechatAccount,
 		if p := fleetPrimaryOf(acc); p > 0 && p != acc.ID {
 			continue
 		}
-		prevIdx, exists := preferredLine[acc.ID]
-		if !exists {
-			preferredLine[acc.ID] = idx
-			continue
-		}
-		if ref == canonicalRef(acc) && strings.TrimSpace(lines[prevIdx][strings.LastIndex(strings.TrimSpace(lines[prevIdx]), "@")+1:]) != canonicalRef(acc) {
-			preferredLine[acc.ID] = idx
+		if _, exists := firstLine[acc.ID]; !exists {
+			firstLine[acc.ID] = idx
 		}
 	}
 
@@ -582,7 +580,7 @@ func reconcileYYBServerEntries(existing string, accounts []*store.WechatAccount,
 				kept = append(kept, line)
 				continue
 			}
-			if _, hasDirect := preferredLine[primaryID]; hasDirect || seenAccount[primaryID] {
+			if _, hasDirect := firstLine[primaryID]; hasDirect || seenAccount[primaryID] {
 				continue
 			}
 			seenAccount[primaryID] = true
@@ -592,11 +590,15 @@ func reconcileYYBServerEntries(existing string, accounts []*store.WechatAccount,
 			continue
 		}
 		if dedupeCrossForm {
-			if winIdx, ok := preferredLine[acc.ID]; ok && winIdx != idx {
+			if winIdx, ok := firstLine[acc.ID]; ok && winIdx != idx {
 				continue
 			}
 			if seenAccount[acc.ID] {
 				continue
+			}
+			if canon := canonicalRef(acc); ref != canon {
+				line = trimmed[:sep+1] + canon
+				trimmed = line
 			}
 		} else if seenExactLine[trimmed] {
 			continue

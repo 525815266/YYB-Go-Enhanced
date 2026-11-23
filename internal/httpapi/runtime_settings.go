@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"yyb_go/internal/eventlog"
@@ -27,8 +28,10 @@ type runtimeSettingsIn struct {
 	RecoveryCooldownMS   *int64 `json:"recovery_cooldown_ms"`
 	DynamicDenyEnabled   *bool  `json:"dynamic_deny_enabled"`
 	DynamicDenyThreshold *int64 `json:"dynamic_deny_threshold"`
+	CodeBurstLimit       *int64 `json:"code_burst_limit"`
+	CodeBurstWindowMS    *int64 `json:"code_burst_window_ms"`
 	// Reset removes the tuning file so every pacing knob returns to the env
-	// defaults. Dynamic-deny fields still apply when present.
+	// defaults. Dynamic-deny and code-burst fields keep their DB settings.
 	Reset bool `json:"reset"`
 }
 
@@ -64,6 +67,10 @@ func (a *App) runtimeSettingsOut() map[string]any {
 	s := a.pacer.current()
 	cfg := a.cfg
 	healthy := func(ms int64) bool { return ms > 0 }
+	burstLimit, burstWindow := defaultCodeBurstLimit, defaultCodeBurstWindow
+	if a.codeBurst != nil {
+		burstLimit, burstWindow = a.codeBurst.settings()
+	}
 	return map[string]any{
 		"effective": map[string]any{
 			"code_min_gap_ms":         s.MinGap.Milliseconds(),
@@ -92,10 +99,15 @@ func (a *App) runtimeSettingsOut() map[string]any {
 			"cooldown_seconds":      int(dynamicAppIDCooldown.Seconds()),
 			"strike_window_seconds": int(dynamicAppIDStrikeWindow.Seconds()),
 		},
+		"code_burst": map[string]any{
+			"limit":     burstLimit,
+			"window_ms": burstWindow.Milliseconds(),
+		},
 		"notes": []string{
 			"取码间隔/排队等待/登录预算/新鲜会话窗口写入数据库旁的 tuning.json，1 秒内生效并保留到重启之后",
 			"动态黑名单关闭后不再学习也不再拦截，已学习的名单保留可查看/清除",
 			"自动学习仅临时限制 15 分钟；到期后允许一个正常调用复核，成功即解除；不会后台主动取码，空码不判定应用类型",
+			"单账号单小程序短时取码频控（默认 10 分钟最多 10 次）写入数据库配置并即时生效；limit 设为 0 可关闭",
 		},
 		"healthy": healthy(s.MinGap.Milliseconds()) && s.LoginBudget >= 0,
 	}
@@ -107,6 +119,22 @@ func (a *App) tuningFilePresent() bool {
 }
 
 func (a *App) applyRuntimeSettings(r *http.Request, body runtimeSettingsIn) error {
+	if body.DynamicDenyThreshold != nil {
+		threshold := *body.DynamicDenyThreshold
+		if threshold < 1 || threshold > 50 {
+			return fmt.Errorf("动态黑名单阈值需在 1-50 之间")
+		}
+	}
+	if body.CodeBurstLimit != nil {
+		if *body.CodeBurstLimit < 0 || *body.CodeBurstLimit > codeBurstMaxLimit {
+			return fmt.Errorf("单目标取码上限需在 0-%d 之间（0 关闭限制）", codeBurstMaxLimit)
+		}
+	}
+	if body.CodeBurstWindowMS != nil {
+		if *body.CodeBurstWindowMS < codeBurstMinWindow.Milliseconds() || *body.CodeBurstWindowMS > codeBurstMaxWindow.Milliseconds() {
+			return fmt.Errorf("取码频控窗口需在 %d-%d 毫秒之间", codeBurstMinWindow.Milliseconds(), codeBurstMaxWindow.Milliseconds())
+		}
+	}
 	if body.Reset {
 		if err := os.Remove(a.pacer.filePath()); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("重置 tuning 文件失败: %w", err)
@@ -123,11 +151,32 @@ func (a *App) applyRuntimeSettings(r *http.Request, body runtimeSettingsIn) erro
 		a.dynamicAppIDs.setEnabled(*body.DynamicDenyEnabled)
 	}
 	if body.DynamicDenyThreshold != nil {
-		threshold := *body.DynamicDenyThreshold
-		if threshold < 1 || threshold > 50 {
-			return fmt.Errorf("动态黑名单阈值需在 1-50 之间")
+		a.dynamicAppIDs.setThreshold(int(*body.DynamicDenyThreshold))
+	}
+	if body.CodeBurstLimit != nil || body.CodeBurstWindowMS != nil {
+		limit, window := defaultCodeBurstLimit, defaultCodeBurstWindow
+		if a.codeBurst != nil {
+			limit, window = a.codeBurst.settings()
 		}
-		a.dynamicAppIDs.setThreshold(int(threshold))
+		if body.CodeBurstLimit != nil {
+			limit = int(*body.CodeBurstLimit)
+			if a.db != nil {
+				if err := a.db.SetSetting(r.Context(), codeBurstLimitSettingKey, strconv.Itoa(limit)); err != nil {
+					return fmt.Errorf("保存取码上限失败: %w", err)
+				}
+			}
+		}
+		if body.CodeBurstWindowMS != nil {
+			window = time.Duration(*body.CodeBurstWindowMS) * time.Millisecond
+			if a.db != nil {
+				if err := a.db.SetSetting(r.Context(), codeBurstWindowMSSettingKey, strconv.FormatInt(window.Milliseconds(), 10)); err != nil {
+					return fmt.Errorf("保存取码频控窗口失败: %w", err)
+				}
+			}
+		}
+		if a.codeBurst != nil {
+			a.codeBurst.configure(limit, window)
+		}
 	}
 	return nil
 }

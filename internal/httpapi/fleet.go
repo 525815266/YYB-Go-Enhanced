@@ -15,7 +15,17 @@ import (
 	"yyb_go/internal/store"
 )
 
-const fleetFailoverCooldown = 15 * time.Minute
+const (
+	fleetFailoverCooldown    = 15 * time.Minute
+	fleetFailoverMaxCooldown = 6 * time.Hour
+	fleetPenaltyStrikeReset  = 24 * time.Hour
+)
+
+type fleetPenalty struct {
+	until   time.Time
+	strikes int
+	last    time.Time
+}
 
 // Fleet dispatch: accounts bound to the same WeChat across channels
 // (store.FleetPrimaryID) share request traffic so that no single client
@@ -101,7 +111,10 @@ func fleetDispatchAvailabilityRank(account *store.WechatAccount) int {
 }
 
 func (a *App) activeFleetDemotions(members []*store.WechatAccount) map[int64]bool {
-	now := time.Now()
+	return a.activeFleetDemotionsAt(members, time.Now())
+}
+
+func (a *App) activeFleetDemotionsAt(members []*store.WechatAccount, now time.Time) map[int64]bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(a.fleetDemoted) == 0 {
@@ -109,12 +122,10 @@ func (a *App) activeFleetDemotions(members []*store.WechatAccount) map[int64]boo
 	}
 	var out map[int64]bool
 	for _, m := range members {
-		until, ok := a.fleetDemoted[m.ID]
-		if !ok {
-			continue
-		}
-		if !now.Before(until) {
-			delete(a.fleetDemoted, m.ID)
+		penalty, ok := a.fleetDemoted[m.ID]
+		if !ok || !now.Before(penalty.until) {
+			// Keep expired entries intact so consecutive failures still escalate
+			// until a call succeeds or 24h passes without another failure.
 			continue
 		}
 		if out == nil {
@@ -125,13 +136,42 @@ func (a *App) activeFleetDemotions(members []*store.WechatAccount) map[int64]boo
 	return out
 }
 
-func (a *App) markFleetMemberFailed(accountID int64) {
-	a.mu.Lock()
-	if a.fleetDemoted == nil {
-		a.fleetDemoted = map[int64]time.Time{}
+func fleetCooldownForStrike(strikes int) time.Duration {
+	if strikes <= 1 {
+		return fleetFailoverCooldown
 	}
-	a.fleetDemoted[accountID] = time.Now().Add(fleetFailoverCooldown)
-	a.mu.Unlock()
+	cooldown := fleetFailoverCooldown
+	for i := 1; i < strikes && cooldown < fleetFailoverMaxCooldown; i++ {
+		if cooldown > fleetFailoverMaxCooldown/2 {
+			return fleetFailoverMaxCooldown
+		}
+		cooldown *= 2
+	}
+	if cooldown > fleetFailoverMaxCooldown {
+		return fleetFailoverMaxCooldown
+	}
+	return cooldown
+}
+
+func (a *App) markFleetMemberFailed(accountID int64) {
+	a.markFleetMemberFailedAt(accountID, time.Now())
+}
+
+func (a *App) markFleetMemberFailedAt(accountID int64, now time.Time) fleetPenalty {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.fleetDemoted == nil {
+		a.fleetDemoted = map[int64]fleetPenalty{}
+	}
+	penalty := a.fleetDemoted[accountID]
+	if !penalty.last.IsZero() && now.Sub(penalty.last) > fleetPenaltyStrikeReset {
+		penalty.strikes = 0
+	}
+	penalty.strikes++
+	penalty.until = now.Add(fleetCooldownForStrike(penalty.strikes))
+	penalty.last = now
+	a.fleetDemoted[accountID] = penalty
+	return penalty
 }
 
 func (a *App) clearFleetMemberPenalty(accountID int64) {
