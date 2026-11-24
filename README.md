@@ -27,6 +27,23 @@
 
 </div>
 
+## 赞助商
+
+<p align="center">
+  <a href="https://www.ipwo.net/?ref=githubEnhanced" target="_blank" rel="noopener noreferrer">
+    <img src="docs/images/sponsor-ipwo.jpg" alt="Sponsored by IPWO - 住宅代理网络" width="760">
+  </a>
+</p>
+
+<p align="center">
+  <sub>
+    <a href="https://www.ipwo.net/?ref=githubEnhanced" target="_blank" rel="noopener noreferrer"><strong><u>IPWO</u></strong></a> 提供免费测试，静态 IP 低至 9.9 元/月/条，90 折扣码：<strong><code>0202</code></strong>。覆盖 195+ 个国家和地区的 9000 万+ 活跃住宅 IP 资源，支持动态住宅、静态住宅及不限量住宅代理，兼容 HTTP(S) / SOCKS5 协议，支持灵活会话与国家、城市级定位，适用于多账号独立代理配置、自动化任务及跨地区网络连接等场景。<br>
+    请在合法授权并遵守目标站点条款的前提下使用。
+  </sub>
+</p>
+
+---
+
 ## 使用前必读：风险提示与版本说明
 
 ### 微信风控与异常封禁提示
