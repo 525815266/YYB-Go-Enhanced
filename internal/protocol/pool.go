@@ -34,7 +34,7 @@ func (e *TimeoutStageError) Error() string { return e.Err.Error() }
 func (e *TimeoutStageError) Unwrap() error { return e.Err }
 
 func wrapTimeoutStage(stage string, err error) error {
-	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || !IsTimeoutError(err) {
 		return err
 	}
 	var existing *TimeoutStageError
@@ -280,7 +280,7 @@ func (p *Pool) OperateWXData(ctx context.Context, loginBuffer, appID string, pay
 		}
 		code, resp, err := p.sendEnvelope(ctx, st, envelope)
 		if err != nil {
-			return nil, err
+			return nil, wrapTimeoutStage("shortlink_exchange", err)
 		}
 		return parseRawResponse(code, resp), nil
 	}, expected...)

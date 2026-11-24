@@ -98,7 +98,7 @@ func (p *Pool) requestH5OAuthCode(ctx context.Context, st WmpfSession, appID str
 	// decrypt failure cannot prove a confirmation was not processed.
 	_, reply, err := p.sendEnvelopeWithReplay(ctx, st, envelope, false)
 	if err != nil {
-		return nil, &H5AuthorizationAttemptError{Cause: err}
+		return nil, &H5AuthorizationAttemptError{Cause: wrapTimeoutStage("shortlink_exchange", err)}
 	}
 	code, err := parseH5OAuthResult(reply, callback, auth.State, 0)
 	if err != nil {

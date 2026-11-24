@@ -182,6 +182,14 @@ func (a *App) handleQingLongJobEnable(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "provisioned": true, "ql_cron_id": job.QLCronID})
 		return
 	}
+	if primary := fleetPrimaryOf(acc); primary > 0 && primary != acc.ID {
+		writeRawJSON(w, http.StatusConflict, apiEnvelope{
+			Code: http.StatusConflict,
+			Msg:  fmt.Sprintf("账号 %d 是多渠道子成员，无法单独取码；请改用主账号 %d 管理并运行任务", acc.ID, primary),
+			Data: map[string]any{"primary_ref": primary, "member_ref_not_allowed": true},
+		})
+		return
+	}
 	job, _, err := a.ensureAccountJob(r.Context(), acc, body.ScriptKey)
 	if err != nil {
 		writeRunError(w, err)
@@ -206,6 +214,14 @@ func (a *App) handleQingLongJobRun(w http.ResponseWriter, r *http.Request) {
 	}
 	acc, ok := a.resolveAccountRef(w, r, body.Ref)
 	if !ok {
+		return
+	}
+	if primary := fleetPrimaryOf(acc); primary > 0 && primary != acc.ID {
+		writeRawJSON(w, http.StatusConflict, apiEnvelope{
+			Code: http.StatusConflict,
+			Msg:  fmt.Sprintf("账号 %d 是多渠道子成员，无法单独取码；请改用主账号 %d 管理并运行任务", acc.ID, primary),
+			Data: map[string]any{"primary_ref": primary, "member_ref_not_allowed": true},
+		})
 		return
 	}
 	job, source, err := a.ensureAccountJob(r.Context(), acc, body.ScriptKey)
@@ -596,7 +612,7 @@ func (a *App) ensureAccountJob(ctx context.Context, acc *store.WechatAccount, sc
 	if err != nil {
 		return nil, scriptSource{}, err
 	}
-	command, taskBefore, err := a.accountTaskSpec(acc.ID, source.TaskRoot, scriptKey, setting)
+	command, taskBefore, err := a.accountTaskSpec(ctx, acc.ID, source.TaskRoot, scriptKey, setting)
 	if err != nil {
 		return nil, scriptSource{}, err
 	}
@@ -680,12 +696,17 @@ func managedLogName(accountID int64, scriptKey string) string {
 	return fmt.Sprintf("yyb_account_%d_%x", accountID, sum[:6])
 }
 
-func (a *App) accountTaskSpec(accountID int64, taskRoot, scriptKey string, setting *store.AccountPushSetting) (string, string, error) {
+func (a *App) accountTaskSpec(ctx context.Context, accountID int64, taskRoot, scriptKey string, setting *store.AccountPushSetting) (string, string, error) {
 	if !validScriptKey.MatchString(scriptKey) {
 		return "", "", fmt.Errorf("脚本路径不合法")
 	}
-	if !regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`).MatchString(a.cfg.QingLongServer) {
+	serverAddr, _ := a.qingLongServerSetting(ctx)
+	if !validPanelServerAddr.MatchString(serverAddr) {
 		return "", "", fmt.Errorf("YYB_QINGLONG_SERVER 格式不合法")
+	}
+	envName, _ := a.qingLongServerEnvName(ctx)
+	if !validPanelEnvVarName.MatchString(envName) {
+		return "", "", fmt.Errorf("YYB_QINGLONG_SERVER_ENV 格式不合法")
 	}
 	if !validQingLongTaskRoot(taskRoot) {
 		return "", "", fmt.Errorf("YYB_QINGLONG_REPO 格式不合法")
@@ -704,8 +725,8 @@ func (a *App) accountTaskSpec(accountID int64, taskRoot, scriptKey string, setti
 	}
 	command := fmt.Sprintf("task %s/%s", taskRoot, scriptKey)
 	taskBefore := fmt.Sprintf(
-		"export YYB_SERVER='%s@%d'; export PUSH_KEY=%s; export PUSH_PLUS_TOKEN=%s; export PUSH_PLUS_USER=%s; export QYWX_KEY=%s",
-		a.cfg.QingLongServer, accountID, pushKey, pushPlusToken, pushPlusTopic, qywxKey,
+		"export %s='%s@%d'; export PUSH_KEY=%s; export PUSH_PLUS_TOKEN=%s; export PUSH_PLUS_USER=%s; export QYWX_KEY=%s",
+		envName, serverAddr, accountID, pushKey, pushPlusToken, pushPlusTopic, qywxKey,
 	)
 	return command, taskBefore, nil
 }
@@ -851,6 +872,10 @@ func (a *App) refreshAccountJobCommands(ctx context.Context, acc *store.WechatAc
 	for _, source := range sources {
 		sourceByKey[source.Key] = source
 	}
+	return a.refreshAccountJobCommandsWithCatalog(ctx, acc, setting, sourceByKey, cronsByID)
+}
+
+func (a *App) refreshAccountJobCommandsWithCatalog(ctx context.Context, acc *store.WechatAccount, setting *store.AccountPushSetting, sourceByKey map[string]scriptSource, cronsByID map[int64]qingLongCron) error {
 	jobs, err := a.db.ListAccountScriptJobs(ctx, acc.ID)
 	if err != nil {
 		return err
@@ -860,11 +885,54 @@ func (a *App) refreshAccountJobCommands(ctx context.Context, acc *store.WechatAc
 		if _, cronExists := cronsByID[job.QLCronID]; !sourceExists || !cronExists {
 			continue
 		}
-		command, taskBefore, err := a.accountTaskSpec(acc.ID, source.TaskRoot, job.ScriptKey, setting)
+		command, taskBefore, err := a.accountTaskSpec(ctx, acc.ID, source.TaskRoot, job.ScriptKey, setting)
 		if err != nil {
 			return err
 		}
 		if err := a.qinglong.updateCron(ctx, job.QLCronID, managedTaskName(acc, source.Name), command, source.Schedule, taskBefore, managedLogName(acc.ID, job.ScriptKey)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) refreshAllManagedJobCommands(ctx context.Context) error {
+	if !a.qinglong.configured() {
+		return nil
+	}
+	accounts, err := a.db.ListAccounts(ctx)
+	if err != nil {
+		return err
+	}
+	// Avoid hitting the panel's cron API when no account has managed jobs.
+	hasJobs := false
+	for _, acc := range accounts {
+		jobs, listErr := a.db.ListAccountScriptJobs(ctx, acc.ID)
+		if listErr != nil {
+			return listErr
+		}
+		if len(jobs) > 0 {
+			hasJobs = true
+			break
+		}
+	}
+	if !hasJobs {
+		return nil
+	}
+	sources, cronsByID, err := a.scriptCatalog(ctx)
+	if err != nil {
+		return err
+	}
+	sourceByKey := make(map[string]scriptSource, len(sources))
+	for _, source := range sources {
+		sourceByKey[source.Key] = source
+	}
+	for _, acc := range accounts {
+		setting, settingErr := a.db.AccountPushSettingOrDefault(ctx, acc.ID)
+		if settingErr != nil {
+			return settingErr
+		}
+		if err := a.refreshAccountJobCommandsWithCatalog(ctx, acc, setting, sourceByKey, cronsByID); err != nil {
 			return err
 		}
 	}

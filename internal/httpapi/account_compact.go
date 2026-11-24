@@ -117,8 +117,9 @@ func (a *App) handleAccountCompact(w http.ResponseWriter, r *http.Request) {
 		a.clearKeepAliveRetry(newID)
 	}
 	qinglongSynced := false
+	envName, _ := a.qingLongServerEnvName(r.Context())
 	if a.qinglong.configured() {
-		qinglongSynced = remapYYBServerIDs(r.Context(), a.qinglong, mapping)
+		qinglongSynced = remapYYBServerIDs(r.Context(), a.qinglong, envName, mapping)
 		if updatedAccounts, listErr := a.db.ListAccounts(r.Context()); listErr == nil {
 			jobsSynced := true
 			for _, account := range updatedAccounts {
@@ -133,7 +134,7 @@ func (a *App) handleAccountCompact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"mode": "compacted", "changed_count": len(items), "changes": items,
 		"qinglong_synced": qinglongSynced,
-		"note":            "账号数据已迁移到连续 ID；已配置面板时会同步 YYB_SERVER 和托管任务，未托管的外部脚本请自行检查旧 ID。",
+		"note":            "账号数据已迁移到连续 ID；已配置面板时会同步 " + envName + " 和托管任务，未托管的外部脚本请自行检查旧 ID。",
 	})
 }
 
@@ -145,14 +146,17 @@ func invertAccountIDMap(mapping map[int64]int64) map[int64]int64 {
 	return out
 }
 
-func remapYYBServerIDs(ctx context.Context, client *qingLongClient, mapping map[int64]int64) bool {
-	envs, err := client.listEnvs(ctx, "YYB_SERVER")
+func remapYYBServerIDs(ctx context.Context, client *qingLongClient, envName string, mapping map[int64]int64) bool {
+	if strings.TrimSpace(envName) == "" {
+		envName = defaultPanelServerEnvName
+	}
+	envs, err := client.listEnvs(ctx, envName)
 	if err != nil {
 		return false
 	}
 	changed := false
 	for _, env := range envs {
-		if env.Name != "YYB_SERVER" {
+		if env.Name != envName {
 			continue
 		}
 		lines := strings.Split(strings.ReplaceAll(env.Value, "\r\n", "\n"), "\n")

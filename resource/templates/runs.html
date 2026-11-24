@@ -131,7 +131,7 @@
           </div>
           <details class="script-help"><summary>上传的脚本没显示？</summary>
             <p>“全部脚本”来自已配置目录下的面板任务，单独上传文件不会自动入列。</p>
-            <ol><li>将支持 <code>YYB_SERVER</code> 的脚本上传到管理员配置的 <code>YYB_QINGLONG_REPO</code> 目录。</li><li>在面板新建任务，命令例如 <code>task 目录名/脚本.py</code>，填写正确的 Cron。若仅供 YYB 按账号运行，请将这个原始任务设为禁用，避免重复执行。</li><li>回到本页点击“刷新状态”，在“全部脚本”中按名称或路径搜索，再为当前账号启用。</li></ol>
+            <ol><li>将支持 <code id="helpServerEnvName">YYB_SERVER</code> 的脚本上传到管理员配置的 <code>YYB_QINGLONG_REPO</code> 目录。</li><li>在面板新建任务，命令例如 <code>task 目录名/脚本.py</code>，填写正确的 Cron。若仅供 YYB 按账号运行，请将这个原始任务设为禁用，避免重复执行。</li><li>回到本页点击“刷新状态”，在“全部脚本”中按名称或路径搜索，再为当前账号启用。</li></ol>
             <p>自建目录须加入 <code>YYB_QINGLONG_REPO</code>（多个目录以逗号分隔）并重启 YYB 服务；请保留原有目录。目录匹配不代表脚本已完成 YYB 协议适配。</p>
           </details>
           <div class="notice" id="duplicateNotice" hidden><strong>检测到旧全局任务仍启用。</strong> 同一脚本可能被全局任务和账号任务重复执行，请先在当前面板中停用对应全局任务。</div>
@@ -155,7 +155,7 @@
   <div class="toast" id="toast" hidden role="status"></div>
   <script>
     const initialView = new URLSearchParams(location.search).get("view");
-    const state = { accounts: [], selectedRef: "", jobs: [], runs: [], panelName: "任务面板", mode: initialView === "logs" ? "runs" : "tasks", pushOpen: initialView === "push", taskView: "configured", busy: new Set(), pendingRun: null, openLogKey: "", logText: "", logLoading: false, runsRequestPending: false, logRequestPending: false, timer: null };
+    const state = { accounts: [], fleetMembers: new Map(), memberToPrimary: new Map(), selectedRef: "", jobs: [], runs: [], panelName: "任务面板", panelEnvName: "YYB_SERVER", mode: initialView === "logs" ? "runs" : "tasks", pushOpen: initialView === "push", taskView: "configured", busy: new Set(), pendingRun: null, openLogKey: "", logText: "", logLoading: false, runsRequestPending: false, logRequestPending: false, timer: null };
     const $ = id => document.getElementById(id);
     function escapeHTML(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
     async function api(method, url, body) { const options = { method, headers: { "Content-Type": "application/json" } }; if (body !== undefined) options.body = JSON.stringify(body); const response = await fetch(url, options); const text = await response.text(); let payload = null; try { payload = text ? JSON.parse(text) : null; } catch { throw new Error(`服务返回了非 JSON 内容（HTTP ${response.status}）`); } if (!payload) throw new Error(`服务返回空响应（HTTP ${response.status}）`); const envelope = typeof payload === "object" && !Array.isArray(payload) && "code" in payload; if (!response.ok || (envelope && payload.code !== 0)) throw new Error(envelope ? (payload.msg || `请求失败（HTTP ${response.status}）`) : `HTTP ${response.status}`); return envelope ? payload.data : payload; }
@@ -168,9 +168,63 @@
     function formatSize(size) { if (!size) return "-"; if (size < 1024) return `${size} B`; return `${(size / 1024).toFixed(1)} KB`; }
     function setMode(mode) { state.mode = mode; state.openLogKey = ""; $("tasksPanel").hidden = mode !== "tasks"; $("runsPanel").hidden = mode !== "runs"; document.querySelectorAll("#modeTabs .tab").forEach(tab => tab.setAttribute("aria-selected", String(tab.dataset.mode === mode))); $("managementHeading").textContent = mode === "runs" ? "账号运行日志" : "账号任务"; if (mode === "runs") loadRuns(); else renderJobs(); }
     function setTaskView(view, focusSearch = false) { state.taskView = view; document.querySelectorAll("#taskTabs .tab").forEach(tab => tab.setAttribute("aria-selected", String(tab.dataset.view === view))); renderJobs(); if (focusSearch) $("taskSearchInput").focus(); }
-    async function loadConnection() { const pill = $("connection"); try { const config = await api("GET", "/api/qinglong/config"); const result = await api("GET", "/api/qinglong/status"); state.panelName = config.type === "daidai" ? "呆呆面板" : config.type === "arcadia" ? "Arcadia" : "青龙"; $("panelLogDescription").textContent = `按微信账号运行脚本，并查看该账号自己的${state.panelName}日志。`; $("panelLogScope").textContent = `日志只来自当前选中账号的专属${state.panelName}任务。`; pill.className = "connection " + (result.connected ? "ok" : "bad"); pill.lastElementChild.textContent = result.connected ? `${state.panelName}已连接` : (result.configured ? `${state.panelName}连接失败` : `${state.panelName}未配置`); pill.title = result.error || ""; renderRuns(); } catch (error) { pill.className = "connection bad"; pill.lastElementChild.textContent = "面板连接失败"; pill.title = error.message; } }
-    async function loadAccounts() { state.accounts = await api("GET", "/accounts?include_members=1"); const select = $("accountSelect"), saved = localStorage.getItem("yyb-runs-account"); if (!state.accounts.length) { select.innerHTML = '<option value="">暂无账号</option>'; state.selectedRef = ""; renderAccount(); return; } if (!state.accounts.some(item => String(item.id) === String(state.selectedRef))) state.selectedRef = state.accounts.some(item => String(item.id) === String(saved)) ? String(saved) : String(state.accounts[0].id); select.innerHTML = state.accounts.map(account => `<option value="${account.id}">账号 ${accountNumber(account)} · ${escapeHTML(accountName(account))}</option>`).join(""); select.value = state.selectedRef; renderAccount(); }
-    function renderAccount() { const account = getSelectedAccount(), accountState = account?.status === "alive" ? "可用" : account?.status === "expired" ? "需重新扫码" : "待确认"; $("accountIdentity").innerHTML = account ? `状态：<strong>${accountState}</strong> · 账号：<code>${escapeHTML(accountLabel(account))}</code> · OpenID：<code>${escapeHTML(account.openid)}</code>` : "请先扫码添加账号"; $("runScope").textContent = account ? `${accountLabel(account)} 的运行日志` : "账号运行日志"; $("pushAccountContext").textContent = account ? `${accountLabel(account)} 的通知配置，切换账号会读取对应设置。` : "请先添加账号，再配置独立推送。"; $("togglePushBtn").disabled = !account; }
+    async function loadConnection() { const pill = $("connection"); try { const config = await api("GET", "/api/qinglong/config"); const result = await api("GET", "/api/qinglong/status"); state.panelName = config.type === "daidai" ? "呆呆面板" : config.type === "arcadia" ? "Arcadia" : "青龙"; state.panelEnvName = config.server_env_name || "YYB_SERVER"; if ($("helpServerEnvName")) $("helpServerEnvName").textContent = state.panelEnvName; $("panelLogDescription").textContent = `按微信账号运行脚本，并查看该账号自己的${state.panelName}日志。`; $("panelLogScope").textContent = `日志只来自当前选中账号的专属${state.panelName}任务。`; pill.className = "connection " + (result.connected ? "ok" : "bad"); pill.lastElementChild.textContent = result.connected ? `${state.panelName}已连接` : (result.configured ? `${state.panelName}连接失败` : `${state.panelName}未配置`); pill.title = result.error || ""; renderRuns(); } catch (error) { pill.className = "connection bad"; pill.lastElementChild.textContent = "面板连接失败"; pill.title = error.message; } }
+    async function loadAccounts() {
+      const [representatives, allMembers] = await Promise.all([
+        api("GET", "/accounts"),
+        api("GET", "/accounts?include_members=1").catch(() => null),
+      ]);
+      state.accounts = Array.isArray(representatives) ? representatives : [];
+      state.fleetMembers = new Map();
+      state.memberToPrimary = new Map();
+      if (Array.isArray(allMembers)) {
+        for (const item of allMembers) {
+          const primaryId = item.fleet_primary_id || 0;
+          if (primaryId > 0) {
+            state.memberToPrimary.set(String(item.id), String(primaryId));
+            state.memberToPrimary.set(item.openid, String(primaryId));
+            if (!state.fleetMembers.has(primaryId)) state.fleetMembers.set(primaryId, []);
+            state.fleetMembers.get(primaryId).push(item);
+          }
+        }
+      }
+      const select = $("accountSelect");
+      const queryRef = new URLSearchParams(location.search).get("ref");
+      const saved = localStorage.getItem("yyb-runs-account");
+      const resolveCandidate = raw => {
+        if (!raw) return "";
+        const direct = state.accounts.find(item => String(item.id) === String(raw) || item.openid === raw);
+        if (direct) return String(direct.id);
+        const mapped = state.memberToPrimary.get(String(raw));
+        if (mapped && state.accounts.some(item => String(item.id) === mapped)) return mapped;
+        return "";
+      };
+      if (!state.accounts.length) {
+        select.innerHTML = '<option value="">暂无账号</option>';
+        state.selectedRef = "";
+        renderAccount();
+        return;
+      }
+      state.selectedRef = resolveCandidate(state.selectedRef) || resolveCandidate(queryRef) || resolveCandidate(saved) || String(state.accounts[0].id);
+      localStorage.setItem("yyb-runs-account", state.selectedRef);
+      select.innerHTML = state.accounts.map(account => {
+        const members = state.fleetMembers.get(account.id);
+        const fleetTag = members && members.length > 1 ? `（多渠道主账号 · ${members.length} 渠道）` : "";
+        return `<option value="${account.id}">账号 ${accountNumber(account)} · ${escapeHTML(accountName(account))}${fleetTag}</option>`;
+      }).join("");
+      select.value = state.selectedRef;
+      renderAccount();
+    }
+    function renderAccount() {
+      const account = getSelectedAccount();
+      const accountState = account?.status === "alive" ? "可用" : account?.status === "expired" ? "需重新扫码" : account?.status === "session_only" ? "需补授权" : "待确认";
+      const members = account ? state.fleetMembers.get(account.id) : null;
+      const fleetInfo = members && members.length > 1 ? ` · 多渠道主账号（含 ${members.map(m => `ID ${m.id}`).join(" / ")}，运行时自动轮换，子账号已隐藏）` : "";
+      $("accountIdentity").innerHTML = account ? `状态：<strong>${accountState}</strong> · 账号：<code>${escapeHTML(accountLabel(account))}</code> · OpenID：<code>${escapeHTML(account.openid)}</code>${escapeHTML(fleetInfo)}` : "请先扫码添加账号";
+      $("runScope").textContent = account ? `${accountLabel(account)} 的运行日志` : "账号运行日志";
+      $("pushAccountContext").textContent = account ? `${accountLabel(account)} 的通知配置，切换账号会读取对应设置。` : "请先添加账号，再配置独立推送。";
+      $("togglePushBtn").disabled = !account;
+    }
     function setPushOpen(open, focus = false) { state.pushOpen = Boolean(open); $("pushForm").hidden = !state.pushOpen; $("togglePushBtn").setAttribute("aria-expanded", String(state.pushOpen)); $("togglePushBtn").textContent = state.pushOpen ? "收起设置" : "配置推送"; if (focus && state.pushOpen) $("pushChannel").focus(); }
     async function loadSelected() { state.openLogKey = ""; state.pendingRun = null; if (!state.selectedRef) { state.jobs = []; state.runs = []; renderJobs(); renderRuns(); return; } const ref = state.selectedRef; $("managementSummary").textContent = "正在读取任务"; try { const [jobsResult, push] = await Promise.all([api("GET", `/api/qinglong/jobs?ref=${encodeURIComponent(ref)}`), api("GET", `/api/qinglong/push?ref=${encodeURIComponent(ref)}`)]); if (ref !== state.selectedRef) return; state.jobs = jobsResult.jobs || []; applyPush(push); renderJobs(); if (state.mode === "runs") await loadRuns(); } catch (error) { if (ref !== state.selectedRef) return; state.jobs = []; renderJobs(); $("managementSummary").textContent = `读取失败：${error.message}`; showToast(error.message, true); } }
     function applyPush(push) { const channel = push.channel || "none", labels = { none: "已关闭", serverchan: "Server酱", pushplus: "PushPlus", qywx: "企业微信机器人" }; $("pushChannel").value = channel; $("pushToken").value = ""; $("pushTopic").value = ""; $("tokenConfigured").textContent = push.token_configured ? "已配置，留空表示保留" : ""; $("topicConfigured").textContent = push.topic_configured ? "已配置，留空表示清空" : ""; $("pushSummary").textContent = labels[channel] || channel; $("pushStatus").classList.toggle("enabled", channel !== "none"); syncPushFields(); }

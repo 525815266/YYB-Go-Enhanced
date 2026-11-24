@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -295,5 +298,203 @@ func TestCodeBurstLimiterAndHTTP429(t *testing.T) {
 	}
 	if burstEvents != 1 {
 		t.Fatalf("expected 1 burst_limited event per window, got %d", burstEvents)
+	}
+}
+
+func TestWriteProtocolCallErrorPreservesTimeoutStageOnSocketTimeout(t *testing.T) {
+	opTimeout := &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	if !protocol.IsTimeoutError(opTimeout) {
+		t.Fatal("expected *net.OpError(os.ErrDeadlineExceeded) to be detected as timeout")
+	}
+	staged := &protocol.TimeoutStageError{Stage: "shortlink_exchange", Err: opTimeout}
+	w := httptest.NewRecorder()
+	writeProtocolCallError(w, staged)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("unexpected HTTP code %d: %s", w.Code, w.Body.String())
+	}
+	var env struct {
+		Code int            `json:"code"`
+		Msg  string         `json:"msg"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data == nil || env.Data["timeout_stage"] != "shortlink_exchange" || env.Data["request_rejected"] != false {
+		t.Fatalf("expected timeout_stage=shortlink_exchange, got %+v", env)
+	}
+}
+
+func TestCustomPanelEnvNameAndServerAddrLifecycle(t *testing.T) {
+	fake, server := newFakeQingLong(t)
+	app, handler, ref := newRunsTestApp(t, server.URL)
+
+	// Invalid server_env_name and invalid server_addr must return 400 before hitting panel.
+	badEnv := apiRequest(t, handler, http.MethodPut, "/api/qinglong/config", map[string]any{
+		"type": "qinglong", "url": server.URL, "client_id": "client-id", "client_secret": "client-secret",
+		"server_env_name": "9_INVALID;rm",
+	})
+	if badEnv.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid server_env_name, got %d %s", badEnv.Code, badEnv.Body.String())
+	}
+	badAddr := apiRequest(t, handler, http.MethodPut, "/api/qinglong/config", map[string]any{
+		"type": "qinglong", "url": server.URL, "client_id": "client-id", "client_secret": "client-secret",
+		"server_addr": "1.2.3.4:8000@evil",
+	})
+	if badAddr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid server_addr, got %d %s", badAddr.Code, badAddr.Body.String())
+	}
+
+	// Enable a managed job first using initial defaults (yyb-go:8000 + YYB_SERVER).
+	enable := apiRequest(t, handler, http.MethodPut, "/api/qinglong/jobs/enable", map[string]any{
+		"ref": ref, "script_key": "MDHY.js", "enabled": true,
+	})
+	if enable.Code != http.StatusOK {
+		t.Fatalf("enable response = %d %s", enable.Code, enable.Body.String())
+	}
+
+	// Hot-configure custom external server_addr and custom panel env name.
+	put := apiRequest(t, handler, http.MethodPut, "/api/qinglong/config", map[string]any{
+		"type": "qinglong", "url": server.URL, "client_id": "client-id", "client_secret": "client-secret",
+		"server_addr": "https://yyb.example.com:8443", "server_env_name": "YYB_SERVER_PROD",
+	})
+	if put.Code != http.StatusOK {
+		t.Fatalf("PUT custom config failed: %d %s", put.Code, put.Body.String())
+	}
+
+	// GET config exposes active custom values.
+	get := apiRequest(t, handler, http.MethodGet, "/api/qinglong/config", nil)
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), `"server_addr":"https://yyb.example.com:8443"`) || !strings.Contains(get.Body.String(), `"server_env_name":"YYB_SERVER_PROD"`) {
+		t.Fatalf("unexpected GET config: %d %s", get.Code, get.Body.String())
+	}
+
+	// Updating config automatically refreshes existing managed cron task_before (fixes runs.go bug!).
+	fake.mu.Lock()
+	var foundRefreshed bool
+	for _, cron := range fake.crons {
+		if strings.HasPrefix(cron.Name, "[YYB:") && strings.Contains(cron.TaskBefore, "export YYB_SERVER_PROD='https://yyb.example.com:8443@"+ref+"'") {
+			foundRefreshed = true
+		}
+	}
+	fake.mu.Unlock()
+	if !foundRefreshed {
+		t.Fatalf("managed cron task_before was not refreshed with hot server_addr/env_name: %+v", fake.taskBefores)
+	}
+
+	// Sync account writes YYB_SERVER_PROD without creating YYB_SERVER.
+	syncRes := apiRequest(t, handler, http.MethodPost, "/api/qinglong/sync", map[string]any{"ref": ref})
+	if syncRes.Code != http.StatusOK || !strings.Contains(syncRes.Body.String(), `"name":"YYB_SERVER_PROD"`) {
+		t.Fatalf("sync custom env failed: %d %s", syncRes.Code, syncRes.Body.String())
+	}
+	fake.mu.Lock()
+	var customEnv qingLongEnv
+	for _, env := range fake.envs {
+		if env.Name == "YYB_SERVER" {
+			t.Fatalf("default YYB_SERVER should not be written when custom name is set: %+v", env)
+		}
+		if env.Name == "YYB_SERVER_PROD" {
+			customEnv = env
+		}
+	}
+	if customEnv.Value != "https://yyb.example.com:8443@"+ref {
+		fake.mu.Unlock()
+		t.Fatalf("unexpected YYB_SERVER_PROD value: %+v", customEnv)
+	}
+	fake.mu.Unlock()
+
+	// Add second account with ID gap so compact can test remapping YYB_SERVER_PROD.
+	status := "alive"
+	tmpAcc, err := app.db.UpsertAccount(context.Background(), "gap-tmp", "buf", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keepAcc, err := app.db.UpsertAccount(context.Background(), "gap-keep", "buf", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.db.DeleteAccount(context.Background(), tmpAcc.ID); err != nil {
+		t.Fatal(err)
+	}
+	syncAll := apiRequest(t, handler, http.MethodPost, "/api/qinglong/sync-all", nil)
+	if syncAll.Code != http.StatusOK || !strings.Contains(syncAll.Body.String(), `"name":"YYB_SERVER_PROD"`) {
+		t.Fatalf("sync-all failed: %d %s", syncAll.Code, syncAll.Body.String())
+	}
+
+	compact := apiRequest(t, handler, http.MethodPost, "/accounts/compact", map[string]any{"confirm": true})
+	if compact.Code != http.StatusOK || !strings.Contains(compact.Body.String(), "YYB_SERVER_PROD") {
+		t.Fatalf("compact failed: %d %s", compact.Code, compact.Body.String())
+	}
+	fake.mu.Lock()
+	var compactedVal string
+	for _, env := range fake.envs {
+		if env.Name == "YYB_SERVER_PROD" {
+			compactedVal = env.Value
+		}
+	}
+	fake.mu.Unlock()
+	if strings.Contains(compactedVal, "@"+strconv.FormatInt(keepAcc.ID, 10)) || !strings.Contains(compactedVal, "@2") {
+		t.Fatalf("compact did not remap YYB_SERVER_PROD entry: %q", compactedVal)
+	}
+
+	// Deleting account cleans up custom env variable entry.
+	del := apiRequest(t, handler, http.MethodDelete, "/accounts?ref=2", nil)
+	if del.Code != http.StatusOK || !strings.Contains(del.Body.String(), `"env_entries_removed":1`) {
+		t.Fatalf("delete cleanup on custom env failed: %d %s", del.Code, del.Body.String())
+	}
+	fake.mu.Lock()
+	for _, env := range fake.envs {
+		if env.Name == "YYB_SERVER_PROD" && strings.Contains(env.Value, "@2") {
+			fake.mu.Unlock()
+			t.Fatalf("deleted account still present in YYB_SERVER_PROD: %+v", env)
+		}
+	}
+	fake.mu.Unlock()
+
+	// Clearing server_addr and server_env_name reverts to default YYB_SERVER + yyb-go:8000.
+	resetPut := apiRequest(t, handler, http.MethodPut, "/api/qinglong/config", map[string]any{
+		"type": "qinglong", "url": server.URL, "client_id": "client-id", "client_secret": "client-secret",
+		"server_addr": "", "server_env_name": "",
+	})
+	if resetPut.Code != http.StatusOK || !strings.Contains(resetPut.Body.String(), `"server_addr":"yyb-go:8000"`) || !strings.Contains(resetPut.Body.String(), `"server_env_name":"YYB_SERVER"`) {
+		t.Fatalf("reset config failed: %d %s", resetPut.Code, resetPut.Body.String())
+	}
+}
+
+func TestRunsRejectsFleetSubMemberExecution(t *testing.T) {
+	_, server := newFakeQingLong(t)
+	app, handler, primaryRef := newRunsTestApp(t, server.URL)
+	ctx := context.Background()
+	status := "alive"
+	primaryID, _ := strconv.ParseInt(primaryRef, 10, 64)
+	member, err := app.db.UpsertAccount(ctx, "fleet-sub-runs", "buf", nil, nil, nil, nil, nil, &status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{primaryID, member.ID} {
+		if err := app.db.SetAccountFleet(ctx, id, primaryID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	memberRef := strconv.FormatInt(member.ID, 10)
+
+	en := apiRequest(t, handler, http.MethodPut, "/api/qinglong/jobs/enable", map[string]any{
+		"ref": memberRef, "script_key": "MDHY.js", "enabled": true,
+	})
+	if en.Code != http.StatusConflict || !strings.Contains(en.Body.String(), `"member_ref_not_allowed":true`) {
+		t.Fatalf("expected 409 conflict enabling sub-member job, got %d %s", en.Code, en.Body.String())
+	}
+	run := apiRequest(t, handler, http.MethodPost, "/api/qinglong/jobs/run", map[string]any{
+		"ref": memberRef, "script_key": "MDHY.js",
+	})
+	if run.Code != http.StatusConflict || !strings.Contains(run.Body.String(), `"member_ref_not_allowed":true`) {
+		t.Fatalf("expected 409 conflict running sub-member job, got %d %s", run.Code, run.Body.String())
+	}
+
+	// Disabling an unprovisioned/legacy sub-member job stays allowed for cleanup.
+	dis := apiRequest(t, handler, http.MethodPut, "/api/qinglong/jobs/enable", map[string]any{
+		"ref": memberRef, "script_key": "MDHY.js", "enabled": false,
+	})
+	if dis.Code != http.StatusOK {
+		t.Fatalf("expected disabling sub-member job to succeed for cleanup, got %d %s", dis.Code, dis.Body.String())
 	}
 }

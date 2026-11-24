@@ -170,15 +170,22 @@ YYB_ACCOUNT_LINK_KEY=请生成随机长字符串
 
 该密钥用于加密保存授权短链接的历史 URL。生产环境应显式设置，并在升级、迁移和恢复时保持不变。更换密钥后，旧记录可能无法解密。
 
-## 面板账号引用方式
+## 面板变量名、对外服务地址与账号引用方式
 
-默认使用数字账号 ID 写入面板 `YYB_SERVER`。如果账号可能删除或重排，可改用稳定的 OpenID：
+默认以变量名 `YYB_SERVER` 和数字账号 ID 同步到自动化面板。如需要将变量名修改为自定义的环境变量，或使脚本访问反代域名/指定公网端口而非容器内网地址，可通过环境变量预设默认值，或在控制台 **「面板连接设置」** 中在线修改并即时热生效（写入 SQLite `app_settings`，清空保存可恢复环境变量默认值）：
+
+```dotenv
+YYB_QINGLONG_SERVER=1.2.3.4:8001       # 对外服务地址，兼容别名 YYB_QINGLONG_SERVER_FORMAT，默认 yyb-go:8000
+YYB_QINGLONG_SERVER_ENV=YYB_SERVER_PROD # 自定义面板环境变量名，默认 YYB_SERVER
+```
+
+如果账号可能删除或重排，也可将引用标识改为稳定的 OpenID：
 
 ```dotenv
 YYB_QINGLONG_REF_MODE=openid
 ```
 
-可选值为 `id` 或 `openid`。旧变量 `YYB_ACCOUNT_REF_MODE` 继续兼容。切换后应在控制台重新同步 `YYB_SERVER`，已有脚本环境变量不会凭空改写。
+可选值为 `id` 或 `openid`。旧变量 `YYB_ACCOUNT_REF_MODE` 继续兼容。切换变量名或对外地址后，已通过「账号运行管理」托管的定时任务会自动刷新；全量/单账号同步与删除清理也会统一操作当前配置的变量名。切换引用方式（`id` / `openid`）后应在控制台重新同步一次全量变量。
 
 ## 本机微信快速授权
 

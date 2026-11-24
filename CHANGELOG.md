@@ -2,6 +2,22 @@
 
 本项目按实际提交时间记录主要功能变化，便于部署后确认版本内容。
 
+## v0.3.13 - 2026-11-24
+
+- 优化 ShortLink 0RTT 短连接传输容错与超时诊断（#172）：
+  - 单次请求按剩余候选项均分连接/读写超时预算，避免单个黑洞 IP 耗尽整个 `RequestTimeout` 阻塞后续节点；
+  - `getShortlinkTargets` 与旧缓存会话自动补充可达备选节点及官方域名 `shortcloud.weixin.com:80`；
+  - 新增进程内按路线隔离的 ShortLink 节点健康冷却（5 分钟 → 10 → 20 → 上限 30 分钟，成功即清零），跳过近期连续超时节点；
+  - 收到已认证的应用层/传输层拒绝（如 `-14`、`-20011`）立即停止重放至其余 ShortLink IP；
+  - `wrapTimeoutStage` 与异常分类补全识别 socket `os.ErrDeadlineExceeded` / `net.Error` `i/o timeout`，返回标准 `data.timeout_stage: "shortlink_exchange"`。
+- 优化多渠道账号“运行管理”筛选与引导（#174）：
+  - `/runs` 账号运行管理默认仅展示可调用的主账号及独立账号，自动隐藏已合并的多渠道子成员并兼容旧子成员缓存自动重定向至主账号；
+  - 后端 `/api/qinglong/jobs/enable`（启用时）与 `/api/qinglong/jobs/run` 拦截多渠道子成员错建或单独执行任务，返回 HTTP 409 并明确指向主账号 ID；
+  - 优化首页“合并多渠道 / 替换重复账号”按钮文案与合并完成提示。
+- 新增面板自定义环境变量名与对外服务地址配置全链路支持并修复托管任务地址读取缺陷（#32）：
+  - 新增 `YYB_QINGLONG_SERVER_ENV`（默认 `YYB_SERVER`）、兼容别名 `YYB_QINGLONG_SERVER_FORMAT`，并在 Web 控制台「面板连接设置」开放 `对外服务地址` 与 `面板环境变量名` 在线热配置（持久化至数据库，留空保存恢复环境变量默认）；
+  - 单/全量同步、删除清理、ID 压缩与「账号运行管理」托管任务创建/变更自动刷新统一使用当前有效 `server_addr` 与 `server_env_name`（修复此前 `runs.go` 仍读取启动静态配置的缺陷）。
+
 ## v0.3.12 - 2026-11-23
 
 - 新增单账号单小程序短时取码频率保护（默认 10 分钟最多 10 次，`runtime-settings` 可热调 `code_burst_limit` 与 `code_burst_window_ms`，设为 `0` 关闭），拦截脚本无限重试导致的刷码风暴并返回本地 HTTP 429 与 `protocol.burst_limited` 事件。

@@ -10,6 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
+	"sync"
 	"time"
 )
 
@@ -142,20 +145,230 @@ type shortlinkDialError struct{ error }
 
 func (e *shortlinkDialError) Unwrap() error { return e.error }
 
-func send0RTT(ctx context.Context, targets []Target, entry pskEntry, recvKey, envelope []byte, timeout time.Duration, tcpProxy string, fallbackDirect, allowReplay bool) ([]byte, []byte, error) {
-	var last error
+// IsTimeoutError reports whether err is a context deadline, socket I/O
+// deadline, or network timeout error.
+func IsTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+const (
+	maxShortlinkAttempts    = 4
+	shortlinkBaseCooldown   = 5 * time.Minute
+	shortlinkMaxCooldown    = 30 * time.Minute
+	shortlinkStrikeResetGap = 2 * time.Hour
+)
+
+type shortlinkHealthKey struct {
+	ip    string
+	port  int
+	proxy string
+}
+
+type shortlinkPenalty struct {
+	until   time.Time
+	strikes int
+	last    time.Time
+}
+
+// shortlinkHealth tracks process-local ShortLink endpoint timeouts/failures per
+// egress route so a blackholed IP (e.g. a silent node in an old session blob)
+// is placed behind healthy nodes instead of stalling every call.
+var shortlinkHealth = struct {
+	mu      sync.Mutex
+	entries map[shortlinkHealthKey]shortlinkPenalty
+	now     func() time.Time
+}{
+	entries: map[shortlinkHealthKey]shortlinkPenalty{},
+	now:     time.Now,
+}
+
+func resetShortlinkHealth() {
+	shortlinkHealth.mu.Lock()
+	shortlinkHealth.entries = map[shortlinkHealthKey]shortlinkPenalty{}
+	shortlinkHealth.now = time.Now
+	shortlinkHealth.mu.Unlock()
+}
+
+func recordShortlinkSuccess(t Target, tcpProxy string) {
+	key := shortlinkHealthKey{ip: t.IP, port: t.Port, proxy: tcpProxy}
+	shortlinkHealth.mu.Lock()
+	delete(shortlinkHealth.entries, key)
+	shortlinkHealth.mu.Unlock()
+}
+
+func recordShortlinkFailure(t Target, tcpProxy string) {
+	key := shortlinkHealthKey{ip: t.IP, port: t.Port, proxy: tcpProxy}
+	shortlinkHealth.mu.Lock()
+	defer shortlinkHealth.mu.Unlock()
+	now := shortlinkHealth.now()
+	p := shortlinkHealth.entries[key]
+	if !p.last.IsZero() && now.Sub(p.last) > shortlinkStrikeResetGap {
+		p.strikes = 0
+	}
+	p.strikes++
+	cooldown := shortlinkBaseCooldown
+	for i := 1; i < p.strikes && cooldown < shortlinkMaxCooldown; i++ {
+		if cooldown > shortlinkMaxCooldown/2 {
+			cooldown = shortlinkMaxCooldown
+			break
+		}
+		cooldown *= 2
+	}
+	if cooldown > shortlinkMaxCooldown {
+		cooldown = shortlinkMaxCooldown
+	}
+	p.until = now.Add(cooldown)
+	p.last = now
+	shortlinkHealth.entries[key] = p
+}
+
+func isShortlinkDemotedLocked(t Target, tcpProxy string, now time.Time) bool {
+	p, ok := shortlinkHealth.entries[shortlinkHealthKey{ip: t.IP, port: t.Port, proxy: tcpProxy}]
+	return ok && now.Before(p.until)
+}
+
+// selectShortlinkTargets normalizes candidate ordering, heals cached public
+// sessions that lacked fallback targets, places cooled endpoints after healthy
+// ones, and bounds per-call attempts while keeping an official hostname slot.
+// Offline loopback/private targets remain hermetic for unit tests.
+func selectShortlinkTargets(targets []Target, tcpProxy string) []Target {
+	seen := make(map[Target]bool, len(targets)+len(shortlinkFallbackTargets)+1)
+	deduped := make([]Target, 0, len(targets)+len(shortlinkFallbackTargets)+1)
 	for _, t := range targets {
+		if t.IP == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		deduped = append(deduped, t)
+	}
+	publicMode := len(deduped) == 0 || hasPublicShortlinkTarget(deduped)
+	if publicMode {
+		for _, t := range shortlinkFallbackTargets {
+			if t.IP == "" || t.Port <= 0 || seen[t] {
+				continue
+			}
+			seen[t] = true
+			deduped = append(deduped, t)
+		}
+		domainTarget := Target{IP: shortlinkDomain, Port: 80}
+		if !seen[domainTarget] {
+			seen[domainTarget] = true
+			deduped = append(deduped, domainTarget)
+		}
+	}
+
+	shortlinkHealth.mu.Lock()
+	now := shortlinkHealth.now()
+	healthy := make([]Target, 0, len(deduped))
+	demoted := make([]Target, 0, len(deduped))
+	for _, t := range deduped {
+		if isShortlinkDemotedLocked(t, tcpProxy, now) {
+			demoted = append(demoted, t)
+		} else {
+			healthy = append(healthy, t)
+		}
+	}
+	shortlinkHealth.mu.Unlock()
+
+	ordered := make([]Target, 0, len(deduped))
+	ordered = append(ordered, healthy...)
+	ordered = append(ordered, demoted...)
+	if !publicMode || len(ordered) <= maxShortlinkAttempts {
+		return ordered
+	}
+
+	domainTarget := Target{IP: shortlinkDomain, Port: 80}
+	out := append([]Target(nil), ordered[:maxShortlinkAttempts]...)
+	hasDomain := false
+	for _, t := range out {
+		if t == domainTarget {
+			hasDomain = true
+			break
+		}
+	}
+	if !hasDomain {
+		shortlinkHealth.mu.Lock()
+		domainHealthy := !isShortlinkDemotedLocked(domainTarget, tcpProxy, shortlinkHealth.now())
+		shortlinkHealth.mu.Unlock()
+		if domainHealthy {
+			out[maxShortlinkAttempts-1] = domainTarget
+		}
+	}
+	return out
+}
+
+func shouldDemoteShortlinkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rejected *ShortlinkRejectedError
+	var respErr *ShortlinkResponseError
+	if errors.As(err, &rejected) || errors.As(err, &respErr) {
+		return false
+	}
+	return true
+}
+
+func send0RTT(ctx context.Context, targets []Target, entry pskEntry, recvKey, envelope []byte, timeout time.Duration, tcpProxy string, fallbackDirect, allowReplay bool) ([]byte, []byte, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	candidates := selectShortlinkTargets(targets, tcpProxy)
+	var last error
+	for i, t := range candidates {
 		if err := ctx.Err(); err != nil {
+			if last != nil {
+				return nil, nil, fmt.Errorf("ShortLink targets failed before completion (%w); last error: %w", err, last)
+			}
 			return nil, nil, err
 		}
-		code, resp, err := send0RTTRaw(ctx, t, entry, recvKey, envelope, timeout, tcpProxy, fallbackDirect)
+		remaining := timeout
+		if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+			remaining = time.Until(deadline)
+			if remaining <= 0 {
+				err := ctx.Err()
+				if err == nil {
+					err = context.DeadlineExceeded
+				}
+				if last != nil {
+					return nil, nil, fmt.Errorf("ShortLink targets failed before completion (%w); last error: %w", err, last)
+				}
+				return nil, nil, err
+			}
+		}
+		left := len(candidates) - i
+		attemptBudget := remaining
+		if left > 1 && remaining > 0 {
+			// Split remaining budget across candidates so one silent IP cannot starve
+			// remaining ShortLink endpoints before failover runs.
+			attemptBudget = max(remaining/time.Duration(left), time.Millisecond)
+		}
+		code, resp, err := send0RTTRawAttempt(ctx, t, entry, recvKey, envelope, attemptBudget, remaining, tcpProxy, fallbackDirect, allowReplay)
 		if err == nil && (len(code) > 0 || len(resp) > 0) {
+			recordShortlinkSuccess(t, tcpProxy)
 			return code, resp, nil
 		}
 		if err != nil {
 			last = err
 		} else {
 			last = fmt.Errorf("ShortLink response did not contain application data")
+		}
+		var rejected *ShortlinkRejectedError
+		if errors.As(err, &rejected) {
+			recordShortlinkSuccess(t, tcpProxy)
+			return nil, nil, fmt.Errorf("ShortLink rejected by %s:%d: %w", t.IP, t.Port, err)
+		}
+		if ctx.Err() == nil && shouldDemoteShortlinkError(last) {
+			recordShortlinkFailure(t, tcpProxy)
 		}
 		var dialErr *shortlinkDialError
 		if !allowReplay && !errors.As(err, &dialErr) {
@@ -169,26 +382,59 @@ func send0RTT(ctx context.Context, targets []Target, entry pskEntry, recvKey, en
 }
 
 func send0RTTRaw(ctx context.Context, target Target, entry pskEntry, recvKey, envelope []byte, timeout time.Duration, tcpProxy string, fallbackDirect bool) ([]byte, []byte, error) {
+	return send0RTTRawAttempt(ctx, target, entry, recvKey, envelope, timeout, timeout, tcpProxy, fallbackDirect, true)
+}
+
+func send0RTTRawAttempt(ctx context.Context, target Target, entry pskEntry, recvKey, envelope []byte, dialBudget, totalBudget time.Duration, tcpProxy string, fallbackDirect, boundReadBudget bool) ([]byte, []byte, error) {
 	body, psk, pskCH, type8, err := build0RTTRequest(entry, envelope)
 	if err != nil {
 		return nil, nil, err
 	}
 	path := fmt.Sprintf("/mmtls/%08x", uint32(time.Now().Unix()))
 	req := httpPost(path, "shortcloud.weixin.com", body)
-	conn, err := dialTCP(ctx, target.IP, target.Port, timeout, tcpProxy, fallbackDirect)
+
+	dialCtx := ctx
+	var cancelDial context.CancelFunc
+	if dialBudget > 0 {
+		dialCtx, cancelDial = context.WithTimeout(ctx, dialBudget)
+	}
+	conn, err := dialTCP(dialCtx, target.IP, target.Port, dialBudget, tcpProxy, fallbackDirect)
+	if cancelDial != nil {
+		cancelDial()
+	}
 	if err != nil {
 		return nil, nil, &shortlinkDialError{err}
 	}
 	defer conn.Close()
-	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+
+	ioCtx := ctx
+	readTimeout := totalBudget
+	var cancelIO context.CancelFunc
+	if boundReadBudget && dialBudget > 0 {
+		ioCtx, cancelIO = context.WithTimeout(ctx, dialBudget)
+		readTimeout = dialBudget
+	}
+	if cancelIO != nil {
+		defer cancelIO()
+	}
+	stopCancel := context.AfterFunc(ioCtx, func() { _ = conn.Close() })
 	defer stopCancel()
-	_ = conn.SetDeadline(ioDeadline(ctx, timeout))
+	_ = conn.SetDeadline(ioDeadline(ioCtx, readTimeout))
 	if _, err = conn.Write(req); err != nil {
+		if ctxErr := ioCtx.Err(); ctxErr != nil && !IsTimeoutError(err) {
+			err = ctxErr
+		}
 		return nil, nil, err
 	}
 	raw, err := io.ReadAll(conn)
 	if err != nil {
+		if ctxErr := ioCtx.Err(); ctxErr != nil && !IsTimeoutError(err) {
+			err = ctxErr
+		}
 		return nil, nil, fmt.Errorf("ShortLink response from %s:%d failed: %w", target.IP, target.Port, err)
+	}
+	if !stopCancel() {
+		return nil, nil, ioCtx.Err()
 	}
 	_, responseBody := splitHTTP(raw)
 	if len(responseBody) == 0 {

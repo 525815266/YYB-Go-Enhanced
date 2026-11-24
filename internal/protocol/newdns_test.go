@@ -121,3 +121,63 @@ func TestLonglinkLoginTargetsKeepsFallbackOnceAndSupportsSmallLists(t *testing.T
 		})
 	}
 }
+
+func TestGetShortlinkTargetsAppendsHostnameAndFallbacks(t *testing.T) {
+	dnsCache.Lock()
+	dnsCache.entries = map[string]dnsCacheEntry{
+		"0|Windows": {
+			ExpiresAt: time.Now().Add(time.Minute),
+			Parsed: map[string]dnsDomain{
+				shortlinkDomain: {
+					IPs:       []string{"43.137.142.113", "116.128.171.253"},
+					Protocols: map[string][]int{"mmtlsoverhttp": {80}},
+				},
+			},
+		},
+	}
+	dnsCache.Unlock()
+	t.Cleanup(clearDNSCache)
+
+	targets := getShortlinkTargets(context.Background(), time.Second, time.Minute)
+	seen := map[Target]int{}
+	for _, tgt := range targets {
+		seen[tgt]++
+		if seen[tgt] > 1 {
+			t.Fatalf("duplicate target returned: %+v in %+v", tgt, targets)
+		}
+	}
+	if targets[0] != (Target{IP: "43.137.142.113", Port: 80}) {
+		t.Fatalf("HTTPDNS primary target should stay first: %+v", targets)
+	}
+	if seen[Target{IP: shortlinkDomain, Port: 80}] != 1 {
+		t.Fatalf("official hostname fallback missing: %+v", targets)
+	}
+	for _, fb := range shortlinkFallbackTargets {
+		if seen[fb] != 1 {
+			t.Fatalf("verified fallback %+v missing: %+v", fb, targets)
+		}
+	}
+}
+
+func TestSelectShortlinkTargetsKeepsLocalLoopbackHermetic(t *testing.T) {
+	resetShortlinkHealth()
+	t.Cleanup(resetShortlinkHealth)
+
+	// Offline loopback test targets must never be augmented with public WeChat IPs.
+	local := []Target{{IP: "127.0.0.1", Port: 8081}, {IP: "127.0.0.1", Port: 8081}, {IP: "127.0.0.1", Port: 8082}}
+	gotLocal := selectShortlinkTargets(local, "")
+	wantLocal := []Target{{IP: "127.0.0.1", Port: 8081}, {IP: "127.0.0.1", Port: 8082}}
+	if !reflect.DeepEqual(gotLocal, wantLocal) {
+		t.Fatalf("selectShortlinkTargets(local) = %+v, want %+v", gotLocal, wantLocal)
+	}
+
+	// Single public IP from an older cached session automatically gets fallbacks + domain slot.
+	staleSingle := []Target{{IP: "43.137.142.113", Port: 80}}
+	gotPublic := selectShortlinkTargets(staleSingle, "")
+	if len(gotPublic) != maxShortlinkAttempts {
+		t.Fatalf("expected %d bounded public targets, got %d (%+v)", maxShortlinkAttempts, len(gotPublic), gotPublic)
+	}
+	if gotPublic[len(gotPublic)-1] != (Target{IP: shortlinkDomain, Port: 80}) {
+		t.Fatalf("official hostname not reserved in public shortlink selection: %+v", gotPublic)
+	}
+}

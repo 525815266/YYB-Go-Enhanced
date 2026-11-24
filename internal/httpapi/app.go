@@ -54,6 +54,7 @@ type Config struct {
 	QingLongClientID  string
 	QingLongSecret    string
 	QingLongServer    string
+	QingLongServerEnv string
 	QingLongRepo      string
 	QingLongRefMode   string
 	AuthDriver        string
@@ -226,6 +227,12 @@ func NewApp(cfg Config) (*App, error) {
 	}
 	if cfg.QingLongServer == "" {
 		cfg.QingLongServer = "yyb-go:8000"
+	}
+	cfg.QingLongServerEnv = strings.TrimSpace(cfg.QingLongServerEnv)
+	if cfg.QingLongServerEnv == "" {
+		cfg.QingLongServerEnv = defaultPanelServerEnvName
+	} else if !validPanelEnvVarName.MatchString(cfg.QingLongServerEnv) {
+		return nil, errors.New("YYB_QINGLONG_SERVER_ENV must be a valid environment variable name")
 	}
 	if cfg.QingLongRepo == "" {
 		cfg.QingLongRepo = "SuperNaiBA_YYB-GO-Script,525815266_YYB-Go-Enhanced/scripts"
@@ -1564,13 +1571,13 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	}
 	proxyValue, fallbackDirect, err := a.resolveWXAppProxy(ctx, acc.ID)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) && timeoutFailureStage(err) == "" {
+		if protocol.IsTimeoutError(err) && timeoutFailureStage(err) == "" {
 			err = &protocol.TimeoutStageError{Stage: "proxy_resolve", Err: err}
 		}
 		return nil, fmt.Errorf("resolve account proxy: %w", err)
 	}
 	result, callErr := call(ctx, acc, appID, payload, proxyValue, fallbackDirect)
-	if errors.Is(callErr, context.DeadlineExceeded) && timeoutFailureStage(callErr) == "" {
+	if protocol.IsTimeoutError(callErr) && timeoutFailureStage(callErr) == "" {
 		callErr = &protocol.TimeoutStageError{Stage: "request_budget", Err: callErr}
 	}
 	a.recordCircuitOutcome(ctx, acc, appID, op, callErr)
@@ -1642,7 +1649,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 	var rejected *protocol.ManualAuthRejectedError
 	bufferRejected := errors.As(callErr, &rejected) && rejected.Code == -10
 	var networkErr net.Error
-	if ctx.Err() != nil || (!bufferRejected && (errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded) || errors.As(callErr, &networkErr) || errors.Is(callErr, io.EOF) || errors.Is(callErr, io.ErrUnexpectedEOF))) {
+	if ctx.Err() != nil || (!bufferRejected && (errors.Is(callErr, context.Canceled) || protocol.IsTimeoutError(callErr) || errors.As(callErr, &networkErr) || errors.Is(callErr, io.EOF) || errors.Is(callErr, io.ErrUnexpectedEOF))) {
 		// A failed transport does not establish that saved credentials expired.
 		// Preserve the session and original diagnostic; do not repeat a slow call.
 		return nil, callErr
@@ -1673,7 +1680,7 @@ func (a *App) invokeWXApp(ctx context.Context, acc *store.WechatAccount, appID s
 			// every API test or misclassify it as a revoked account credential.
 			return nil, callErr
 		}
-		if ctx.Err() != nil || errors.Is(bufferErr, context.Canceled) || errors.Is(bufferErr, context.DeadlineExceeded) || errors.As(bufferErr, &networkErr) || errors.Is(bufferErr, io.EOF) || errors.Is(bufferErr, io.ErrUnexpectedEOF) {
+		if ctx.Err() != nil || errors.Is(bufferErr, context.Canceled) || protocol.IsTimeoutError(bufferErr) || errors.As(bufferErr, &networkErr) || errors.Is(bufferErr, io.EOF) || errors.Is(bufferErr, io.ErrUnexpectedEOF) {
 			return nil, callErr
 		}
 	}

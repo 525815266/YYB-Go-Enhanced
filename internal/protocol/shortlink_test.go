@@ -1,11 +1,20 @@
 package protocol
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestShortlinkAuthenticatedRejectionPreservesCode(t *testing.T) {
@@ -122,5 +131,188 @@ func TestShortlinkRejectionRequiresEmptyBody(t *testing.T) {
 func TestShortlinkRejectsUndersizedLength(t *testing.T) {
 	if _, err := parseShortlink(make([]byte, 16)); err == nil {
 		t.Fatal("invalid total length accepted")
+	}
+}
+
+func startShortlinkMockServer(t *testing.T, handler func(conn net.Conn, reqBody []byte) []byte) (Target, *atomic.Int32) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hits atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			hits.Add(1)
+			go func(c net.Conn) {
+				defer c.Close()
+				br := bufio.NewReader(c)
+				contentLen := 0
+				for {
+					line, err := br.ReadString('\n')
+					if err != nil {
+						return
+					}
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" {
+						break
+					}
+					if strings.HasPrefix(strings.ToLower(trimmed), "content-length:") {
+						contentLen, _ = strconv.Atoi(strings.TrimSpace(trimmed[len("content-length:"):]))
+					}
+				}
+				reqBody := make([]byte, contentLen)
+				if _, err := io.ReadFull(br, reqBody); err != nil {
+					return
+				}
+				respBody := handler(c, reqBody)
+				if respBody == nil {
+					return
+				}
+				resp := append([]byte(fmt.Sprintf("HTTP/1.0 200 OK\r\nContent-Length: %d\r\n\r\n", len(respBody))), respBody...)
+				_, _ = c.Write(resp)
+			}(conn)
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		<-done
+	})
+	addr := ln.Addr().(*net.TCPAddr)
+	return Target{IP: "127.0.0.1", Port: addr.Port}, &hits
+}
+
+func build0RTTTestResponse(t *testing.T, psk, reqBody, application []byte) []byte {
+	t.Helper()
+	recs, _ := parseRecords(reqBody)
+	if len(recs) == 0 {
+		t.Fatal("request contained no MMTLS records")
+	}
+	pskCH := recs[0].Payload
+	serverHello := []byte("synthetic-server-hello")
+	hash := sha256.Sum256(append(append([]byte(nil), pskCH...), serverHello...))
+	keys := derivePSKOneWayKeys(psk, labelHandshakeKeys, hash[:])
+	sealed, err := encryptRecordPayload(keys.Key, keys.IV, 2, ctAppData, application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r0, err := buildRecord(ctHandshake, serverHello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, err := buildRecord(ctAppData, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(r0, r1...)
+}
+
+func TestSend0RTTFailsOverFromBlackholedTargetAndDemotesIt(t *testing.T) {
+	resetShortlinkHealth()
+	t.Cleanup(resetShortlinkHealth)
+
+	psk := bytes.Repeat([]byte{7}, 32)
+	recvKey := bytes.Repeat([]byte{4}, 32)
+	entry := pskEntry{
+		PSKType:      1,
+		PreSharedKey: hex.EncodeToString(psk),
+		TicketEntry:  "aabbcc",
+	}
+
+	var badHits atomic.Int32
+	badTarget, _ := startShortlinkMockServer(t, func(c net.Conn, _ []byte) []byte {
+		badHits.Add(1)
+		// Reproduce 43.137.142.113:80 stalling until client times out or closes.
+		_, _ = io.Copy(io.Discard, c)
+		return nil
+	})
+	goodTarget, goodHits := startShortlinkMockServer(t, func(_ net.Conn, reqBody []byte) []byte {
+		inner := pbLen(2, pbLen(3, []byte("ok-code-failover")))
+		encInner, err := aesGCMEncryptLayout(recvKey, nil, lz4AllLiteral(inner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		app := buildShortlink(transferCmd, 0, encInner, defaultVer)
+		return build0RTTTestResponse(t, psk, reqBody, app)
+	})
+
+	targets := []Target{badTarget, goodTarget}
+	// First call: budget splits across [bad, good], so bad stalls ~300ms then fails over cleanly to good within 700ms.
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	code, _, err := send0RTT(ctx, targets, entry, recvKey, []byte("envelope"), 700*time.Millisecond, "", false, true)
+	if err != nil || string(code) != "ok-code-failover" {
+		t.Fatalf("first call failed instead of failing over: code=%q err=%v", string(code), err)
+	}
+	if badHits.Load() != 1 || goodHits.Load() != 1 {
+		t.Fatalf("unexpected hit counts on failover: bad=%d good=%d", badHits.Load(), goodHits.Load())
+	}
+
+	// Second call: demoted badTarget is skipped in favor of healthy goodTarget immediately.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel2()
+	code, _, err = send0RTT(ctx2, targets, entry, recvKey, []byte("envelope"), 700*time.Millisecond, "", false, true)
+	if err != nil || string(code) != "ok-code-failover" {
+		t.Fatalf("second call failed: code=%q err=%v", string(code), err)
+	}
+	if badHits.Load() != 1 || goodHits.Load() != 2 {
+		t.Fatalf("demoted blackhole target was hit again: bad=%d good=%d", badHits.Load(), goodHits.Load())
+	}
+}
+
+func TestSend0RTTStopsImmediatelyOnAuthenticatedRejection(t *testing.T) {
+	resetShortlinkHealth()
+	t.Cleanup(resetShortlinkHealth)
+
+	psk := bytes.Repeat([]byte{9}, 32)
+	recvKey := bytes.Repeat([]byte{5}, 32)
+	entry := pskEntry{
+		PSKType:      1,
+		PreSharedKey: hex.EncodeToString(psk),
+		TicketEntry:  "ddeeff",
+	}
+
+	firstTarget, firstHits := startShortlinkMockServer(t, func(_ net.Conn, reqBody []byte) []byte {
+		code := int64(-14)
+		header := wpkgHead(map[int]uint64{4: 0, 23: uint64(code), 25: 0}, nil)
+		app := buildShortlink(transferCmd, 0, header, defaultVer)
+		return build0RTTTestResponse(t, psk, reqBody, app)
+	})
+	secondTarget, secondHits := startShortlinkMockServer(t, func(_ net.Conn, _ []byte) []byte {
+		t.Error("second ShortLink target must not receive replayed -14 request")
+		return nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _, err := send0RTT(ctx, []Target{firstTarget, secondTarget}, entry, recvKey, []byte("envelope"), time.Second, "", false, true)
+	var rejected *ShortlinkRejectedError
+	if !errors.As(err, &rejected) || rejected.Code != -14 {
+		t.Fatalf("expected ShortlinkRejectedError -14, got %v", err)
+	}
+	if firstHits.Load() != 1 || secondHits.Load() != 0 {
+		t.Fatalf("expected immediate stop on -14: first=%d second=%d", firstHits.Load(), secondHits.Load())
+	}
+}
+
+func TestWrapTimeoutStageRecognizesSocketIOTimeout(t *testing.T) {
+	badTarget, _ := startShortlinkMockServer(t, func(c net.Conn, _ []byte) []byte {
+		_, _ = io.Copy(io.Discard, c)
+		return nil
+	})
+	_, _, rawErr := send0RTTRaw(context.Background(), badTarget, pskEntry{PreSharedKey: "00", TicketEntry: "00"}, nil, []byte("test"), 80*time.Millisecond, "", false)
+	if rawErr == nil || !IsTimeoutError(rawErr) {
+		t.Fatalf("expected socket i/o timeout to match IsTimeoutError, got %v", rawErr)
+	}
+	staged := wrapTimeoutStage("shortlink_exchange", rawErr)
+	var stageErr *TimeoutStageError
+	if !errors.As(staged, &stageErr) || stageErr.Stage != "shortlink_exchange" {
+		t.Fatalf("wrapTimeoutStage did not tag socket timeout: %#v (err=%v)", staged, staged)
 	}
 }

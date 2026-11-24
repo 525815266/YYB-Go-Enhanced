@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +16,18 @@ import (
 )
 
 const (
-	qingLongTypeSetting       = "qinglong_type"
-	qingLongURLSetting        = "qinglong_url"
-	qingLongClientIDSetting   = "qinglong_client_id"
-	qingLongSecretSetting     = "qinglong_client_secret"
-	qingLongServerAddrSetting = "qinglong_server_addr"
+	qingLongTypeSetting          = "qinglong_type"
+	qingLongURLSetting           = "qinglong_url"
+	qingLongClientIDSetting      = "qinglong_client_id"
+	qingLongSecretSetting        = "qinglong_client_secret"
+	qingLongServerAddrSetting    = "qinglong_server_addr"
+	qingLongServerEnvNameSetting = "qinglong_server_env_name"
+	defaultPanelServerEnvName    = "YYB_SERVER"
+)
+
+var (
+	validPanelEnvVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+	validPanelServerAddr = regexp.MustCompile(`^[A-Za-z0-9_.:/-]+$`)
 )
 
 type accountRemarkIn struct {
@@ -28,12 +36,21 @@ type accountRemarkIn struct {
 }
 
 type qingLongConfigIn struct {
-	Type         string  `json:"type"`
-	URL          string  `json:"url"`
-	ClientID     string  `json:"client_id"`
-	ClientSecret string  `json:"client_secret"`
-	ServerAddr   *string `json:"server_addr"`
-	Clear        bool    `json:"clear"`
+	Type          string  `json:"type"`
+	URL           string  `json:"url"`
+	ClientID      string  `json:"client_id"`
+	ClientSecret  string  `json:"client_secret"`
+	ServerAddr    *string `json:"server_addr"`
+	ServerFormat  *string `json:"server_format"`
+	ServerEnvName *string `json:"server_env_name"`
+	Clear         bool    `json:"clear"`
+}
+
+func requestedServerAddr(body qingLongConfigIn) *string {
+	if body.ServerAddr != nil {
+		return body.ServerAddr
+	}
+	return body.ServerFormat
 }
 
 // Panel credentials are kept separately for each driver. The legacy keys are
@@ -109,9 +126,11 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			activeType, _, _, _ := a.qinglong.configuration()
+			envName, _ := a.qingLongServerEnvName(r.Context())
 			writeJSON(w, http.StatusOK, map[string]any{
 				"type": activeType, "active_type": activeType,
 				"configured": a.qinglong.configured(), "restricted": true,
+				"server_env_name": envName,
 			})
 			return
 		}
@@ -135,17 +154,21 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		serverAddr, serverCustom := a.qingLongServerSetting(r.Context())
+		envName, envCustom := a.qingLongServerEnvName(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{
-			"type":              pType,
-			"active_type":       activeType,
-			"url":               baseURL,
-			"client_id":         clientID,
-			"secret_configured": strings.TrimSpace(secret) != "",
-			"configured":        profileConfigured,
-			"server_addr":       serverAddr,
-			"server_default":    a.cfg.QingLongServer,
-			"server_customized": serverCustom,
-			"profiles":          profiles,
+			"type":                  pType,
+			"active_type":           activeType,
+			"url":                   baseURL,
+			"client_id":             clientID,
+			"secret_configured":     strings.TrimSpace(secret) != "",
+			"configured":            profileConfigured,
+			"server_addr":           serverAddr,
+			"server_default":        strings.TrimSpace(a.cfg.QingLongServer),
+			"server_customized":     serverCustom,
+			"server_env_name":       envName,
+			"server_env_default":    a.defaultServerEnvName(),
+			"server_env_customized": envCustom,
+			"profiles":              profiles,
 		})
 	case http.MethodPut:
 		var body qingLongConfigIn
@@ -175,6 +198,21 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"type": pType, "configured": false, "connected": false})
 			return
 		}
+		serverAddrInput := requestedServerAddr(body)
+		if serverAddrInput != nil {
+			customAddr := strings.TrimSpace(*serverAddrInput)
+			if customAddr != "" && !validPanelServerAddr.MatchString(customAddr) {
+				writeError(w, http.StatusBadRequest, "对外服务地址格式不合法，仅允许字母、数字及 _ . : / -")
+				return
+			}
+		}
+		if body.ServerEnvName != nil {
+			customEnvName := strings.TrimSpace(*body.ServerEnvName)
+			if customEnvName != "" && !validPanelEnvVarName.MatchString(customEnvName) {
+				writeError(w, http.StatusBadRequest, "面板环境变量名格式不合法，须以字母或下划线开头，仅含字母、数字和下划线")
+				return
+			}
+		}
 		pType := strings.ToLower(strings.TrimSpace(body.Type))
 		pType = normalizePanelType(pType)
 		baseURL := strings.TrimRight(strings.TrimSpace(body.URL), "/")
@@ -203,13 +241,18 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, panelName+"连接测试失败："+err.Error())
 			return
 		}
-		if body.ServerAddr != nil {
-			customAddr := strings.TrimSpace(*body.ServerAddr)
-			if strings.ContainsAny(customAddr, "\r\n\t@ ") {
-				writeError(w, http.StatusBadRequest, "对外服务地址不能包含空白字符或 @")
+		prevAddr, _ := a.qingLongServerSetting(r.Context())
+		prevEnvName, _ := a.qingLongServerEnvName(r.Context())
+		if serverAddrInput != nil {
+			customAddr := strings.TrimSpace(*serverAddrInput)
+			if err := a.db.SetSetting(r.Context(), qingLongServerAddrSetting, customAddr); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			if err := a.db.SetSetting(r.Context(), qingLongServerAddrSetting, customAddr); err != nil {
+		}
+		if body.ServerEnvName != nil {
+			customEnvName := strings.TrimSpace(*body.ServerEnvName)
+			if err := a.db.SetSetting(r.Context(), qingLongServerEnvNameSetting, customEnvName); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -220,11 +263,21 @@ func (a *App) handleQingLongConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		a.qinglong.reconfigure(pType, baseURL, clientID, secret)
 		serverAddr, serverCustom := a.qingLongServerSetting(r.Context())
-		writeJSON(w, http.StatusOK, map[string]any{
+		envName, envCustom := a.qingLongServerEnvName(r.Context())
+		reply := map[string]any{
 			"type": pType, "url": baseURL, "client_id": clientID, "secret_configured": true,
 			"configured": true, "connected": true,
-			"server_addr": serverAddr, "server_customized": serverCustom,
-		})
+			"server_addr": serverAddr, "server_default": strings.TrimSpace(a.cfg.QingLongServer), "server_customized": serverCustom,
+			"server_env_name": envName, "server_env_default": a.defaultServerEnvName(), "server_env_customized": envCustom,
+		}
+		if serverAddr != prevAddr || envName != prevEnvName {
+			if refreshErr := a.refreshAllManagedJobCommands(r.Context()); refreshErr != nil {
+				reply["warning"] = "面板配置已保存，但部分账号托管任务环境变量同步失败：" + refreshErr.Error()
+			} else {
+				reply["jobs_updated"] = true
+			}
+		}
+		writeJSON(w, http.StatusOK, reply)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -332,8 +385,9 @@ func (a *App) handleQingLongSync(w http.ResponseWriter, r *http.Request) {
 			responseValue = nil
 		}
 	}
+	envName, _ := a.qingLongServerEnvName(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"account": acc.Public(), "name": "YYB_SERVER", "value": responseValue, "added": added,
+		"account": acc.Public(), "name": envName, "value": responseValue, "added": added,
 		// The account the variable lists: the primary when acc is a fleet member.
 		"synced_id": a.panelRepresentative(r.Context(), acc).ID,
 	})
@@ -398,12 +452,13 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	envs, err := a.qinglong.listEnvs(r.Context(), "YYB_SERVER")
+	envName, _ := a.qingLongServerEnvName(r.Context())
+	envs, err := a.qinglong.listEnvs(r.Context(), envName)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	env, err := selectYYBServerEnv(envs)
+	env, err := selectYYBServerEnv(envs, envName)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -437,7 +492,7 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 			added++
 		}
 	}
-	if err := a.saveYYBServerEnv(r.Context(), env, value, remarks); err != nil {
+	if err := a.saveYYBServerEnv(r.Context(), env, envName, value, remarks); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -445,7 +500,7 @@ func (a *App) handleQingLongSyncAll(w http.ResponseWriter, r *http.Request) {
 		_ = a.db.CompleteAccountReferences(r.Context(), id, snapshot)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"name": "YYB_SERVER", "value": value, "accounts": len(accounts), "added": added,
+		"name": envName, "value": value, "accounts": len(accounts), "added": added,
 	})
 }
 
@@ -469,11 +524,12 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 	if err != nil {
 		return "", false, err
 	}
-	envs, err := a.qinglong.listEnvs(ctx, "YYB_SERVER")
+	envName, _ := a.qingLongServerEnvName(ctx)
+	envs, err := a.qinglong.listEnvs(ctx, envName)
 	if err != nil {
 		return "", false, err
 	}
-	env, err := selectYYBServerEnv(envs)
+	env, err := selectYYBServerEnv(envs, envName)
 	if err != nil {
 		return "", false, err
 	}
@@ -493,7 +549,7 @@ func (a *App) syncAccountToQingLong(ctx context.Context, acc *store.WechatAccoun
 	currentValue = reconcileYYBServerEntries(currentValue, accounts, a.cfg.QingLongRefMode, false)
 	serverAddr, _ := a.qingLongServerSetting(ctx)
 	value, added := mergeYYBServerValue(currentValue, serverAddr, a.panelRepresentative(ctx, acc), a.cfg.QingLongRefMode)
-	if err := a.saveYYBServerEnv(ctx, env, value, remarks); err != nil {
+	if err := a.saveYYBServerEnv(ctx, env, envName, value, remarks); err != nil {
 		return "", false, err
 	}
 	_ = a.db.CompleteAccountReferences(ctx, acc.ID, pending)
@@ -505,6 +561,24 @@ func (a *App) qingLongServerSetting(ctx context.Context) (string, bool) {
 		return strings.TrimSpace(saved), true
 	}
 	return strings.TrimSpace(a.cfg.QingLongServer), false
+}
+
+func (a *App) defaultServerEnvName() string {
+	fallback := strings.TrimSpace(a.cfg.QingLongServerEnv)
+	if fallback == "" || !validPanelEnvVarName.MatchString(fallback) {
+		return defaultPanelServerEnvName
+	}
+	return fallback
+}
+
+func (a *App) qingLongServerEnvName(ctx context.Context) (string, bool) {
+	if saved, err := a.db.GetSetting(ctx, qingLongServerEnvNameSetting); err == nil {
+		trimmed := strings.TrimSpace(saved)
+		if trimmed != "" && validPanelEnvVarName.MatchString(trimmed) {
+			return trimmed, true
+		}
+	}
+	return a.defaultServerEnvName(), false
 }
 
 // reconcileYYBServerEntries strips fleet sub-member references and duplicate
@@ -693,17 +767,20 @@ func migrateAccountOpenIDReference(value, oldID, newID string) string {
 // Prefer the active variable over disabled historical copies. Ambiguous
 // active copies require explicit reconciliation rather than losing entries
 // or silently re-enabling accounts from a stale variable.
-func selectYYBServerEnv(envs []qingLongEnv) (*qingLongEnv, error) {
+func selectYYBServerEnv(envs []qingLongEnv, envName string) (*qingLongEnv, error) {
+	if strings.TrimSpace(envName) == "" {
+		envName = defaultPanelServerEnvName
+	}
 	var active, disabled *qingLongEnv
 	disabledCount := 0
 	for i := range envs {
 		env := &envs[i]
-		if env.Name != "YYB_SERVER" {
+		if env.Name != envName {
 			continue
 		}
 		if env.enabled() {
 			if active != nil {
-				return nil, errors.New("面板存在多条已启用的 YYB_SERVER，请先在面板合并账号并仅保留一条启用记录，再同步；已有变量未被修改")
+				return nil, errors.New("面板存在多条已启用的 " + envName + "，请先在面板合并账号并仅保留一条启用记录，再同步；已有变量未被修改")
 			}
 			active = env
 		} else {
@@ -715,16 +792,19 @@ func selectYYBServerEnv(envs []qingLongEnv) (*qingLongEnv, error) {
 		return active, nil
 	}
 	if disabledCount > 1 {
-		return nil, errors.New("面板存在多条已禁用的 YYB_SERVER，请先选择并启用需要继续使用的一条，再同步；已有变量未被修改")
+		return nil, errors.New("面板存在多条已禁用的 " + envName + "，请先选择并启用需要继续使用的一条，再同步；已有变量未被修改")
 	}
 	return disabled, nil
 }
 
-func (a *App) saveYYBServerEnv(ctx context.Context, env *qingLongEnv, value, remarks string) error {
-	if env != nil {
-		return a.qinglong.updateEnv(ctx, env.ID, "YYB_SERVER", value, remarks)
+func (a *App) saveYYBServerEnv(ctx context.Context, env *qingLongEnv, envName, value, remarks string) error {
+	if strings.TrimSpace(envName) == "" {
+		envName = defaultPanelServerEnvName
 	}
-	return a.qinglong.upsertEnv(ctx, "YYB_SERVER", value, remarks)
+	if env != nil {
+		return a.qinglong.updateEnv(ctx, env.ID, envName, value, remarks)
+	}
+	return a.qinglong.upsertEnv(ctx, envName, value, remarks)
 }
 
 func managedYYBServerRemarks(existing string, accounts []*store.WechatAccount) string {
@@ -819,7 +899,8 @@ func (a *App) cleanupAccountFromQingLong(ctx context.Context, acc *store.WechatA
 	if err != nil {
 		return result, err
 	}
-	envs, err := a.qinglong.listEnvs(ctx, "YYB_SERVER")
+	envName, _ := a.qingLongServerEnvName(ctx)
+	envs, err := a.qinglong.listEnvs(ctx, envName)
 	if err != nil {
 		return result, err
 	}
@@ -827,7 +908,7 @@ func (a *App) cleanupAccountFromQingLong(ctx context.Context, acc *store.WechatA
 	changes := make([]qingLongEnvChange, 0)
 	deletions := make([]qingLongEnv, 0)
 	for _, env := range envs {
-		if env.Name != "YYB_SERVER" {
+		if env.Name != envName {
 			continue
 		}
 		value, removed := removeAccountFromYYBServer(env.Value, acc)

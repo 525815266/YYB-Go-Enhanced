@@ -267,7 +267,8 @@
     }
     if ((reply.results || []).some(result => result.bound)) {
       const bound = reply.results.filter(result => result.bound).map(result => result.id);
-      box.append(node('p', 'link-dialog-footnote', `合并完成。面板（YYB_SERVER）只需要保留主账号 ID ${primary}；成员 ID ${idList(bound)} 如果之前加进过面板，可以手动移除，否则脚本会按每个 ID 各跑一遍。`));
+      const envName = (typeof state !== 'undefined' && state.panelEnvName) || 'YYB_SERVER';
+      box.append(node('p', 'link-dialog-footnote', `合并完成。面板（${envName}）只需要保留主账号 ID ${primary}（已配置自动同步时会收敛并清理子成员 ID ${idList(bound)}，否则脚本会按每个 ID 各跑一遍）；“账号运行管理”页面也已只显示主账号。`));
     }
   }
 

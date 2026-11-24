@@ -1043,8 +1043,8 @@
           </div>
           <div class="panel-actions">
             <button class="btn secondary" id="reloadAccountsBtn" type="button">重新加载</button>
-            <button class="btn secondary" id="mergeChannelsBtn" type="button" title="把同一个微信在不同渠道扫出的几个 ID 合并成一个多渠道账号，脚本只需保留主账号">合并渠道</button>
-            <button class="btn secondary" id="mergeAccountsBtn" type="button" title="合并误新增的重复账号：来源账号的授权移入保留的 ID，来源 ID 会被删除">合并账号</button>
+            <button class="btn secondary" id="mergeChannelsBtn" type="button" title="把同一个微信在不同渠道扫出的多个 ID 合并成一个多渠道账号，脚本与运行管理仅保留主账号">合并多渠道</button>
+            <button class="btn secondary" id="mergeAccountsBtn" type="button" title="误新增重复账号时，把来源账号的授权替换入保留的原 ID 并删除来源 ID">替换重复账号</button>
             <button class="btn secondary" id="addAccountLinkBtn" type="button" title="生成只能录入新 YYB 账号的一次性扫码链接">新增链接</button>
             <a class="btn primary" href="/scan">新增账号</a>
           </div>
@@ -1226,6 +1226,16 @@
                   <input class="input" id="qingLongSecret" type="password" autocomplete="new-password">
                   <span class="field-note" id="qingLongSecretNote">保存时会先测试连接</span>
                 </div>
+                <div class="field">
+                  <label for="qingLongServerAddr">对外服务地址</label>
+                  <input class="input" id="qingLongServerAddr" placeholder="yyb-go:8000" autocomplete="off">
+                  <span class="field-note" id="qingLongServerAddrNote">同步到面板的变量值前缀（IP:端口或域名）；留空恢复默认</span>
+                </div>
+                <div class="field">
+                  <label for="qingLongServerEnvName">面板环境变量名</label>
+                  <input class="input" id="qingLongServerEnvName" placeholder="YYB_SERVER" autocomplete="off">
+                  <span class="field-note" id="qingLongServerEnvNameNote">写入面板与托管任务的变量名，留空恢复默认 YYB_SERVER</span>
+                </div>
                 <div class="inline-actions">
                   <button class="btn primary" id="saveQingLongBtn" type="button">测试并保存</button>
                   <button class="btn secondary" id="clearQingLongBtn" type="button">清除配置</button>
@@ -1330,7 +1340,8 @@
       // Ids that were already expired at the last render. It stays null until the
       // first render, so opening the page never replays failures that are old.
       expiredSeen: null,
-      syncingAccount: false
+      syncingAccount: false,
+      panelEnvName: "YYB_SERVER"
     };
 
     const $ = id => document.getElementById(id);
@@ -2071,6 +2082,8 @@
       try {
         const endpoint = selectedType ? `/api/qinglong/config?type=${encodeURIComponent($("qingLongType").value || "qinglong")}` : "/api/qinglong/config";
         const config = await api("GET", endpoint);
+        state.panelEnvName = config.server_env_name || "YYB_SERVER";
+        if (config.restricted) return;
         if (!selectedType) $("qingLongType").value = config.type || "qinglong";
         updatePanelLabels();
         $("qingLongURL").value = config.url || "";
@@ -2079,6 +2092,12 @@
         const secretLabel = config.type === "daidai" ? "App Secret" : config.type === "arcadia" ? "OpenAPI Token" : "Client Secret";
         $("qingLongSecret").placeholder = config.secret_configured ? "已配置，留空表示保留" : `请输入 ${secretLabel}`;
         $("qingLongSecretNote").textContent = config.configured ? "连接参数已保存；修改时会先测试连接" : "尚未配置；保存时会先测试连接";
+        $("qingLongServerAddr").value = config.server_customized ? (config.server_addr || "") : "";
+        $("qingLongServerAddr").placeholder = `留空使用默认：${config.server_default || "yyb-go:8000"}`;
+        $("qingLongServerAddrNote").textContent = `当前生效：${config.server_addr || config.server_default || "yyb-go:8000"}${config.server_customized ? "（已自定义，清空后保存可恢复默认）" : "（环境变量/默认）"}`;
+        $("qingLongServerEnvName").value = config.server_env_customized ? (config.server_env_name || "") : "";
+        $("qingLongServerEnvName").placeholder = `留空使用默认：${config.server_env_default || "YYB_SERVER"}`;
+        $("qingLongServerEnvNameNote").textContent = `当前生效：${state.panelEnvName}${config.server_env_customized ? "（已自定义，清空后保存可恢复默认）" : "（环境变量/默认）"}`;
       } catch (error) {
         setActivity(`读取面板配置失败：${error.message}`);
       }
@@ -2117,9 +2136,11 @@
         const result = await api("POST", "/api/qinglong/sync", { ref: String(account.id) });
         renderAccounts();
         const panelName = $("qingLongType").value === "daidai" ? "呆呆面板" : $("qingLongType").value === "arcadia" ? "Arcadia" : "青龙";
+        const envName = result.name || state.panelEnvName || "YYB_SERVER";
+        state.panelEnvName = envName;
         const number = accountNumber(account);
         const listed = result.synced_id && result.synced_id !== account.id ? `${number}（多渠道账号，面板列出主账号 ${result.synced_id}）` : number;
-        setActivity(result.added ? `账号 ${listed} 已添加到${panelName} YYB_SERVER` : `${panelName} YYB_SERVER 已包含账号 ${listed}`);
+        setActivity(result.added ? `账号 ${listed} 已添加到${panelName} ${envName}` : `${panelName} ${envName} 已包含账号 ${listed}`);
       } catch (error) {
         setActivity(`同步面板失败：${error.message}`);
         if (error.message.includes("配置")) $("qingLongSettings").open = true;
@@ -2292,7 +2313,9 @@
       try {
         const result = await api("POST", "/api/qinglong/sync-all");
         const panelName = $("qingLongType").value === "daidai" ? "呆呆面板" : $("qingLongType").value === "arcadia" ? "Arcadia" : "青龙";
-        setActivity(`${panelName} YYB_SERVER 已校验 ${result.accounts} 个账号，新增 ${result.added} 条`);
+        const envName = result.name || state.panelEnvName || "YYB_SERVER";
+        state.panelEnvName = envName;
+        setActivity(`${panelName} ${envName} 已校验 ${result.accounts} 个账号，新增 ${result.added} 条`);
       } catch (error) {
         setActivity(`批量同步面板失败：${error.message}`);
       } finally {
@@ -2305,11 +2328,12 @@
       const account = getSelectedAccount();
       if (!account) return;
       const label = `ID ${account.id}${account.remark ? `（${account.remark}）` : ""}`;
+      const envName = state.panelEnvName || "YYB_SERVER";
       const confirmed = window.confirm(
         `确认删除账号 ${label}？\n\n` +
         `将同时删除：\n` +
         `1. YYB 中该账号及登录态\n` +
-        `2. 面板 YYB_SERVER 中匹配该 ID/OpenID 的条目\n` +
+        `2. 面板 ${envName} 中匹配该 ID/OpenID 的条目\n` +
         `3. YYB 为该账号创建的专属任务\n\n` +
         `其他账号、手工维护的内容和公共任务不会删除。此操作不可撤销。`
       );
@@ -2339,10 +2363,17 @@
       button.disabled = true;
       button.textContent = "正在测试";
       try {
-        await api("PUT", "/api/qinglong/config", { type: $("qingLongType").value, url: $("qingLongURL").value, client_id: $("qingLongClientID").value, client_secret: $("qingLongSecret").value });
+        const result = await api("PUT", "/api/qinglong/config", {
+          type: $("qingLongType").value,
+          url: $("qingLongURL").value,
+          client_id: $("qingLongClientID").value,
+          client_secret: $("qingLongSecret").value,
+          server_addr: $("qingLongServerAddr").value.trim(),
+          server_env_name: $("qingLongServerEnvName").value.trim()
+        });
         await loadQingLongConfig();
         const panelName = $("qingLongType").value === "daidai" ? "呆呆面板" : $("qingLongType").value === "arcadia" ? "Arcadia" : "青龙";
-        setActivity(`${panelName}连接测试成功，配置已保存`);
+        setActivity(result?.warning || `${panelName}连接测试成功，配置已保存（变量名 ${result?.server_env_name || state.panelEnvName}）`);
       } catch (error) {
         setActivity(`面板配置保存失败：${error.message}`);
       } finally {

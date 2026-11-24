@@ -250,7 +250,7 @@ func getShortlinkTargets(ctx context.Context, timeout, cacheTTL time.Duration) [
 				}
 			}
 			if len(out) > 0 {
-				return out
+				return appendShortlinkFallbacks(out)
 			}
 		}
 	}
@@ -258,9 +258,52 @@ func getShortlinkTargets(ctx context.Context, timeout, cacheTTL time.Duration) [
 	// official endpoints rather than the decommissioned legacy IP, and also
 	// allow normal DNS to resolve the official hostname (its CNAME now points
 	// to aewebproxy.weixin.qq.com) when a TCP proxy performs name resolution.
-	out := append([]Target(nil), shortlinkFallbackTargets...)
-	out = append(out, Target{IP: shortlinkDomain, Port: 80})
+	return appendShortlinkFallbacks(nil)
+}
+
+// appendShortlinkFallbacks deduplicates discovered ShortLink targets and appends
+// verified fallback endpoints plus the official hostname so one degraded IP
+// returned by HTTPDNS cannot strand requests.
+func appendShortlinkFallbacks(targets []Target) []Target {
+	seen := make(map[Target]bool, len(targets)+len(shortlinkFallbackTargets)+1)
+	out := make([]Target, 0, len(targets)+len(shortlinkFallbackTargets)+1)
+	add := func(t Target) {
+		if t.IP == "" || t.Port <= 0 || seen[t] {
+			return
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	for _, t := range targets {
+		add(t)
+	}
+	for _, t := range shortlinkFallbackTargets {
+		add(t)
+	}
+	add(Target{IP: shortlinkDomain, Port: 80})
 	return out
+}
+
+// hasPublicShortlinkTarget reports whether targets represent real upstream
+// endpoints rather than local loopback or private test addresses.
+func hasPublicShortlinkTarget(targets []Target) bool {
+	if len(targets) == 0 {
+		return true
+	}
+	for _, t := range targets {
+		host := strings.TrimSpace(t.IP)
+		if strings.EqualFold(host, shortlinkDomain) {
+			return true
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			continue
+		}
+		if !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsUnspecified() {
+			return true
+		}
+	}
+	return false
 }
 
 func orderLonglinkTargets(targets []Target, max int) []Target {
