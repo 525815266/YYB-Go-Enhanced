@@ -27,20 +27,15 @@
 
 </div>
 
-## 赞助商
+## ⚠️ 重要提醒
 
-<p align="center">
-  <a href="https://www.ipwo.net/?ref=githubEnhanced" target="_blank" rel="noopener noreferrer">
-    <img src="docs/images/sponsor-ipwo.jpg" alt="Sponsored by IPWO - 住宅代理网络" width="760">
-  </a>
-</p>
+使用本项目前，请务必仔细阅读以下声明：
 
-<p align="center">
-  <sub>
-    <a href="https://www.ipwo.net/?ref=githubEnhanced" target="_blank" rel="noopener noreferrer"><strong><u>IPWO</u></strong></a> 提供免费测试，静态 IP 低至 9.9 元/月/条，90 折扣码：<strong><code>0202</code></strong>。覆盖 195+ 个国家和地区的 9000 万+ 活跃住宅 IP 资源，支持动态住宅、静态住宅及不限量住宅代理，兼容 HTTP(S) / SOCKS5 协议，支持灵活会话与国家、城市级定位，适用于多账号独立代理配置、自动化任务及跨地区网络连接等场景。<br>
-    请在合法授权并遵守目标站点条款的前提下使用。
-  </sub>
-</p>
+- **🚨 平台协议与账号风险**：本项目涉及微信、应用宝、腾讯电脑管家、手游助手等第三方客户端的协议交互与 `wx.login` 授权管理，使用协议接口或自动化脚本可能违反腾讯及目标小程序/公众号的服务条款，并存在触发风控、授权吊销或账号临时受限的风险，由此产生的一切风险均由使用者自行承担。
+- **⚖️ 合规与授权使用**：请在严格遵守所在地法律法规及目标平台规则的前提下，仅用于**本人合法拥有或已获明确授权的账号**与自托管学习研究场景，严禁用于黑灰产、批量养号、绕过安全限制、未授权数据采集或任何违法违规用途。
+- **🔐 凭据与部署安全**：本项目仅面向受控自托管环境（建议内网、VPN 或 HTTPS 反向代理后运行）；公网或跨机部署务必启用 `YYB_COOKIE_SECURE=true` 与高强度 `YYB_PROTOCOL_TOKEN`，切勿泄露 `.env`、数据库文件、OpenID、代理密钥或微信登录票据。
+- **📖 免责声明**：本项目（含仓库配套示例脚本）仅供技术学习与协议研究使用，作者不保证上游接口持续可用或账号“长期不掉线”，也不对因使用本项目导致的账号封禁、权益损失、服务中断、数据丢失或其他任何直接或间接损失承担责任。
+- **🚫 无商业授权**：本项目为免费开源项目，从未授权任何个人、团队或机构基于本项目开展收费托管、代挂、卖号、付费授权或任何形式的商业化运营；任何以本项目名义从事的商业行为均与作者无关，由此引发的一切纠纷与法律责任由行为主体自行承担。
 
 ---
 
@@ -138,6 +133,34 @@ flowchart LR
     classDef brand fill:#fde8ef,stroke:#c51a63,color:#1f2328
     class YYB brand
 ```
+
+---
+
+## ❤️ 赞助商
+
+> 感谢以下赞助商支持项目持续维护 · [想出现在这里？](mailto:jianwuyunfei@163.com)
+
+<details open>
+<summary>点击折叠</summary>
+
+<p align="center">
+  <a href="https://www.ipwo.net/?ref=githubEnhanced" target="_blank" rel="noopener noreferrer">
+    <img src="docs/images/sponsor-ipwo.jpg" alt="Sponsored by IPWO - 住宅代理网络" width="760">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.ipwo.net/?ref=githubEnhanced" target="_blank" rel="noopener noreferrer"><strong><u>IPWO</u></strong></a> 提供免费测试，静态 IP 低至 <strong>9.9 元/月/条</strong>，90 折扣码：<strong><code>0202</code></strong>
+</p>
+
+<p align="center">
+  <sub>
+    覆盖 195+ 个国家和地区的 9000 万+ 活跃住宅 IP 资源，支持动态住宅、静态住宅及不限量住宅代理，兼容 HTTP(S) / SOCKS5 协议，支持灵活会话与国家、城市级定位；适用于多账号独立代理配置、自动化任务及跨地区网络连接等场景。<br>
+    请在合法授权并遵守目标站点条款的前提下使用。
+  </sub>
+</p>
+
+</details>
 
 ---
 
